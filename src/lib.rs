@@ -1,6 +1,7 @@
 use std::cmp::min;
 use std::iter::Peekable;
 use std::slice::Iter;
+use std::fmt;
 
 #[derive(Debug,PartialEq)]
 pub enum Field {
@@ -25,9 +26,32 @@ pub struct Card {
     comment: Option<String>,
 }
 
+impl fmt::Display for Card {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f,"Card(");
+        for field in self.fields.iter() {
+            write!(f,"{:?},",field);
+        }
+        if let Some(ref c) = self.comment {
+            write!(f,"Comment='{}'",c);
+        }
+        write!(f,")")
+    }
+}
+
 #[derive(Debug,PartialEq)]
 pub struct Deck {
     pub cards: Vec<Card>,
+}
+
+impl fmt::Display for Deck {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f,"Deck(\n");
+        for card in self.cards.iter() {
+            write!(f,"  {},\n",card);
+        }
+        write!(f,")")
+    }
 }
 
 struct NastranIterator<'a> {
@@ -35,10 +59,14 @@ struct NastranIterator<'a> {
 }
 
 impl<'a> NastranIterator<'a> {
-    fn parse_line(&mut self) -> Option<Card> {
-        if self.iter.len() == 0 {
-            return None;
+    fn parse_file(&mut self) -> Option<Deck> {
+        let mut cards = vec![];
+        while let Some(c) = self.parse_line() {
+            cards.push(c);
         }
+        return Some(Deck{cards: cards})
+    }
+    fn parse_line(&mut self) -> Option<Card> {
         let mut fields = vec![];
         let flags;
         if let Some((first_field, new_flags)) = self.parse_first_field() {
@@ -47,14 +75,12 @@ impl<'a> NastranIterator<'a> {
         } else {
             return None;
         }
-        let v = self.iter.cloned().collect();
-        if let Ok(s) = String::from_utf8(v) {
-            println!("rem: '{}'",s)
-        }
+        let v = self.iter.take_while(|&&c| c != chars::LF).cloned().collect();
+        let comment = String::from_utf8(v).ok();
         return Some(Card {
             fields: fields,
             flags: flags,
-            comment: None,
+            comment: comment,
         });
     }
 
@@ -278,15 +304,6 @@ mod chars {
 // }
 
 pub fn parse_buffer(buffer: &[u8]) -> Option<Deck> {
-    let mut cards = vec![];
-    for line in buffer.split(chars::is_newline) {
-        if line.len() == 0 {
-            continue;
-        }
-        let mut it = NastranIterator { iter: &mut line.iter().peekable() };
-        if let Some(c) = it.parse_line() {
-            cards.push(c)
-        }
-    }
-    Some(Deck { cards: cards })
+    let mut it = NastranIterator { iter: &mut buffer.iter().peekable() };
+    return it.parse_file();
 }

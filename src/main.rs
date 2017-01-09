@@ -1,9 +1,22 @@
 extern crate nastran;
 
 pub fn main() {
-    println!("{:?}",nastran::parse_buffer(b"PARAM,POST"));
-    println!("{:?}",nastran::parse_buffer(b"PARAM ,POST"));
-    println!("{:?}",nastran::parse_buffer(b"PARAM  ,POST"));
-    println!("{:?}",nastran::parse_buffer(b"PARAM   ,POST"));
-    println!("{:?}",nastran::parse_buffer(b"PARAM    ,POST")); 
+    if let Some(d) = nastran::parse_buffer(b"PARAM,POST") {
+        println!("{}",d);
+    }
+    if let Some(d) = nastran::parse_buffer(b"PARAM ,POST") {
+        println!("{}",d);
+    }
+    if let Some(d) = nastran::parse_buffer(b"PARAM  ,POST") {
+        println!("{}",d);
+    }
+    if let Some(d) = nastran::parse_buffer(b"PARAM   ,POST") {
+        println!("{}",d);
+    }
+    if let Some(d) = nastran::parse_buffer(b"PARAM    ,POST") {
+        println!("{}",d);
+    }
+    if let Some(d) = nastran::parse_buffer(b"PARAM,POST\nPARAM2,BLAH") {
+        println!("{}",d);
+    }
 }
