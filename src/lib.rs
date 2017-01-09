@@ -1,4 +1,3 @@
-
 use std::cmp::min;
 use std::iter::Peekable;
 use std::slice::Iter;
@@ -31,7 +30,144 @@ pub struct Deck {
     pub cards: Vec<Card>,
 }
 
-type CharIterator<'a> = Peekable<Iter<'a, u8>>;
+struct NastranIterator<'a> {
+    iter: &'a mut Peekable<Iter<'a, u8>>,
+}
+
+impl<'a> NastranIterator<'a> {
+    fn parse_line(&mut self) -> Option<Card> {
+        if self.iter.len() == 0 {
+            return None;
+        }
+        let mut fields = vec![];
+        let flags;
+        if let Some((first_field, new_flags)) = self.parse_first_field() {
+            fields.push(first_field);
+            flags = new_flags;
+        } else {
+            return None;
+        }
+        let v = self.iter.cloned().collect();
+        if let Ok(s) = String::from_utf8(v) {
+            println!("rem: '{}'",s)
+        }
+        return Some(Card {
+            fields: fields,
+            flags: flags,
+            comment: None,
+        });
+    }
+
+    fn parse_first_continuation(&mut self) -> Option<(Field, CardFlags)> {
+        let mut flags = CardFlags {
+            is_double: false,
+            is_comma: false,
+        };
+        if let Some(&&c) = self.iter.peek() {
+            if c == chars::STAR {
+                flags.is_double = true;
+            }
+        }
+        let c = self.iter
+            .take(8)
+            .take_while(|&&c| c != chars::COMMA && c != chars::TAB)
+            .cloned()
+            .collect();
+        return match String::from_utf8(c) {
+            Ok(s) => Some((Field::Continuation(s), flags)),
+            _ => None,
+        };
+    }
+
+    fn parse_first_string(&mut self) -> Option<(Field, CardFlags)> {
+        let mut flags = CardFlags {
+            is_double: false,
+            is_comma: false,
+        };
+        // let mut remainder = line;
+        // match line.iter().take(10).take_while(chars::is_not_tab).position(chars::is_comma) {
+        //     Some(i) => {
+        //         flags.is_comma = true;
+        //         remainder = &line[i..];
+        //     }
+        //     None => (),
+        // }
+        // let mut field_len = min(8, line.len());
+        let mut string_started = false;
+        let mut string_ended = false;
+        let mut svec = vec![];
+        let mut field_ended = false;
+        {
+            let mut it = self.iter.by_ref().take(8);
+            while let Some(&c) = it.next() {
+                if c == chars::COMMA {
+                    flags.is_comma = true;
+                    field_ended = true;
+                    break;
+                } else if c == chars::TAB {
+                    field_ended = true;
+                    break;
+                } else if !string_started {
+                    if chars::is_alpha(&c) {
+                        string_started = true;
+                        svec.push(c);
+                    } else if !chars::is_space(&&c) {
+                        println!("Expected Space or alpha");
+                        return None;
+                    }
+                } else if string_started && !string_ended {
+                    if !chars::is_alphanumeric(&&c) {
+                        string_ended = true;
+                        if c == chars::STAR {
+                            flags.is_double = true;
+                        }
+                    } else {
+                        svec.push(c);
+                    }
+                } else if string_ended {
+                    if !flags.is_double && c == chars::STAR {
+                        flags.is_double = true;
+                    } else if c != chars::SPACE {
+                        println!("Expected Space '{}'", c as char);
+                        return None;
+                    }
+                }
+            }
+        }
+        if !field_ended {
+            {
+                let mut it = self.iter.by_ref();
+                if let Some(&&c) = it.peek() {
+                    if c == chars::COMMA {
+                        flags.is_comma = true;
+                        it.next();
+                    }
+                }
+            }
+        }
+        if !string_started {
+            Some((Field::Blank, flags))
+        } else {
+            match String::from_utf8(svec) {
+                Ok(s) => Some((Field::String(s), flags)),
+                _ => None,
+            }
+        }
+    }
+
+    fn parse_first_field(&mut self) -> Option<(Field, CardFlags)> {
+        let n = min(self.iter.len(), 8);
+        if n == 0 {
+            return None;
+        }
+        return match self.iter.peek() {
+            Some(&&chars::PLUS) |
+            Some(&&chars::STAR) => self.parse_first_continuation(),
+            Some(_) => self.parse_first_string(),
+            None => None,
+        };
+    }
+}
 
 mod chars {
     pub const LF: u8 = '\n' as u8;
@@ -41,6 +177,7 @@ mod chars {
     pub const SPACE: u8 = ' ' as u8;
     pub const STAR: u8 = '*' as u8;
     pub const PLUS: u8 = '+' as u8;
+
 
     pub fn is_newline(&c: &u8) -> bool {
         c == LF || c == CR
@@ -85,15 +222,6 @@ mod chars {
     // }
 }
 
-fn parse_first_continuation(line: &[u8], is_double: bool) -> Option<(Field, CardFlags, CharIterator)> {
-    let len1 = min(8, line.len());
-    // let len2 = min(10, line.len());
-    for i in 0..len1 {
-        println!("{}", i)
-    }
-    return None;
-}
-
 // fn take_spaces(line: &[u8]) -> usize {
 //     return line.iter().take_while(chars::is_space).count();
 // }
@@ -109,112 +237,6 @@ fn parse_first_continuation(line: &[u8], is_double: bool) -> Option<(Field, Card
 //     }
 // }
 
-fn parse_first_string<'a>(line: &[u8]) -> Option<(Field, CardFlags, CharIterator)>
-{
-    let mut flags = CardFlags {
-        is_double: false,
-        is_comma: false,
-    };
-    // let mut remainder = line;
-    // match line.iter().take(10).take_while(chars::is_not_tab).position(chars::is_comma) {
-    //     Some(i) => {
-    //         flags.is_comma = true;
-    //         remainder = &line[i..];
-    //     }
-    //     None => (),
-    // }
-    // let mut field_len = min(8, line.len());
-    let mut string_started = false;
-    let mut string_ended = false;
-    let mut svec = vec![];
-    let mut it = line.iter().peekable();
-    let mut field_ended = false;
-    {
-        let mut it8 = it.by_ref().take(8);
-        while let Some(&c) = it8.next() {
-            if c == chars::COMMA {
-                flags.is_comma = true;
-                field_ended = true;
-                break;
-            } else if c == chars::TAB {
-                field_ended = true;
-                break;
-            } else if !string_started {
-                if chars::is_alpha(&c) {
-                    string_started = true;
-                    svec.push(c);
-                } else if !chars::is_space(&&c) {
-                    println!("Expected Space or alpha");
-                    return None;
-                }
-            } else if string_started && !string_ended {
-                if !chars::is_alphanumeric(&&c) {
-                    string_ended = true;
-                    if c == chars::STAR {
-                        flags.is_double = true;
-                    }
-                } else {
-                    svec.push(c);
-                }
-            } else if string_ended {
-                if !flags.is_double && c == chars::STAR {
-                    flags.is_double = true;
-                } else if c != chars::SPACE {
-                    println!("Expected Space '{}'", c as char);
-                    return None;
-                }
-            }
-        }
-    }
-    if !field_ended {
-        {
-            let mut it2 = it.by_ref();
-            if let Some(&&c) = it2.peek() {
-                if c == chars::COMMA {
-                    flags.is_comma = true;
-                    it2.next();
-                }
-            }
-        }
-    }
-    if !string_started {
-        Some((Field::Blank, flags, it))
-    } else {
-        match String::from_utf8(svec) {
-            Ok(s) => Some((Field::String(s), flags, it)),
-            _ => None,
-        }
-    }
-}
-
-fn parse_first_field(line: &[u8]) -> Option<(Field, CardFlags, CharIterator)> {
-    let n = min(line.len(), 8);
-    if n == 0 {
-        return None;
-    }
-    return match line[0] {
-        chars::PLUS => parse_first_continuation(&line[1..], false),
-        chars::STAR => parse_first_continuation(&line[1..], true),
-        _ => parse_first_string(&line[0..]),
-    };
-}
-
-fn parse_line(line: &[u8]) -> Option<Card> {
-    if line.len() == 0 {
-        return None;
-    }
-    let mut fields = vec![];
-    if let Some((first_field, flags, _)) = parse_first_field(line) {
-        fields.push(first_field);
-        return Some(Card {
-            fields: fields,
-            flags: flags,
-            comment: None,
-        });
-    } else {
-        return None;
-    }
-}
 
 // fn parse_string<'a, I>(mut it: I) -> Option<Field>
 //     where I: Iterator<Item = &'a u8>
@@ -257,12 +279,12 @@ fn parse_line(line: &[u8]) -> Option<Card> {
 
 pub fn parse_buffer(buffer: &[u8]) -> Option<Deck> {
     let mut cards = vec![];
-    for mut line in buffer.split(chars::is_newline) {
+    for line in buffer.split(chars::is_newline) {
         if line.len() == 0 {
             continue;
         }
-        // let mut it = line.iter();
-        if let Some(c) = parse_line(&mut line) {
+        let mut it = NastranIterator { iter: &mut line.iter().peekable() };
+        if let Some(c) = it.parse_line() {
             cards.push(c)
         }
     }
