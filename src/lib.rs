@@ -22,7 +22,6 @@ pub struct CardFlags {
 #[derive(Debug,PartialEq)]
 pub struct Card {
     pub fields: Vec<Field>,
-    flags: CardFlags,
     comment: Option<String>,
 }
 
@@ -56,9 +55,26 @@ impl fmt::Display for Deck {
 
 struct NastranIterator<'a> {
     iter: &'a mut Peekable<Iter<'a, u8>>,
+    is_comma: bool,
+    is_double: bool,
+    field_count: usize
 }
 
 impl<'a> NastranIterator<'a> {
+    fn new(iter: &'a mut Peekable<Iter<'a, u8>>) -> NastranIterator<'a> {
+        return NastranIterator {
+            iter: iter,
+            is_comma: false,
+            is_double: false,
+            field_count: 0
+        }
+    }
+    fn reset_line(&mut self) {
+        self.is_comma = false;
+        self.is_double = false;
+        self.field_count = 0;
+    }
+
     fn parse_file(&mut self) -> Option<Deck> {
         let mut cards = vec![];
         while let Some(c) = self.parse_line() {
@@ -67,11 +83,10 @@ impl<'a> NastranIterator<'a> {
         return Some(Deck{cards: cards})
     }
     fn parse_line(&mut self) -> Option<Card> {
+        self.reset_line();
         let mut fields = vec![];
-        let flags;
-        if let Some((first_field, new_flags)) = self.parse_first_field() {
+        if let Some(first_field) = self.parse_first_field() {
             fields.push(first_field);
-            flags = new_flags;
         } else {
             return None;
         }
@@ -79,19 +94,14 @@ impl<'a> NastranIterator<'a> {
         let comment = String::from_utf8(v).ok();
         return Some(Card {
             fields: fields,
-            flags: flags,
             comment: comment,
         });
     }
 
-    fn parse_first_continuation(&mut self) -> Option<(Field, CardFlags)> {
-        let mut flags = CardFlags {
-            is_double: false,
-            is_comma: false,
-        };
+    fn parse_first_continuation(&mut self) -> Option<Field> {
         if let Some(&&c) = self.iter.peek() {
             if c == chars::STAR {
-                flags.is_double = true;
+                self.is_double = true;
             }
         }
         let c = self.iter
@@ -100,25 +110,12 @@ impl<'a> NastranIterator<'a> {
             .cloned()
             .collect();
         return match String::from_utf8(c) {
-            Ok(s) => Some((Field::Continuation(s), flags)),
+            Ok(s) => Some(Field::Continuation(s)),
             _ => None,
         };
     }
 
-    fn parse_first_string(&mut self) -> Option<(Field, CardFlags)> {
-        let mut flags = CardFlags {
-            is_double: false,
-            is_comma: false,
-        };
-        // let mut remainder = line;
-        // match line.iter().take(10).take_while(chars::is_not_tab).position(chars::is_comma) {
-        //     Some(i) => {
-        //         flags.is_comma = true;
-        //         remainder = &line[i..];
-        //     }
-        //     None => (),
-        // }
-        // let mut field_len = min(8, line.len());
+    fn parse_first_string(&mut self) -> Option<Field> {
         let mut string_started = false;
         let mut string_ended = false;
         let mut svec = vec![];
@@ -127,7 +124,7 @@ impl<'a> NastranIterator<'a> {
             let mut it = self.iter.by_ref().take(8);
             while let Some(&c) = it.next() {
                 if c == chars::COMMA {
-                    flags.is_comma = true;
+                    self.is_comma = true;
                     field_ended = true;
                     break;
                 } else if c == chars::TAB {
@@ -145,14 +142,14 @@ impl<'a> NastranIterator<'a> {
                     if !chars::is_alphanumeric(&&c) {
                         string_ended = true;
                         if c == chars::STAR {
-                            flags.is_double = true;
+                            self.is_double = true;
                         }
                     } else {
                         svec.push(c);
                     }
                 } else if string_ended {
-                    if !flags.is_double && c == chars::STAR {
-                        flags.is_double = true;
+                    if !self.is_double && c == chars::STAR {
+                        self.is_double = true;
                     } else if c != chars::SPACE {
                         println!("Expected Space '{}'", c as char);
                         return None;
@@ -165,23 +162,23 @@ impl<'a> NastranIterator<'a> {
                 let mut it = self.iter.by_ref();
                 if let Some(&&c) = it.peek() {
                     if c == chars::COMMA {
-                        flags.is_comma = true;
+                        self.is_comma = true;
                         it.next();
                     }
                 }
             }
         }
         if !string_started {
-            Some((Field::Blank, flags))
+            Some(Field::Blank)
         } else {
             match String::from_utf8(svec) {
-                Ok(s) => Some((Field::String(s), flags)),
+                Ok(s) => Some(Field::String(s)),
                 _ => None,
             }
         }
     }
 
-    fn parse_first_field(&mut self) -> Option<(Field, CardFlags)> {
+    fn parse_first_field(&mut self) -> Option<Field> {
         let n = min(self.iter.len(), 8);
         if n == 0 {
             return None;
@@ -192,6 +189,29 @@ impl<'a> NastranIterator<'a> {
             Some(_) => self.parse_first_string(),
             None => None,
         };
+    }
+
+    fn parse_string<I: Iterator>(&mut self, iter: I) -> Option<Field>{
+        return None
+    }
+
+    fn parse_comma_field(&mut self) -> Option<Field> {
+        let mut field_started = false;
+        let mut field_ended = false;
+        while let Some(&c) = self.iter.next() {
+            if !field_started && c != chars::SPACE {
+                field_started = true;
+            }
+        }
+        None
+    }
+
+    fn parse_field(&mut self) -> Option<Field> {
+        if self.is_comma {
+            self.parse_comma_field()
+        } else {
+            None
+        }
     }
 }
 
@@ -304,6 +324,7 @@ mod chars {
 // }
 
 pub fn parse_buffer(buffer: &[u8]) -> Option<Deck> {
-    let mut it = NastranIterator { iter: &mut buffer.iter().peekable() };
+    let mut it = buffer.iter().peekable();
+    let mut it = NastranIterator::new(&mut it);
     return it.parse_file();
 }
