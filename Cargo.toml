@@ -4,3 +4,4 @@ version = "0.1.0"
 authors = ["Andrew Burkett <burkett.andrew@gmail.com>"]
 
 [dependencies]
+nom = "2.1.0"
