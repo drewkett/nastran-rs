@@ -1,5 +1,5 @@
 use std::mem::{size_of,transmute};
-use nom::{IResult, Needed, be_i64, le_i64,le_i32};
+use nom::{IResult, Needed, be_i64, le_i64,le_i32, le_i8};
 use std::slice::from_raw_parts;
 use std::marker::Sized;
 
@@ -73,7 +73,7 @@ fn read_nastran_tag<'a>(input: &'a[u8], v: &[u8]) -> IResult<&'a[u8],()> {
   )
 }
 
-fn read_nastran_known_length(input: &[u8], v: i32) -> IResult<&[u8], &[u8]> {
+fn read_nastran_data_known_length(input: &[u8], v: i32) -> IResult<&[u8], &[u8]> {
   do_parse!(input,
   apply!(read_fortran_known_i32,v) >>
   apply!(read_known_i32,v*WORD_SIZE) >>
@@ -83,7 +83,7 @@ fn read_nastran_known_length(input: &[u8], v: i32) -> IResult<&[u8], &[u8]> {
   )
 }
 
-fn read_nastran_string(input: &[u8]) -> IResult<&[u8], &[u8]> {
+fn read_nastran_data(input: &[u8]) -> IResult<&[u8], &[u8]> {
   do_parse!(input,
   length: read_fortran_i32 >>
   apply!(read_known_i32,length*WORD_SIZE) >>
@@ -130,9 +130,9 @@ struct Header <'a> {
 
 named!(read_header<Header>,
   do_parse!(
-  date: apply!(read_nastran_known_length, 3) >>
+  date: apply!(read_nastran_data_known_length, 3) >>
   apply!(read_nastran_tag,b"NASTRAN FORT TAPE ID CODE - ") >>
-  label: apply!(read_nastran_known_length,2) >>
+  label: apply!(read_nastran_data_known_length,2) >>
   apply!(read_nastran_known_key,-1) >>
   apply!(read_nastran_known_key,0) >>
   (Header {date:buf_to_struct(date), label: label})
@@ -148,17 +148,17 @@ enum DataBlockType {
 }
 
 #[derive(Debug)]
-struct DataBlock <'a> {
+struct DataBlockHeader <'a> {
 name: &'a [u8],
 trailer: &'a [u8],
 record_type: DataBlockType,
 name2: &'a [u8],
 }
 
-named!(read_trailer<DataBlock>,do_parse!(
-  name: apply!(read_nastran_known_length,2) >>
+named!(read_trailer<DataBlockHeader>,do_parse!(
+  name: apply!(read_nastran_data_known_length,2) >>
   apply!(read_nastran_known_key,-1) >>
-  trailer: apply!(read_nastran_known_length,7) >>
+  trailer: apply!(read_nastran_data_known_length,7) >>
   apply!(read_nastran_known_key,-2) >>
   record_type: alt!(
     apply!(read_nastran_known_i32,0) => {|_| DataBlockType::Table}
@@ -166,20 +166,58 @@ named!(read_trailer<DataBlock>,do_parse!(
     | apply!(read_nastran_known_i32,2) => {|_| DataBlockType::StringFactor}
     | apply!(read_nastran_known_i32,3) => {|_| DataBlockType::MatrixFactor}
   ) >>
-  name2: apply!(read_nastran_known_length,2) >>
+  name2: apply!(read_nastran_data_known_length,2) >>
   apply!(read_nastran_known_key,-3) >>
-(DataBlock {name:name,trailer:trailer,record_type:record_type,name2:name2})
+(DataBlockHeader {name:name,trailer:trailer,record_type:record_type,name2:name2})
 ));
+
+fn read_negative_i32(input: &[u8]) -> IResult<&[u8],()> {
+  bits!(input,
+    do_parse!(
+    tag_bits!(u8,1,0b1) >>
+    take_bits!(u32,31) >>
+    ())
+  )
+}
+
+named!(read_nastran_eof<()>, apply!(read_fortran_known_i32,0));
+
+named!(read_nastran_eor<()>,do_parse!(
+  apply!(read_known_i32,4) >>
+  read_negative_i32 >>
+  apply!(read_known_i32,4) >>
+  ()
+));
+
+named!(read_last_table_record<()>,do_parse!(
+  apply!(read_nastran_known_i32,0) >>
+  read_nastran_eof >>
+  ()
+));
+
+named!(read_table_record,do_parse!(
+  apply!(read_nastran_known_i32,0) >>
+  data : read_nastran_data >>
+  read_nastran_eor >>
+  (data)
+));
+
+named!(read_table_records<DataBlockTableRecords>,
+map!(
+  many_till!(read_table_record,read_last_table_record),
+  |(records,_)| DataBlockTableRecords{records:records} // Extract Records since last table record is null
+));
+
+#[derive(Debug)]
+struct DataBlockTableRecords <'a> {
+  records: Vec<&'a [u8]>
+}
 
 pub fn read_op2(buf: &[u8]) {
   let (buf,c) = read_header(buf).unwrap();
   println!("{:?}",c);
   let (buf,c) = read_trailer(buf).unwrap();
   println!("{:?}",c);
-  let (buf,c) = read_nastran_string(buf).unwrap();
+  let (buf,c) = read_table_records(buf).unwrap();
   println!("{:?}",c);
-  let (buf,c) = read_nastran_string(buf).unwrap();
-  println!("{:?}",c);
-  // println!("{:?}",String::from_utf8_lossy(c));
-  // let (buf,c) = read_nastran_known_key(buf,-1).unwrap();
 }
