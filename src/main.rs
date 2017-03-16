@@ -9,7 +9,7 @@ use std::io::Read;
 mod op2;
 
 pub fn main() {
-    let mut f = File::open("test.fdat").unwrap();
+    let mut f = File::open("../../../Documents/op2/run.op2").unwrap();
     let mut b = vec![];
     f.read_to_end(&mut b);
 

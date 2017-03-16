@@ -57,6 +57,8 @@ struct NastranIterator<'a> {
     iter: &'a mut Peekable<Iter<'a, u8>>,
     is_comma: bool,
     is_double: bool,
+    field_index: usize,
+    line_index: usize,
     field_count: usize
 }
 
@@ -66,8 +68,16 @@ impl<'a> NastranIterator<'a> {
             iter: iter,
             is_comma: false,
             is_double: false,
+            field_index: 0,
+            line_index: 0,
             field_count: 0
         }
+    }
+
+    fn next_char(&mut self) -> Option<&u8> {
+        self.field_index += 1;
+        self.line_index += 1;
+        return self.iter.next();
     }
     fn reset_line(&mut self) {
         self.is_comma = false;
