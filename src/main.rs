@@ -13,6 +13,6 @@ pub fn main() {
     let mut b = vec![];
     f.read_to_end(&mut b);
 
-    let (_,data) = op2::read_op2(b.as_slice()).unwrap();
-    println!("{:?}",data.header);
+    let (_, data) = op2::read_op2(b.as_slice()).unwrap();
+    println!("{:?}", data.header);
 }
