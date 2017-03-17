@@ -244,15 +244,10 @@ named!(read_table<DataBlock>, do_parse!(
   (DataBlock { header: trailer, records: records })
 ));
 
-named!(read_tables<Vec<DataBlock>>,
-map!(
-  many_till!(read_table,read_nastran_eof),
-  |(tables,_)| tables
-  ));
-
 named!(pub read_op2<OP2>,do_parse!(
   header: read_header >>
-  blocks: read_tables >>
+  blocks: many0!(read_table) >>
+  read_nastran_eof >>
   eof!() >>
   (OP2 {header:header,blocks:blocks})
 ));
