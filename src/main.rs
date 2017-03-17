@@ -19,4 +19,7 @@ pub fn main() {
 
     let (_, data) = op2::read_op2(sl).unwrap();
     println!("{:?}", data.header);
+    for block in data.blocks {
+        println!("{:?}",block.header)
+    }
 }
