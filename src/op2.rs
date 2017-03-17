@@ -20,7 +20,7 @@ pub struct FileHeader<'a> {
 }
 
 #[derive(Debug)]
-enum DataBlockType {
+pub enum DataBlockType {
     Table,
     Matrix,
     StringFactor,
@@ -31,16 +31,21 @@ pub type DataBlockTrailer<'a> = &'a [i32;7];
 
 #[derive(Debug)]
 pub struct DataBlockHeader<'a> {
-    name: Cow<'a, str>,
-    trailer: DataBlockTrailer<'a>,
-    record_type: DataBlockType,
-    name2:Cow<'a, str>,
+    pub name: Cow<'a, str>,
+    pub trailer: DataBlockTrailer<'a>,
+    pub record_type: DataBlockType,
+    pub name2:Cow<'a, str>,
 }
 
 #[derive(Debug)]
 pub struct DataBlock<'a> {
     pub header: DataBlockHeader<'a>,
-    pub records: Vec<&'a [u8]>,
+    pub records: Vec<Record<'a>>,
+}
+
+#[derive(Debug)]
+pub enum Record<'a> {
+  Generic(&'a [u8])
 }
 
 #[derive(Debug)]
@@ -223,22 +228,17 @@ named!(read_last_table_record<()>,do_parse!(
   ()
 ));
 
-named!(read_table_record,do_parse!(
+named!(read_table_record<Record>,do_parse!(
   apply!(read_nastran_known_i32,0) >>
   data : read_nastran_data >>
   read_nastran_eor >>
-  (data)
-));
-
-named!(read_table_records<Vec<&[u8]>>,
-map!(
-  many_till!(read_table_record,read_last_table_record),
-  |(records,_)| records // Extract Records since last table record is null
+  (Record::Generic(data))
 ));
 
 named!(read_table<DataBlock>, do_parse!(
   trailer: read_trailer >>
-  records: read_table_records >>
+  records: many0!(read_table_record) >>
+  read_last_table_record >>
   (DataBlock { header: trailer, records: records })
 ));
 

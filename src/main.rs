@@ -20,6 +20,11 @@ pub fn main() {
     let (_, data) = op2::read_op2(sl).unwrap();
     println!("{:?}", data.header);
     for block in data.blocks {
-        println!("{:?}",block.header)
+        println!("{:?}",block.header);
+        if (block.header.name == "OUGV1   ") {
+            for record in block.records {
+                println!("{:?}",record)
+            }
+        }
     }
 }
