@@ -1,7 +1,8 @@
 use std::mem::{size_of, transmute};
-use nom::{IResult, Needed, be_i64, le_i64, le_i32, le_i8};
 use std::slice::from_raw_parts;
 use std::marker::Sized;
+
+use nom::{IResult, Needed, be_i64, le_i64, le_i32, le_i8};
 
 named!(read_fortran_chunk,
        do_parse!(
@@ -11,16 +12,8 @@ named!(read_fortran_chunk,
   (data)
 ));
 
-fn i16_to_bytearray(num: i16) -> [u8; 2] {
-    unsafe { transmute(num.to_le()) }
-}
-
 fn i32_to_bytearray(num: i32) -> [u8; 4] {
     unsafe { transmute(num.to_le()) }
-}
-
-fn read_known_i16(input: &[u8], v: i16) -> IResult<&[u8], ()> {
-    tag!(input, i16_to_bytearray(v)).map(|v| ())
 }
 
 fn read_known_i32(input: &[u8], v: i32) -> IResult<&[u8], ()> {
@@ -235,7 +228,7 @@ named!(pub read_op2<OP2>,do_parse!(
   header: read_header >>
   blocks: read_tables >>
   eof!() >>
-  (OP2{header:header,blocks:blocks})
+  (OP2 {header:header,blocks:blocks})
 ));
 
 // pub fn read_op2(mut buf: &[u8]) {
