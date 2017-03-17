@@ -204,22 +204,24 @@ named!(read_trailer<DataBlockHeader>,do_parse!(
 (DataBlockHeader {name:name,trailer:buf_to_struct(trailer),record_type:record_type,name2:name2})
 ));
 
-fn read_negative_i32(input: &[u8]) -> IResult<&[u8], ()> {
-    bits!(input,
+fn read_negative_i32(input: &[u8]) -> IResult<&[u8], &i32> {
+  map!(input,
+  recognize!(
+    bits!(
     do_parse!(
     tag_bits!(u8,1,0b1) >>
     take_bits!(u32,31) >>
     ())
-  )
+  )),|v| buf_to_struct(v) )
 }
 
 named!(read_nastran_eof<()>, apply!(read_fortran_known_i32,0));
 
-named!(read_nastran_eor<()>,do_parse!(
+named!(read_nastran_eor<&i32>,do_parse!(
   apply!(read_known_i32,4) >>
-  read_negative_i32 >>
+  value: read_negative_i32 >>
   apply!(read_known_i32,4) >>
-  ()
+  (value)
 ));
 
 named!(read_last_table_record<()>,do_parse!(
@@ -254,15 +256,3 @@ named!(pub read_op2<OP2>,do_parse!(
   eof!() >>
   (OP2 {header:header,blocks:blocks})
 ));
-
-// pub fn read_op2(mut buf: &[u8]) {
-//   let (new_buf,c) = read_header(buf).unwrap();
-//   buf = new_buf;
-//   println!("{:?}",c);
-//   let (buf,tables) = read_tables(buf).unwrap();
-//   for table  in tables {
-//     println!("{:?}",table.header);
-//   }
-//   // let (buf,c) = read_nastran_data(buf).unwrap();
-//   // println!("{:?}",String::from_utf8_lossy(c));
-// }
