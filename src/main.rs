@@ -15,23 +15,4 @@ pub fn main() {
 
     let (_,data) = op2::read_op2(b.as_slice()).unwrap();
     println!("{:?}",data.header);
-
-    // if let Some(d) = nastran::parse_buffer(b"PARAM,POST") {
-    //     println!("{}",d);
-    // }
-    // if let Some(d) = nastran::parse_buffer(b"PARAM ,POST") {
-    //     println!("{}",d);
-    // }
-    // if let Some(d) = nastran::parse_buffer(b"PARAM  ,POST") {
-    //     println!("{}",d);
-    // }
-    // if let Some(d) = nastran::parse_buffer(b"PARAM   ,POST") {
-    //     println!("{}",d);
-    // }
-    // if let Some(d) = nastran::parse_buffer(b"PARAM    ,POST") {
-    //     println!("{}",d);
-    // }
-    // if let Some(d) = nastran::parse_buffer(b"PARAM,POST\nPARAM2,BLAH") {
-    //     println!("{}",d);
-    // }
 }
