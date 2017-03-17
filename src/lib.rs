@@ -27,14 +27,14 @@ pub struct Card {
 
 impl fmt::Display for Card {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f,"Card(");
+        write!(f, "Card(");
         for field in self.fields.iter() {
-            write!(f,"{:?},",field);
+            write!(f, "{:?},", field);
         }
         if let Some(ref c) = self.comment {
-            write!(f,"Comment='{}'",c);
+            write!(f, "Comment='{}'", c);
         }
-        write!(f,")")
+        write!(f, ")")
     }
 }
 
@@ -45,11 +45,11 @@ pub struct Deck {
 
 impl fmt::Display for Deck {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f,"Deck(\n");
+        write!(f, "Deck(\n");
         for card in self.cards.iter() {
-            write!(f,"  {},\n",card);
+            write!(f, "  {},\n", card);
         }
-        write!(f,")")
+        write!(f, ")")
     }
 }
 
@@ -59,19 +59,19 @@ struct NastranIterator<'a> {
     is_double: bool,
     field_index: usize,
     line_index: usize,
-    field_count: usize
+    field_count: usize,
 }
 
 impl<'a> NastranIterator<'a> {
     fn new(iter: &'a mut Peekable<Iter<'a, u8>>) -> NastranIterator<'a> {
         return NastranIterator {
-            iter: iter,
-            is_comma: false,
-            is_double: false,
-            field_index: 0,
-            line_index: 0,
-            field_count: 0
-        }
+                   iter: iter,
+                   is_comma: false,
+                   is_double: false,
+                   field_index: 0,
+                   line_index: 0,
+                   field_count: 0,
+               };
     }
 
     fn next_char(&mut self) -> Option<&u8> {
@@ -90,7 +90,7 @@ impl<'a> NastranIterator<'a> {
         while let Some(c) = self.parse_line() {
             cards.push(c);
         }
-        return Some(Deck{cards: cards})
+        return Some(Deck { cards: cards });
     }
     fn parse_line(&mut self) -> Option<Card> {
         self.reset_line();
@@ -100,12 +100,15 @@ impl<'a> NastranIterator<'a> {
         } else {
             return None;
         }
-        let v = self.iter.take_while(|&&c| c != chars::LF).cloned().collect();
+        let v = self.iter
+            .take_while(|&&c| c != chars::LF)
+            .cloned()
+            .collect();
         let comment = String::from_utf8(v).ok();
         return Some(Card {
-            fields: fields,
-            comment: comment,
-        });
+                        fields: fields,
+                        comment: comment,
+                    });
     }
 
     fn parse_first_continuation(&mut self) -> Option<Field> {
@@ -120,9 +123,9 @@ impl<'a> NastranIterator<'a> {
             .cloned()
             .collect();
         return match String::from_utf8(c) {
-            Ok(s) => Some(Field::Continuation(s)),
-            _ => None,
-        };
+                   Ok(s) => Some(Field::Continuation(s)),
+                   _ => None,
+               };
     }
 
     fn parse_first_string(&mut self) -> Option<Field> {
@@ -194,15 +197,15 @@ impl<'a> NastranIterator<'a> {
             return None;
         }
         return match self.iter.peek() {
-            Some(&&chars::PLUS) |
-            Some(&&chars::STAR) => self.parse_first_continuation(),
-            Some(_) => self.parse_first_string(),
-            None => None,
-        };
+                   Some(&&chars::PLUS) |
+                   Some(&&chars::STAR) => self.parse_first_continuation(),
+                   Some(_) => self.parse_first_string(),
+                   None => None,
+               };
     }
 
-    fn parse_string<I: Iterator>(&mut self, iter: I) -> Option<Field>{
-        return None
+    fn parse_string<I: Iterator>(&mut self, iter: I) -> Option<Field> {
+        return None;
     }
 
     fn parse_comma_field(&mut self) -> Option<Field> {
