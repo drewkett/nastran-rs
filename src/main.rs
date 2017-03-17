@@ -13,7 +13,8 @@ pub fn main() {
     let mut b = vec![];
     f.read_to_end(&mut b);
 
-    op2::read_op2(b.as_slice());
+    let (_,data) = op2::read_op2(b.as_slice()).unwrap();
+    println!("{:?}",data.header);
 
     // if let Some(d) = nastran::parse_buffer(b"PARAM,POST") {
     //     println!("{}",d);

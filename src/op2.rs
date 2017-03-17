@@ -26,14 +26,13 @@ fn read_known_i32(input: &[u8], v: i32) -> IResult<&[u8],()> {
   tag!(input,i32_to_bytearray(v)).map(|v| ())
 }
 
-fn read_fortran_i32(input: &[u8]) -> IResult<&[u8],i32> {
-  do_parse!(input,
+  named!(read_fortran_i32<i32>,
+  do_parse!(
   apply!(read_known_i32,4) >>
   v: le_i32 >>
   apply!(read_known_i32,4) >>
   (v)
-  )
-}
+  ));
 
 fn read_fortran_known_i32(input: &[u8], v: i32) -> IResult<&[u8],()> {
   do_parse!(input,
@@ -44,13 +43,13 @@ fn read_fortran_known_i32(input: &[u8], v: i32) -> IResult<&[u8],()> {
   )
 }
 
-fn read_nastran_i32(input: &[u8]) -> IResult<&[u8],i32> {
-  do_parse!(input,
+named!(read_nastran_i32<i32>,
+  do_parse!(
   apply!(read_fortran_known_i32,1) >>
   value: read_fortran_i32 >>
   (value)
   )
-}
+);
 
 fn read_nastran_known_i32(input: &[u8], v: i32) -> IResult<&[u8],()> {
   do_parse!(input,
@@ -123,7 +122,7 @@ struct HeaderDate {
 }
 
 #[derive(Debug)]
-struct Header <'a> {
+pub struct Header <'a> {
   date: &'a HeaderDate,
   label: &'a [u8], // Might want to make this fixed length at some point
 }
@@ -148,7 +147,7 @@ enum DataBlockType {
 }
 
 #[derive(Debug)]
-struct DataBlockHeader <'a> {
+pub struct DataBlockHeader <'a> {
 name: &'a [u8],
 trailer: &'a [u8],
 record_type: DataBlockType,
@@ -166,7 +165,8 @@ named!(read_trailer<DataBlockHeader>,do_parse!(
     | apply!(read_nastran_known_i32,2) => {|_| DataBlockType::StringFactor}
     | apply!(read_nastran_known_i32,3) => {|_| DataBlockType::MatrixFactor}
   ) >>
-  name2: apply!(read_nastran_data_known_length,2) >>
+  // name2: apply!(read_nastran_data_known_length,2) >> //Book claims this always should be length 2, doesn't appear to be the case
+  name2: read_nastran_data >>
   apply!(read_nastran_known_key,-3) >>
 (DataBlockHeader {name:name,trailer:trailer,record_type:record_type,name2:name2})
 ));
@@ -202,22 +202,51 @@ named!(read_table_record,do_parse!(
   (data)
 ));
 
-named!(read_table_records<DataBlockTableRecords>,
+named!(read_table_records<Vec<&[u8]>>,
 map!(
   many_till!(read_table_record,read_last_table_record),
-  |(records,_)| DataBlockTableRecords{records:records} // Extract Records since last table record is null
+  |(records,_)| records // Extract Records since last table record is null
 ));
 
+named!(read_table<DataBlock>, do_parse!(
+  trailer: read_trailer >>
+  records: read_table_records >>
+  (DataBlock { header: trailer, records: records })
+));
+
+named!(read_tables<Vec<DataBlock>>,
+map!(
+  many_till!(read_table,read_nastran_eof),
+  |(tables,_)| tables
+  ));
+
 #[derive(Debug)]
-struct DataBlockTableRecords <'a> {
-  records: Vec<&'a [u8]>
+pub struct DataBlock <'a> {
+  pub header: DataBlockHeader<'a>,
+  pub records: Vec<&'a [u8]>
 }
 
-pub fn read_op2(buf: &[u8]) {
-  let (buf,c) = read_header(buf).unwrap();
-  println!("{:?}",c);
-  let (buf,c) = read_trailer(buf).unwrap();
-  println!("{:?}",c);
-  let (buf,c) = read_table_records(buf).unwrap();
-  println!("{:?}",c);
+#[derive(Debug)]
+pub struct OP2 <'a> {
+  pub header: Header<'a>,
+  pub blocks: Vec<DataBlock<'a>>
 }
+
+named!(pub read_op2<OP2>,do_parse!(
+  header: read_header >>
+  blocks: read_tables >>
+  eof!() >>
+  (OP2{header:header,blocks:blocks})
+));
+
+// pub fn read_op2(mut buf: &[u8]) {
+//   let (new_buf,c) = read_header(buf).unwrap();
+//   buf = new_buf;
+//   println!("{:?}",c);
+//   let (buf,tables) = read_tables(buf).unwrap();
+//   for table  in tables {
+//     println!("{:?}",table.header);
+//   }
+//   // let (buf,c) = read_nastran_data(buf).unwrap();
+//   // println!("{:?}",String::from_utf8_lossy(c));
+// }
