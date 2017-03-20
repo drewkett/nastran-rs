@@ -2,8 +2,9 @@ use std::mem::{size_of, transmute};
 use std::slice::from_raw_parts;
 use std::marker::Sized;
 use std::borrow::Cow;
+use std::fmt;
 
-use nom::{IResult, Needed, be_i64, le_i64, le_i32, le_i8};
+use nom::{IResult, Needed, be_i64, le_i64, le_i32, le_i8, ErrorKind};
 
 
 #[derive(Debug)]
@@ -27,28 +28,13 @@ pub enum DataBlockType {
     MatrixFactor,
 }
 
-pub type DataBlockTrailer<'a> = &'a [i32;7];
+pub type DataBlockTrailer<'a> = &'a [i32; 7];
 
-#[derive(Debug)]
-pub struct DataBlockHeader<'a> {
-    pub name: Cow<'a, str>,
-    pub trailer: DataBlockTrailer<'a>,
-    pub record_type: DataBlockType,
-    pub name2:Cow<'a, str>,
+pub enum DataBlock<'a> {
+    Generic(GenericDataBlock<'a>),
+    OUG(OUG<'a>),
 }
 
-#[derive(Debug)]
-pub struct DataBlock<'a> {
-    pub header: DataBlockHeader<'a>,
-    pub records: Vec<Record<'a>>,
-}
-
-#[derive(Debug)]
-pub enum Record<'a> {
-  Generic(&'a [u8])
-}
-
-#[derive(Debug)]
 pub struct OP2<'a> {
     pub header: FileHeader<'a>,
     pub blocks: Vec<DataBlock<'a>>,
@@ -136,7 +122,11 @@ fn read_nastran_data(input: &[u8]) -> IResult<&[u8], &[u8]> {
   )
 }
 
-fn read_nastran_string<'a>(input: &'a [u8]) -> IResult<&[u8], Cow<'a,str>> {
+fn read_string_known_length<'a>(input: &'a [u8],length: i32) -> IResult<&[u8], Cow<'a, str>> {
+  map!(input, take!(length), String::from_utf8_lossy)
+}
+
+fn read_nastran_string<'a>(input: &'a [u8]) -> IResult<&[u8], Cow<'a, str>> {
     do_parse!(input,
   length: read_fortran_i32 >>
   apply!(read_known_i32,length*WORD_SIZE) >>
@@ -146,7 +136,9 @@ fn read_nastran_string<'a>(input: &'a [u8]) -> IResult<&[u8], Cow<'a,str>> {
   )
 }
 
-fn read_nastran_string_known_length<'a>(input: &'a [u8], length: i32) -> IResult<&[u8], Cow<'a,str>> {
+fn read_nastran_string_known_length<'a>(input: &'a [u8],
+                                        length: i32)
+                                        -> IResult<&[u8], Cow<'a, str>> {
     do_parse!(input,
   apply!(read_fortran_known_i32,length) >>
   apply!(read_known_i32,length*WORD_SIZE) >>
@@ -187,25 +179,14 @@ named!(read_header<FileHeader>,
   )
   );
 
-named!(read_trailer<DataBlockHeader>,do_parse!(
-  name: apply!(read_nastran_string_known_length,2) >>
-  apply!(read_nastran_known_key,-1) >>
-  trailer: apply!(read_nastran_data_known_length,7) >>
-  apply!(read_nastran_known_key,-2) >>
-  record_type: alt!(
-    apply!(read_nastran_known_i32,0) => {|_| DataBlockType::Table}
-    | apply!(read_nastran_known_i32,1) => {|_| DataBlockType::Matrix}
-    | apply!(read_nastran_known_i32,2) => {|_| DataBlockType::StringFactor}
-    | apply!(read_nastran_known_i32,3) => {|_| DataBlockType::MatrixFactor}
-  ) >>
-  //Book claims this always should be length 2, doesn't appear to be the case
-  name2: read_nastran_string >>
+named!(read_first_table_record, do_parse!(
+  record: read_nastran_data >>
   apply!(read_nastran_known_key,-3) >>
-(DataBlockHeader {name:name,trailer:buf_to_struct(trailer),record_type:record_type,name2:name2})
+  (record)
 ));
 
 fn read_negative_i32(input: &[u8]) -> IResult<&[u8], &i32> {
-  map!(input,
+    map!(input,
   recognize!(
     bits!(
     do_parse!(
@@ -230,23 +211,162 @@ named!(read_last_table_record<()>,do_parse!(
   ()
 ));
 
-named!(read_table_record<Record>,do_parse!(
+named!(read_table_record,do_parse!(
   apply!(read_nastran_known_i32,0) >>
   data : read_nastran_data >>
   read_nastran_eor >>
-  (Record::Generic(data))
+  (data)
 ));
 
-named!(read_table<DataBlock>, do_parse!(
-  trailer: read_trailer >>
-  records: many0!(read_table_record) >>
-  read_last_table_record >>
-  (DataBlock { header: trailer, records: records })
+pub struct DataBlockStart<'a> {
+    pub name: Cow<'a, str>,
+    pub trailer: DataBlockTrailer<'a>,
+    pub record_type: DataBlockType,
+}
+
+#[derive(Debug)]
+pub struct GenericDataBlock<'a> {
+    pub name: Cow<'a, str>,
+    pub trailer: DataBlockTrailer<'a>,
+    pub record_type: DataBlockType,
+    pub header: &'a [u8],
+    pub records: Vec<&'a [u8]>,
+}
+
+#[derive(Debug)]
+pub struct DataBlockIdentPair<'a, T: 'a, U: 'a> {
+    pub name: Cow<'a, str>,
+    pub trailer: DataBlockTrailer<'a>,
+    pub record_type: DataBlockType,
+    pub header: &'a [u8],
+    pub record_pairs: Vec<(&'a T,&'a [U])>,
+}
+
+pub struct OUGIdent {
+  acode : i32,
+  tcode : i32,
+  datcod : i32,
+  subcase : i32,
+  var1 : [u8;12],
+  rcode : i32,
+  fcode : i32,
+  numwde : i32,
+  undef1 : [i32;2],
+  acflag : i32,
+  undef2 : [i32;3],
+  rmssf : f32,
+  undef3 : [i32;5],
+  thermal : i32,
+  undef4 : [i32;27],
+  title : [u8; 128],
+  subtitl : [u8; 128],
+  label : [u8; 128]
+}
+
+pub struct OUGData {
+  ekey : i32,
+  etype : i32,
+  data : [f32;12],
+}
+
+type OUG<'a> = DataBlockIdentPair<'a, OUGIdent,OUGData>;
+
+named!(read_datablock_start<DataBlockStart>,do_parse!(
+  name: apply!(read_nastran_string_known_length,2) >>
+  apply!(read_nastran_known_key,-1) >>
+  trailer: apply!(read_nastran_data_known_length,7) >>
+  apply!(read_nastran_known_key,-2) >>
+  record_type: alt!(
+    apply!(read_nastran_known_i32,0) => {|_| DataBlockType::Table}
+    | apply!(read_nastran_known_i32,1) => {|_| DataBlockType::Matrix}
+    | apply!(read_nastran_known_i32,2) => {|_| DataBlockType::StringFactor}
+    | apply!(read_nastran_known_i32,3) => {|_| DataBlockType::MatrixFactor}
+  ) >>
+(DataBlockStart {name:name,trailer:buf_to_struct(trailer),record_type:record_type})
 ));
+
+named!(read_datablock_header,do_parse!(
+  header: read_nastran_data >>
+  apply!(read_nastran_known_key,-3) >>
+  (header)
+));
+
+fn read_generic_datablock<'a>(input: &'a [u8], start: DataBlockStart<'a>) -> IResult<&'a [u8],DataBlock<'a> > {
+    let (input, header) = try_parse!(input,read_datablock_header);
+    let (input, records) = try_parse!(input,many0!(read_table_record));
+    let (input, _) = try_parse!(input,read_last_table_record);
+    IResult::Done(input,
+                  DataBlock::Generic(GenericDataBlock {
+                    name: start.name,
+                    trailer: start.trailer,
+                    record_type: start.record_type,
+                    header: header,
+                    records: records,
+                  }))
+}
+impl fmt::Display for OUGIdent {
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    let title = String::from_utf8_lossy(&self.title);
+    let subtitle = String::from_utf8_lossy(&self.subtitl);
+    let label = String::from_utf8_lossy(&self.label);
+    write!(f, "OUG_IDENT[");
+    write!(f, "acode={},", self.acode);
+    write!(f, "tcode={},", self.tcode);
+    write!(f, "title=\"{}\",", title);
+    write!(f, "subtitle=\"{}\",", subtitle);
+    write!(f, "label=\"{}\",", label);
+    write!(f, "]")
+  }
+}
+
+
+fn read_ident<T>(input: &[u8]) -> IResult<&[u8], &T> {
+  let struct_size: i32 = (size_of::<T>()/4) as i32;
+  let (input, _) = try_parse!(input,apply!(read_nastran_known_i32,0));
+  let (input, data) = try_parse!(input,apply!(read_nastran_data_known_length,struct_size));
+  let (input, _) = try_parse!(input,read_nastran_eor);
+  IResult::Done(input,buf_to_struct(data))
+}
+
+fn read_data<T>(input: &[u8]) -> IResult<&[u8], &[T]> {
+  let struct_size: i32 = (size_of::<T>()/4) as i32;
+  let (input, _) = try_parse!(input,apply!(read_nastran_known_i32,0));
+  let (input, data) = try_parse!(input,read_nastran_data);
+  let (input, _) = try_parse!(input,read_nastran_eor);
+  if data.len() % size_of::<T>() != 0 {
+    return IResult::Error(ErrorKind::Custom(1))
+  }
+  let count = data.len()/size_of::<T>();
+  let sl = unsafe { from_raw_parts::<T>(transmute(data.as_ptr()),count)};
+  IResult::Done(input,sl)
+}
+
+fn read_OUG_datablock<'a> (input: &'a [u8], start: DataBlockStart<'a>) -> IResult<&'a [u8],DataBlock<'a>> {
+    let (input, header) = try_parse!(input,read_datablock_header);
+    let (input, record_pairs) = try_parse!(input,many0!(pair!(read_ident::<OUGIdent>,read_data::<OUGData>)));
+    let (input, _) = try_parse!(input,read_last_table_record);
+    IResult::Done(input,
+                  DataBlock::OUG(OUG {
+                    name: start.name,
+                    trailer: start.trailer,
+                    record_type: start.record_type,
+                    header: header,
+                    record_pairs: record_pairs,
+                  }))
+}
+
+fn read_datablock(input: &[u8]) -> IResult<&[u8], DataBlock> {
+    let (input, start) = try_parse!(input,read_datablock_start);
+    let table_name = start.name.clone().into_owned();
+    match table_name.as_str() {
+      "OUGV1   " => read_OUG_datablock(input,start),
+      _ => read_generic_datablock(input,start)
+    }
+}
 
 named!(pub read_op2<OP2>,do_parse!(
   header: read_header >>
-  blocks: many0!(read_table) >>
+  blocks: many0!(read_datablock) >>
   read_nastran_eof >>
   eof!() >>
   (OP2 {header:header,blocks:blocks})

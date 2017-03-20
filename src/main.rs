@@ -4,6 +4,7 @@ extern crate nastran;
 extern crate nom;
 
 extern crate memmap;
+use std::mem::{size_of, transmute};
 
 use std::fs::File;
 use std::io::Read;
@@ -20,11 +21,22 @@ pub fn main() {
     let (_, data) = op2::read_op2(sl).unwrap();
     println!("{:?}", data.header);
     for block in data.blocks {
-        println!("{:?}",block.header);
-        if (block.header.name == "OUGV1   ") {
-            for record in block.records {
-                println!("{:?}",record)
-            }
+        match block {
+            op2::DataBlock::OUG(d) => {
+                for (ident,dataset) in d.record_pairs {
+                    for data in dataset {
+                        let a : &[f32;14] = unsafe { transmute(data) };
+                        println!("{:?}",&a[..]);
+                    }
+                }
+            },
+            _ => {}
         }
+        // if (block.trailer.name == "OUGV1   ") {
+        // println!("{:?}",block.first_record);
+        //     for record in block.records {
+        //         println!("{:?}",record)
+        //     }
+        // }
     }
 }
