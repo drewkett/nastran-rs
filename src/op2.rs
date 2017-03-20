@@ -122,8 +122,8 @@ fn read_nastran_data(input: &[u8]) -> IResult<&[u8], &[u8]> {
   )
 }
 
-fn read_string_known_length<'a>(input: &'a [u8],length: i32) -> IResult<&[u8], Cow<'a, str>> {
-  map!(input, take!(length), String::from_utf8_lossy)
+fn read_string_known_length<'a>(input: &'a [u8], length: i32) -> IResult<&[u8], Cow<'a, str>> {
+    map!(input, take!(length), String::from_utf8_lossy)
 }
 
 fn read_nastran_string<'a>(input: &'a [u8]) -> IResult<&[u8], Cow<'a, str>> {
@@ -239,37 +239,37 @@ pub struct DataBlockIdentPair<'a, T: 'a, U: 'a> {
     pub trailer: DataBlockTrailer<'a>,
     pub record_type: DataBlockType,
     pub header: &'a [u8],
-    pub record_pairs: Vec<(&'a T,&'a [U])>,
+    pub record_pairs: Vec<(&'a T, &'a [U])>,
 }
 
 pub struct OUGIdent {
-  acode : i32,
-  tcode : i32,
-  datcod : i32,
-  subcase : i32,
-  var1 : [u8;12],
-  rcode : i32,
-  fcode : i32,
-  numwde : i32,
-  undef1 : [i32;2],
-  acflag : i32,
-  undef2 : [i32;3],
-  rmssf : f32,
-  undef3 : [i32;5],
-  thermal : i32,
-  undef4 : [i32;27],
-  title : [u8; 128],
-  subtitl : [u8; 128],
-  label : [u8; 128]
+    acode: i32,
+    tcode: i32,
+    datcod: i32,
+    subcase: i32,
+    var1: [u8; 12],
+    rcode: i32,
+    fcode: i32,
+    numwde: i32,
+    undef1: [i32; 2],
+    acflag: i32,
+    undef2: [i32; 3],
+    rmssf: f32,
+    undef3: [i32; 5],
+    thermal: i32,
+    undef4: [i32; 27],
+    title: [u8; 128],
+    subtitl: [u8; 128],
+    label: [u8; 128],
 }
 
 pub struct OUGData {
-  ekey : i32,
-  etype : i32,
-  data : [f32;12],
+    ekey: i32,
+    etype: i32,
+    data: [f32; 12],
 }
 
-type OUG<'a> = DataBlockIdentPair<'a, OUGIdent,OUGData>;
+type OUG<'a> = DataBlockIdentPair<'a, OUGIdent, OUGData>;
 
 named!(read_datablock_start<DataBlockStart>,do_parse!(
   name: apply!(read_nastran_string_known_length,2) >>
@@ -291,76 +291,81 @@ named!(read_datablock_header,do_parse!(
   (header)
 ));
 
-fn read_generic_datablock<'a>(input: &'a [u8], start: DataBlockStart<'a>) -> IResult<&'a [u8],DataBlock<'a> > {
+fn read_generic_datablock<'a>(input: &'a [u8],
+                              start: DataBlockStart<'a>)
+                              -> IResult<&'a [u8], DataBlock<'a>> {
     let (input, header) = try_parse!(input,read_datablock_header);
     let (input, records) = try_parse!(input,many0!(read_table_record));
     let (input, _) = try_parse!(input,read_last_table_record);
     IResult::Done(input,
                   DataBlock::Generic(GenericDataBlock {
-                    name: start.name,
-                    trailer: start.trailer,
-                    record_type: start.record_type,
-                    header: header,
-                    records: records,
-                  }))
+                                         name: start.name,
+                                         trailer: start.trailer,
+                                         record_type: start.record_type,
+                                         header: header,
+                                         records: records,
+                                     }))
 }
 impl fmt::Display for OUGIdent {
-  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-    let title = String::from_utf8_lossy(&self.title);
-    let subtitle = String::from_utf8_lossy(&self.subtitl);
-    let label = String::from_utf8_lossy(&self.label);
-    write!(f, "OUG_IDENT[");
-    write!(f, "acode={},", self.acode);
-    write!(f, "tcode={},", self.tcode);
-    write!(f, "title=\"{}\",", title);
-    write!(f, "subtitle=\"{}\",", subtitle);
-    write!(f, "label=\"{}\",", label);
-    write!(f, "]")
-  }
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let title = String::from_utf8_lossy(&self.title);
+        let subtitle = String::from_utf8_lossy(&self.subtitl);
+        let label = String::from_utf8_lossy(&self.label);
+        write!(f, "OUG_IDENT[");
+        write!(f, "acode={},", self.acode);
+        write!(f, "tcode={},", self.tcode);
+        write!(f, "title=\"{}\",", title);
+        write!(f, "subtitle=\"{}\",", subtitle);
+        write!(f, "label=\"{}\",", label);
+        write!(f, "]")
+    }
 }
 
 
 fn read_ident<T>(input: &[u8]) -> IResult<&[u8], &T> {
-  let struct_size: i32 = (size_of::<T>()/4) as i32;
-  let (input, _) = try_parse!(input,apply!(read_nastran_known_i32,0));
-  let (input, data) = try_parse!(input,apply!(read_nastran_data_known_length,struct_size));
-  let (input, _) = try_parse!(input,read_nastran_eor);
-  IResult::Done(input,buf_to_struct(data))
+    let struct_size: i32 = (size_of::<T>() / 4) as i32;
+    let (input, _) = try_parse!(input,apply!(read_nastran_known_i32,0));
+    let (input, data) = try_parse!(input,apply!(read_nastran_data_known_length,struct_size));
+    let (input, _) = try_parse!(input,read_nastran_eor);
+    IResult::Done(input, buf_to_struct(data))
 }
 
 fn read_data<T>(input: &[u8]) -> IResult<&[u8], &[T]> {
-  let struct_size: i32 = (size_of::<T>()/4) as i32;
-  let (input, _) = try_parse!(input,apply!(read_nastran_known_i32,0));
-  let (input, data) = try_parse!(input,read_nastran_data);
-  let (input, _) = try_parse!(input,read_nastran_eor);
-  if data.len() % size_of::<T>() != 0 {
-    return IResult::Error(ErrorKind::Custom(1))
-  }
-  let count = data.len()/size_of::<T>();
-  let sl = unsafe { from_raw_parts::<T>(transmute(data.as_ptr()),count)};
-  IResult::Done(input,sl)
+    let struct_size: i32 = (size_of::<T>() / 4) as i32;
+    let (input, _) = try_parse!(input,apply!(read_nastran_known_i32,0));
+    let (input, data) = try_parse!(input,read_nastran_data);
+    let (input, _) = try_parse!(input,read_nastran_eor);
+    if data.len() % size_of::<T>() != 0 {
+        return IResult::Error(ErrorKind::Custom(1));
+    }
+    let count = data.len() / size_of::<T>();
+    let sl = unsafe { from_raw_parts::<T>(transmute(data.as_ptr()), count) };
+    IResult::Done(input, sl)
 }
 
-fn read_OUG_datablock<'a> (input: &'a [u8], start: DataBlockStart<'a>) -> IResult<&'a [u8],DataBlock<'a>> {
+fn read_OUG_datablock<'a>(input: &'a [u8],
+                          start: DataBlockStart<'a>)
+                          -> IResult<&'a [u8], DataBlock<'a>> {
     let (input, header) = try_parse!(input,read_datablock_header);
-    let (input, record_pairs) = try_parse!(input,many0!(pair!(read_ident::<OUGIdent>,read_data::<OUGData>)));
+    let (input, record_pairs) =
+        try_parse!(input,many0!(pair!(read_ident::<OUGIdent>,read_data::<OUGData>)));
     let (input, _) = try_parse!(input,read_last_table_record);
     IResult::Done(input,
                   DataBlock::OUG(OUG {
-                    name: start.name,
-                    trailer: start.trailer,
-                    record_type: start.record_type,
-                    header: header,
-                    record_pairs: record_pairs,
-                  }))
+                                     name: start.name,
+                                     trailer: start.trailer,
+                                     record_type: start.record_type,
+                                     header: header,
+                                     record_pairs: record_pairs,
+                                 }))
 }
 
 fn read_datablock(input: &[u8]) -> IResult<&[u8], DataBlock> {
     let (input, start) = try_parse!(input,read_datablock_start);
     let table_name = start.name.clone().into_owned();
     match table_name.as_str() {
-      "OUGV1   " => read_OUG_datablock(input,start),
-      _ => read_generic_datablock(input,start)
+        "OUGV1   " => read_OUG_datablock(input, start),
+        _ => read_generic_datablock(input, start),
     }
 }
 
