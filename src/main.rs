@@ -12,6 +12,8 @@ use std::io::Read;
 use memmap::{Mmap, Protection};
 
 mod op2;
+mod keyed;
+mod geom1;
 
 pub fn main() {
     let filename = "../../../Documents/op2/run.op2";
