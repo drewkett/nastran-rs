@@ -1,5 +1,5 @@
 
-use nom::{IResult};
+use nom::{IResult,le_i32};
 use std::mem::{size_of, transmute};
 use std::borrow::Cow;
 
@@ -12,6 +12,26 @@ pub struct DataBlock<'a, T: 'a> {
     pub record_type: op2::DataBlockType,
     pub header: &'a [u8],
     pub records: Vec<T>,
+}
+
+#[derive(Debug)]
+pub struct UnknownRecord <'a> {
+    key: [i32; 3],
+    data: &'a [u8],
+}
+
+pub fn read_unknown_record(input: &[u8]) -> IResult<&[u8], UnknownRecord> {
+    let (input, _) = try_parse!(input,apply!(op2::read_nastran_known_i32,0));
+    let (input, record_size) = try_parse!(input,op2::read_fortran_i32);
+    let (input, _) = try_parse!(input,apply!(op2::read_known_i32,record_size*4));
+    let (input, v1) = try_parse!(input,le_i32);
+    let (input, v2) = try_parse!(input,le_i32);
+    let (input, v3) = try_parse!(input,le_i32);
+    let remaining = record_size - 3;
+    let (input, data) = try_parse!(input,take!(remaining*4));
+    let (input, _) = try_parse!(input,apply!(op2::read_known_i32,record_size*4));
+    let (input, _) = try_parse!(input,op2::read_nastran_eor);
+    return IResult::Done(input, UnknownRecord { key:[v1,v2,v3], data:data});
 }
 
 pub fn read_record<T>(input: &[u8], v1: i32, v2: i32, v3: i32) -> IResult<&[u8], &[T]> {

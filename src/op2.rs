@@ -7,6 +7,7 @@ use std::fmt;
 use nom::{IResult, Needed, be_i64, le_i64, le_i32, le_i8, ErrorKind};
 
 use geom1;
+use geom2;
 
 #[derive(Debug)]
 struct Date {
@@ -35,6 +36,7 @@ pub enum DataBlock<'a> {
     Generic(GenericDataBlock<'a>),
     OUG(OUG<'a>),
     GEOM1(geom1::DataBlock<'a>),
+    GEOM2(geom2::DataBlock<'a>),
 }
 
 pub struct OP2<'a> {
@@ -416,6 +418,7 @@ fn read_datablock(input: &[u8]) -> IResult<&[u8], DataBlock> {
     match table_name.as_str() {
         "OUGV1   " => read_OUG_datablock(input, start),
         "GEOM1S  " => geom1::read_datablock(input, start),
+        "GEOM2S  " => geom2::read_datablock(input, start),
         _ => read_generic_datablock(input, start),
     }
 }

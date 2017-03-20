@@ -14,6 +14,7 @@ use memmap::{Mmap, Protection};
 mod op2;
 mod keyed;
 mod geom1;
+mod geom2;
 
 pub fn main() {
     let filename = "../../../Documents/op2/run.op2";
@@ -32,6 +33,11 @@ pub fn main() {
                 }
             }
             op2::DataBlock::GEOM1(b) => {
+                for record in b.records {
+                    println!("{:?}", record);
+                }
+            }
+            op2::DataBlock::GEOM2(b) => {
                 for record in b.records {
                     println!("{:?}", record);
                 }
