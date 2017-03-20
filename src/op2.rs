@@ -33,6 +33,7 @@ pub type DataBlockTrailer<'a> = &'a [i32; 7];
 pub enum DataBlock<'a> {
     Generic(GenericDataBlock<'a>),
     OUG(OUG<'a>),
+    GEOM1(GEOM1<'a>),
 }
 
 pub struct OP2<'a> {
@@ -271,6 +272,46 @@ pub struct OUGData {
 
 type OUG<'a> = DataBlockIdentPair<'a, OUGIdent, OUGData>;
 
+pub struct OEFIdent {
+    pub acode: i32,
+    pub tcode: i32,
+    pub eltype: i32,
+    pub subcase: i32,
+    pub var1: [u8; 12],
+    pub dloadid: i32,
+    pub fcode: i32,
+    pub numwde: i32,
+    pub ocode: i32,
+    pub pid: i32,
+    pub undef1: i32,
+    pub q4cstr: i32,
+    pub plsloc: i32,
+    pub undef2: i32,
+    pub rmssf: f32,
+    pub undef3: [i32; 5],
+    pub thermal: i32,
+    pub undef4: [i32; 27],
+    pub title: [u8; 128],
+    pub subtitl: [u8; 128],
+    pub label: [u8; 128],
+}
+
+enum OEFValues {
+
+}
+
+pub struct CRODForce {
+    var: i32,
+    af: f32,
+    trq: f32,
+}
+
+pub enum OEFData {
+    CROD(CRODForce),
+}
+
+type OEF<'a> = DataBlockIdentPair<'a, OEFIdent, OEFData>;
+
 named!(read_datablock_start<DataBlockStart>,do_parse!(
   name: apply!(read_nastran_string_known_length,2) >>
   apply!(read_nastran_known_key,-1) >>
@@ -360,11 +401,113 @@ fn read_OUG_datablock<'a>(input: &'a [u8],
                                  }))
 }
 
+#[derive(Debug)]
+struct GRID {
+    id: i32,
+    cp: i32,
+    x1: f32,
+    x2: f32,
+    x3: f32,
+    cd: i32,
+    ps: i32,
+    seid: i32,
+}
+
+#[derive(Debug)]
+struct CORD2R {
+    id: i32,
+    one: i32,
+    two: i32,
+    rid: i32,
+    a1: f32,
+    a2: f32,
+    a3: f32,
+    b1: f32,
+    b2: f32,
+    b3: f32,
+    c1: f32,
+    c2: f32,
+    c3: f32,
+}
+
+struct Generic {}
+
+struct EODB {}
+
+#[derive(Debug)]
+enum GEOM1Record<'a> {
+    GRID(&'a [GRID]),
+    CORD2R(&'a [CORD2R]),
+}
+
+#[derive(Debug)]
+pub struct DataBlockKeyed<'a, T: 'a> {
+    pub name: Cow<'a, str>,
+    pub trailer: DataBlockTrailer<'a>,
+    pub record_type: DataBlockType,
+    pub header: &'a [u8],
+    pub records: Vec<T>,
+}
+
+pub type GEOM1<'a> = DataBlockKeyed<'a, GEOM1Record<'a>>;
+
+
+fn read_struct_array<'a, T>(input: &'a [u8], count: usize) -> IResult<&'a [u8], &'a [T]> {
+    let length = size_of::<T>() * count;
+    let (input, data) = try_parse!(input,take!(length));
+    let sl = unsafe { from_raw_parts::<T>(transmute(data.as_ptr()), count) };
+    return IResult::Done(input, sl);
+}
+
+fn read_keyed_record<T>(input: &[u8], v1: i32, v2: i32, v3: i32) -> IResult<&[u8], &[T]> {
+    let (input, _) = try_parse!(input,apply!(read_nastran_known_i32,0));
+    let (input, record_size) = try_parse!(input,read_fortran_i32);
+    let (input, _) = try_parse!(input,apply!(read_known_i32,record_size*4));
+    let (input, _) = try_parse!(input,apply!(read_known_i32,v1));
+    let (input, _) = try_parse!(input,apply!(read_known_i32,v2));
+    let (input, _) = try_parse!(input,apply!(read_known_i32,v3));
+    let struct_size = (size_of::<T>() / 4) as i32;
+    let count = if struct_size > 0 {
+        (record_size - 3) / struct_size
+    } else {
+        0
+    };
+    let (input, data) = try_parse!(input,apply!(read_struct_array::<T>,count as usize));
+    let (input, _) = try_parse!(input,apply!(read_known_i32,record_size*4));
+    let (input, _) = try_parse!(input,read_nastran_eor);
+    return IResult::Done(input, data);
+}
+
+named!(read_GEOM1_record<GEOM1Record>,
+    alt!(
+      apply!(read_keyed_record::<GRID>,4501,45,1) => { |s| GEOM1Record::GRID(s) }
+      | apply!(read_keyed_record::<CORD2R>,2101,21,8) => { |s| GEOM1Record::CORD2R(s) }
+    )
+    );
+
+fn read_GEOM1_datablock<'a>(input: &'a [u8],
+                            start: DataBlockStart<'a>)
+                            -> IResult<&'a [u8], DataBlock<'a>> {
+    let (input, header) = try_parse!(input,read_datablock_header);
+    let (input, records) = try_parse!(input,many1!(read_GEOM1_record));
+    let (input, _) = try_parse!(input,apply!(read_keyed_record::<()>,65535,65535,65535));
+    let (input, _) = try_parse!(input,read_last_table_record);
+    IResult::Done(input,
+                  DataBlock::GEOM1(GEOM1 {
+                                       name: start.name,
+                                       trailer: start.trailer,
+                                       record_type: start.record_type,
+                                       header: header,
+                                       records: records,
+                                   }))
+}
+
 fn read_datablock(input: &[u8]) -> IResult<&[u8], DataBlock> {
     let (input, start) = try_parse!(input,read_datablock_start);
     let table_name = start.name.clone().into_owned();
     match table_name.as_str() {
         "OUGV1   " => read_OUG_datablock(input, start),
+        "GEOM1S  " => read_GEOM1_datablock(input, start),
         _ => read_generic_datablock(input, start),
     }
 }

@@ -9,7 +9,7 @@ use std::mem::{size_of, transmute};
 use std::fs::File;
 use std::io::Read;
 
-use memmap::{Mmap,Protection};
+use memmap::{Mmap, Protection};
 
 mod op2;
 
@@ -23,13 +23,20 @@ pub fn main() {
     for block in data.blocks {
         match block {
             op2::DataBlock::OUG(d) => {
-                for (ident,dataset) in d.record_pairs {
+                for (ident, dataset) in d.record_pairs {
                     for data in dataset {
-                        println!("{:?}",data.data);
+                        println!("{:?}", data.data);
                     }
                 }
-            },
-            _ => {}
+            }
+            op2::DataBlock::GEOM1(b) => {
+                for record in b.records {
+                    println!("{:?}", record);
+                }
+            }
+            op2::DataBlock::Generic(b) => {
+                println!("{}", b.name);
+            }
         }
     }
 }
