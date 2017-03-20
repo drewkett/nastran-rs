@@ -19,17 +19,48 @@ pub struct CBUSH {
     s3: f32,
 }
 
+#[derive(Debug)]
+pub struct CDAMP2 {
+    eid: i32,
+    b: f32,
+    g1: i32,
+    g2: i32,
+    c1: i32,
+    c2: i32,
+}
+
+#[derive(Debug)]
+pub struct CONM2 {
+    eid: i32,
+    g: i32,
+    cid: i32,
+    m: f32,
+    x1: f32,
+    x2: f32,
+    x3: f32,
+    I11: f32,
+    I21: f32,
+    I22: f32,
+    I31: f32,
+    I32: f32,
+    I33: f32,
+}
+
 pub type DataBlock<'a> = keyed::DataBlock<'a, Record<'a>>;
 
 #[derive(Debug)]
 enum Record<'a> {
     CBUSH(&'a [CBUSH]),
+    CDAMP2(&'a [CDAMP2]),
+    CONM2(&'a [CONM2]),
     Unknown(keyed::UnknownRecord<'a>),
 }
 
 named!(read_record<Record>,
     alt!(
       apply!(keyed::read_record::<CBUSH>,2608,26,60) => { |s| Record::CBUSH(s) }
+      | apply!(keyed::read_record::<CDAMP2>,301,3,70) => { |s| Record::CDAMP2(s) }
+      | apply!(keyed::read_record::<CONM2>,1501,15,64) => { |s| Record::CONM2(s) }
       | read_unknown_record => { |r| Record::Unknown(r) }
     )
     );
