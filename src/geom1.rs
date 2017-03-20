@@ -1,7 +1,7 @@
 
 use op2;
 use keyed;
-use nom::{IResult, Needed, be_i64, le_i64, le_i32, le_i8, ErrorKind};
+use nom::{IResult};
 
 #[derive(Debug)]
 struct GRID {
@@ -32,8 +32,6 @@ struct CORD2R {
     c3: f32,
 }
 
-struct EODB {}
-
 pub type DataBlock<'a> = keyed::DataBlock<'a, Record<'a>>;
 
 #[derive(Debug)]
@@ -54,7 +52,7 @@ pub fn read_datablock<'a>(input: &'a [u8],
                             -> IResult<&'a [u8], op2::DataBlock<'a>> {
     let (input, header) = try_parse!(input,op2::read_datablock_header);
     let (input, records) = try_parse!(input,many1!(read_record));
-    let (input, _) = try_parse!(input,apply!(keyed::read_record::<()>,65535,65535,65535));
+    let (input, _) = try_parse!(input,keyed::read_eodb);
     let (input, _) = try_parse!(input,op2::read_last_table_record);
     IResult::Done(input,
                   op2::DataBlock::GEOM1(DataBlock {
