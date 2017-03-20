@@ -25,18 +25,11 @@ pub fn main() {
             op2::DataBlock::OUG(d) => {
                 for (ident,dataset) in d.record_pairs {
                     for data in dataset {
-                        let a : &[f32;14] = unsafe { transmute(data) };
-                        println!("{:?}",&a[..]);
+                        println!("{:?}",data.data);
                     }
                 }
             },
             _ => {}
         }
-        // if (block.trailer.name == "OUGV1   ") {
-        // println!("{:?}",block.first_record);
-        //     for record in block.records {
-        //         println!("{:?}",record)
-        //     }
-        // }
     }
 }

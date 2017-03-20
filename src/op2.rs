@@ -243,30 +243,30 @@ pub struct DataBlockIdentPair<'a, T: 'a, U: 'a> {
 }
 
 pub struct OUGIdent {
-    acode: i32,
-    tcode: i32,
-    datcod: i32,
-    subcase: i32,
-    var1: [u8; 12],
-    rcode: i32,
-    fcode: i32,
-    numwde: i32,
-    undef1: [i32; 2],
-    acflag: i32,
-    undef2: [i32; 3],
-    rmssf: f32,
-    undef3: [i32; 5],
-    thermal: i32,
-    undef4: [i32; 27],
-    title: [u8; 128],
-    subtitl: [u8; 128],
-    label: [u8; 128],
+    pub acode: i32,
+    pub tcode: i32,
+    pub datcod: i32,
+    pub subcase: i32,
+    pub var1: [u8; 12],
+    pub rcode: i32,
+    pub fcode: i32,
+    pub numwde: i32,
+    pub undef1: [i32; 2],
+    pub acflag: i32,
+    pub undef2: [i32; 3],
+    pub rmssf: f32,
+    pub undef3: [i32; 5],
+    pub thermal: i32,
+    pub undef4: [i32; 27],
+    pub title: [u8; 128],
+    pub subtitl: [u8; 128],
+    pub label: [u8; 128],
 }
 
 pub struct OUGData {
-    ekey: i32,
-    etype: i32,
-    data: [f32; 12],
+    pub ekey: i32,
+    pub etype: i32,
+    pub data: [f32; 12],
 }
 
 type OUG<'a> = DataBlockIdentPair<'a, OUGIdent, OUGData>;
