@@ -17,6 +17,7 @@ mod geom1;
 mod geom2;
 mod geom4;
 mod ept;
+mod dynamic;
 
 pub fn main() {
     let filename = "../../../Documents/op2/run.op2";
@@ -50,6 +51,11 @@ pub fn main() {
                 }
             }
             op2::DataBlock::EPT(b) => {
+                for record in b.records {
+                    println!("{:?}", record);
+                }
+            }
+            op2::DataBlock::DYNAMIC(b) => {
                 for record in b.records {
                     println!("{:?}", record);
                 }

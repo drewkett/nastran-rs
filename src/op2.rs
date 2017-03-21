@@ -10,6 +10,7 @@ use geom1;
 use geom2;
 use geom4;
 use ept;
+use dynamic;
 
 #[derive(Debug)]
 struct Date {
@@ -41,6 +42,7 @@ pub enum DataBlock<'a> {
     GEOM2(geom2::DataBlock<'a>),
     GEOM4(geom4::DataBlock<'a>),
     EPT(ept::DataBlock<'a>),
+    DYNAMIC(dynamic::DataBlock<'a>),
 }
 
 pub struct OP2<'a> {
@@ -425,6 +427,7 @@ fn read_datablock(input: &[u8]) -> IResult<&[u8], DataBlock> {
         "GEOM2S  " => geom2::read_datablock(input, start),
         "GEOM4S  " => geom4::read_datablock(input, start),
         "EPTS    " => ept::read_datablock(input, start),
+        "DYNAMICS" => dynamic::read_datablock(input, start),
         _ => read_generic_datablock(input, start),
     }
 }
