@@ -27,11 +27,11 @@ pub enum Record<'a> {
 }
 
 named!(read_record<Record>,
-    alt!(
-      apply!(keyed::read_record::<EIGR>,307,3,85) => { |s| Record::EIGR(s) }
-      | call!(keyed::read_unknown_record) => { |r| Record::Unknown(r) }
-    )
-    );
+    switch!(call!(keyed::read_record_key),
+      keyed::RecordKey { key: (307,3,85), size } => map!(apply!(keyed::read_fixed_size_record,size),Record::EIGR) |
+      keyed::RecordKey { key, size } => map!(apply!(keyed::read_unknown_record,key,size),Record::Unknown)
+    ) 
+);
 
 pub fn read_datablock<'a>(input: &'a [u8],
                           start: op2::DataBlockStart<'a>)

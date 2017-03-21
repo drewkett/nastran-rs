@@ -56,13 +56,13 @@ pub enum Record<'a> {
 }
 
 named!(read_record<Record>,
-    alt!(
-      apply!(keyed::read_record::<CBUSH>,2608,26,60) => { |s| Record::CBUSH(s) }
-      | apply!(keyed::read_record::<CDAMP2>,301,3,70) => { |s| Record::CDAMP2(s) }
-      | apply!(keyed::read_record::<CONM2>,1501,15,64) => { |s| Record::CONM2(s) }
-      | call!(keyed::read_unknown_record) => { |r| Record::Unknown(r) }
-    )
-    );
+    switch!(call!(keyed::read_record_key),
+      keyed::RecordKey { key: (2608,26,60), size } => map!(apply!(keyed::read_fixed_size_record,size),Record::CBUSH) |
+      keyed::RecordKey { key: (301,3,70), size } => map!(apply!(keyed::read_fixed_size_record,size),Record::CDAMP2) |
+      keyed::RecordKey { key: (1501,15,64), size } => map!(apply!(keyed::read_fixed_size_record,size),Record::CONM2) |
+      keyed::RecordKey { key, size } => map!(apply!(keyed::read_unknown_record,key,size),Record::Unknown)
+    ) 
+);
 
 pub fn read_datablock<'a>(input: &'a [u8],
                           start: op2::DataBlockStart<'a>)
@@ -72,10 +72,10 @@ pub fn read_datablock<'a>(input: &'a [u8],
     let (input, _) = try_parse!(input,op2::read_last_table_record);
     IResult::Done(input,
                   DataBlock {
-                                            name: start.name,
-                                            trailer: start.trailer,
-                                            record_type: start.record_type,
-                                            header: header,
-                                            records: records,
-                                        })
+                      name: start.name,
+                      trailer: start.trailer,
+                      record_type: start.record_type,
+                      header: header,
+                      records: records,
+                  })
 }

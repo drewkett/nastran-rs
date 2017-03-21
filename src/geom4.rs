@@ -11,10 +11,10 @@ pub enum Record<'a> {
 }
 
 named!(read_record<Record>,
-    alt!(
-      call!(keyed::read_unknown_record) => { |r| Record::Unknown(r) }
-    )
-    );
+    switch!(call!(keyed::read_record_key),
+      keyed::RecordKey { key, size } => map!(apply!(keyed::read_unknown_record,key,size),Record::Unknown)
+    ) 
+);
 
 pub fn read_datablock<'a>(input: &'a [u8],
                           start: op2::DataBlockStart<'a>)
