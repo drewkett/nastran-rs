@@ -22,14 +22,14 @@ pub struct EIGR {
 
 #[derive(Debug)]
 pub enum Record<'a> {
-    Unknown(keyed::UnknownRecord<'a>),
     EIGR(&'a [EIGR]),
+    Unknown(keyed::Key, keyed::UnknownRecord<'a>),
 }
 
 named!(read_record<Record>,
     switch!(call!(keyed::read_record_key),
       keyed::RecordKey { key: (307,3,85), size } => map!(apply!(keyed::read_fixed_size_record,size),Record::EIGR) |
-      keyed::RecordKey { key, size } => map!(apply!(keyed::read_unknown_record,key,size),Record::Unknown)
+      keyed::RecordKey { key, size } => map!(apply!(keyed::read_unknown_record,size),|r| Record::Unknown(key,r) )
     ) 
 );
 

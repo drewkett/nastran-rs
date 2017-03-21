@@ -19,14 +19,14 @@ pub struct PBUSH {
 
 #[derive(Debug)]
 pub enum Record<'a> {
-    Unknown(keyed::UnknownRecord<'a>),
     PBUSH(&'a [PBUSH]),
+    Unknown(keyed::Key, keyed::UnknownRecord<'a>),
 }
 
 named!(read_record<Record>,
     switch!(call!(keyed::read_record_key),
       keyed::RecordKey { key: (1402,14,37), size } => map!(apply!(keyed::read_fixed_size_record,size),Record::PBUSH) |
-      keyed::RecordKey { key, size } => map!(apply!(keyed::read_unknown_record,key,size),Record::Unknown)
+      keyed::RecordKey { key, size } => map!(apply!(keyed::read_unknown_record,size),|r| Record::Unknown(key,r) )
     ) 
 );
 

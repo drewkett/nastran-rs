@@ -52,7 +52,7 @@ pub enum Record<'a> {
     CBUSH(&'a [CBUSH]),
     CDAMP2(&'a [CDAMP2]),
     CONM2(&'a [CONM2]),
-    Unknown(keyed::UnknownRecord<'a>),
+    Unknown(keyed::Key, keyed::UnknownRecord<'a>),
 }
 
 named!(read_record<Record>,
@@ -60,7 +60,7 @@ named!(read_record<Record>,
       keyed::RecordKey { key: (2608,26,60), size } => map!(apply!(keyed::read_fixed_size_record,size),Record::CBUSH) |
       keyed::RecordKey { key: (301,3,70), size } => map!(apply!(keyed::read_fixed_size_record,size),Record::CDAMP2) |
       keyed::RecordKey { key: (1501,15,64), size } => map!(apply!(keyed::read_fixed_size_record,size),Record::CONM2) |
-      keyed::RecordKey { key, size } => map!(apply!(keyed::read_unknown_record,key,size),Record::Unknown)
+      keyed::RecordKey { key, size } => map!(apply!(keyed::read_unknown_record,size),|r| Record::Unknown(key,r) )
     ) 
 );
 

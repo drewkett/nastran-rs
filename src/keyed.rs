@@ -13,11 +13,8 @@ pub struct DataBlock<'a, T: 'a> {
     pub records: Vec<T>,
 }
 
-#[derive(Debug)]
-pub struct UnknownRecord<'a> {
-    key: (i32, i32, i32),
-    data: &'a [u8],
-}
+pub type Key = (i32, i32, i32);
+pub type UnknownRecord<'a> = &'a [u8];
 
 pub fn read_record<T>(input: &[u8], v1: i32, v2: i32, v3: i32) -> IResult<&[u8], &[T]> {
     let (input, _) = try_parse!(input, apply!(op2::read_nastran_known_i32, 0));
@@ -64,16 +61,20 @@ pub fn read_fixed_size_record<T>(input: &[u8], record_size: i32) -> IResult<&[u8
     return IResult::Done(input, data);
 }
 
-pub fn read_unknown_record(input: &[u8], key: (i32, i32, i32), record_size: i32) -> IResult<&[u8], UnknownRecord> {
+pub fn read_variable_record(input: &[u8], record_size: i32) -> IResult<&[u8], &[u8]> {
     let remaining = record_size - 3;
     let (input, data) = try_parse!(input, take!(remaining * 4));
     let (input, _) = try_parse!(input, apply!(op2::read_known_i32, record_size * 4));
     let (input, _) = try_parse!(input, op2::read_nastran_eor);
-    return IResult::Done(input,
-                         UnknownRecord {
-                             key: key,
-                             data: data,
-                         });
+    return IResult::Done(input, data);
+}
+
+pub fn read_unknown_record(input: &[u8], record_size: i32) -> IResult<&[u8], UnknownRecord> {
+    let remaining = record_size - 3;
+    let (input, data) = try_parse!(input, take!(remaining * 4));
+    let (input, _) = try_parse!(input, apply!(op2::read_known_i32, record_size * 4));
+    let (input, _) = try_parse!(input, op2::read_nastran_eor);
+    return IResult::Done(input, data);
 }
 
 

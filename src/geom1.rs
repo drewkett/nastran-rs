@@ -38,14 +38,14 @@ pub type DataBlock<'a> = keyed::DataBlock<'a, Record<'a>>;
 pub enum Record<'a> {
     GRID(&'a [GRID]),
     CORD2R(&'a [CORD2R]),
-    Unknown(keyed::UnknownRecord<'a>),
+    Unknown(keyed::Key, keyed::UnknownRecord<'a>),
 }
 
 named!(read_record<Record>,
     switch!(call!(keyed::read_record_key),
       keyed::RecordKey { key: (4501,45,1), size } => map!(apply!(keyed::read_fixed_size_record,size),Record::GRID) |
       keyed::RecordKey { key: (2101,21,8), size } => map!(apply!(keyed::read_fixed_size_record,size),Record::CORD2R) |
-      keyed::RecordKey { key, size } => map!(apply!(keyed::read_unknown_record,key,size),Record::Unknown)
+      keyed::RecordKey { key, size } => map!(apply!(keyed::read_unknown_record,size),|r| Record::Unknown(key,r) )
     ) 
 );
 

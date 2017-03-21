@@ -5,14 +5,18 @@ use nom::IResult;
 
 pub type DataBlock<'a> = keyed::DataBlock<'a, Record<'a>>;
 
+type RBE2s<'a> = &'a [u8];
+
 #[derive(Debug)]
 pub enum Record<'a> {
-    Unknown(keyed::UnknownRecord<'a>),
+    RBE2(RBE2s<'a>),
+    Unknown(keyed::Key,keyed::UnknownRecord<'a>),
 }
 
 named!(read_record<Record>,
     switch!(call!(keyed::read_record_key),
-      keyed::RecordKey { key, size } => map!(apply!(keyed::read_unknown_record,key,size),Record::Unknown)
+      keyed::RecordKey { key: (6901,69,295), size } => map!(apply!(keyed::read_variable_record,size),Record::RBE2) |
+      keyed::RecordKey { key, size } => map!(apply!(keyed::read_unknown_record,size),|r| Record::Unknown(key,r) )
     ) 
 );
 
