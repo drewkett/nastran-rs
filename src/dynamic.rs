@@ -24,7 +24,7 @@ pub struct EIGR {
 #[derive(Debug)]
 enum Record<'a> {
     Unknown(keyed::UnknownRecord<'a>),
-    EIGR(&'a [EIGR])
+    EIGR(&'a [EIGR]),
 }
 
 named!(read_record<Record>,
@@ -42,10 +42,10 @@ pub fn read_datablock<'a>(input: &'a [u8],
     let (input, _) = try_parse!(input,op2::read_last_table_record);
     IResult::Done(input,
                   op2::DataBlock::DYNAMIC(DataBlock {
-                                            name: start.name,
-                                            trailer: start.trailer,
-                                            record_type: start.record_type,
-                                            header: header,
-                                            records: records,
-                                        }))
+                                              name: start.name,
+                                              trailer: start.trailer,
+                                              record_type: start.record_type,
+                                              header: header,
+                                              records: records,
+                                          }))
 }
