@@ -18,7 +18,7 @@ pub struct PBUSH {
 }
 
 #[derive(Debug)]
-enum Record<'a> {
+pub enum Record<'a> {
     Unknown(keyed::UnknownRecord<'a>),
     PBUSH(&'a [PBUSH]),
 }

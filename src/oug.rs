@@ -40,13 +40,13 @@ impl fmt::Display for Ident {
         let title = String::from_utf8_lossy(&self.title);
         let subtitle = String::from_utf8_lossy(&self.subtitl);
         let label = String::from_utf8_lossy(&self.label);
-        write!(f, "OUG_IDENT[");
-        write!(f, "acode={},", self.acode);
-        write!(f, "tcode={},", self.tcode);
-        write!(f, "title=\"{}\",", title);
-        write!(f, "subtitle=\"{}\",", subtitle);
-        write!(f, "label=\"{}\",", label);
-        write!(f, "]")
+        write!(f,
+               "OUG_IDENT[acode={},tcode={},title={},subtitle={},label={}]",
+               self.acode,
+               self.tcode,
+               title,
+               subtitle,
+               label)
     }
 }
 

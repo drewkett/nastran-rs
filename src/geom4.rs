@@ -6,7 +6,7 @@ use nom::IResult;
 pub type DataBlock<'a> = keyed::DataBlock<'a, Record<'a>>;
 
 #[derive(Debug)]
-enum Record<'a> {
+pub enum Record<'a> {
     Unknown(keyed::UnknownRecord<'a>),
 }
 

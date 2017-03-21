@@ -4,7 +4,7 @@ use keyed;
 use nom::IResult;
 
 #[derive(Debug)]
-struct GRID {
+pub struct GRID {
     id: i32,
     cp: i32,
     x1: f32,
@@ -16,7 +16,7 @@ struct GRID {
 }
 
 #[derive(Debug)]
-struct CORD2R {
+pub struct CORD2R {
     id: i32,
     one: i32,
     two: i32,
@@ -35,7 +35,7 @@ struct CORD2R {
 pub type DataBlock<'a> = keyed::DataBlock<'a, Record<'a>>;
 
 #[derive(Debug)]
-enum Record<'a> {
+pub enum Record<'a> {
     GRID(&'a [GRID]),
     CORD2R(&'a [CORD2R]),
     Unknown(keyed::UnknownRecord<'a>),

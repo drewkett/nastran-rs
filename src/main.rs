@@ -4,10 +4,6 @@ extern crate nastran;
 extern crate nom;
 
 extern crate memmap;
-use std::mem::{size_of, transmute};
-
-use std::fs::File;
-use std::io::Read;
 
 use memmap::{Mmap, Protection};
 
@@ -32,7 +28,7 @@ pub fn main() {
     for block in data.blocks {
         match block {
             op2::DataBlock::OUG(d) => {
-                for (ident, dataset) in d.record_pairs {
+                for (_, dataset) in d.record_pairs {
                     for data in dataset {
                         println!("{:?}", data.data);
                     }

@@ -21,7 +21,7 @@ pub struct EIGR {
 }
 
 #[derive(Debug)]
-enum Record<'a> {
+pub enum Record<'a> {
     Unknown(keyed::UnknownRecord<'a>),
     EIGR(&'a [EIGR]),
 }

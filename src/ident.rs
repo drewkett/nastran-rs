@@ -25,7 +25,6 @@ pub fn read_ident<T>(input: &[u8]) -> IResult<&[u8], &T> {
 }
 
 pub fn read_data<T>(input: &[u8]) -> IResult<&[u8], &[T]> {
-    let struct_size: i32 = (size_of::<T>() / 4) as i32;
     let (input, _) = try_parse!(input,apply!(op2::read_nastran_known_i32,0));
     let (input, data) = try_parse!(input,op2::read_nastran_data);
     let (input, _) = try_parse!(input,op2::read_nastran_eor);

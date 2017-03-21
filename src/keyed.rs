@@ -1,6 +1,6 @@
 
 use nom::{IResult, le_i32};
-use std::mem::{size_of, transmute};
+use std::mem::size_of;
 use std::borrow::Cow;
 
 use op2;
@@ -57,5 +57,4 @@ pub fn read_record<T>(input: &[u8], v1: i32, v2: i32, v3: i32) -> IResult<&[u8],
     return IResult::Done(input, data);
 }
 
-struct EODB {}
 named!(pub read_eodb<()>,value!((),apply!(read_record::<()>,65535,65535,65535)));

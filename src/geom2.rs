@@ -48,7 +48,7 @@ pub struct CONM2 {
 pub type DataBlock<'a> = keyed::DataBlock<'a, Record<'a>>;
 
 #[derive(Debug)]
-enum Record<'a> {
+pub enum Record<'a> {
     CBUSH(&'a [CBUSH]),
     CDAMP2(&'a [CDAMP2]),
     CONM2(&'a [CONM2]),

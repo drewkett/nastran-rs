@@ -2,9 +2,8 @@ use std::mem::{size_of, transmute};
 use std::slice::from_raw_parts;
 use std::marker::Sized;
 use std::borrow::Cow;
-use std::fmt;
 
-use nom::{IResult, Needed, be_i64, le_i64, le_i32, le_i8, ErrorKind};
+use nom::{IResult, le_i32};
 
 use geom1;
 use geom2;
@@ -65,7 +64,7 @@ fn i32_to_bytearray(num: i32) -> [u8; 4] {
 }
 
 pub fn read_known_i32(input: &[u8], v: i32) -> IResult<&[u8], ()> {
-    tag!(input, i32_to_bytearray(v)).map(|v| ())
+    tag!(input, i32_to_bytearray(v)).map(|_| ())
 }
 
 named!(pub read_fortran_i32<i32>,
