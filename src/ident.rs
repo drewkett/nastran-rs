@@ -1,7 +1,6 @@
 
 use std::slice::from_raw_parts;
 use std::mem::{size_of,transmute};
-use std::borrow::Cow;
 
 use nom::{IResult,ErrorKind};
 
@@ -9,7 +8,7 @@ use op2;
 
 #[derive(Debug)]
 pub struct DataBlockIdentPair<'a, T: 'a, U: 'a> {
-    pub name: Cow<'a, str>,
+    pub name: &'a str,
     pub trailer: op2::DataBlockTrailer<'a>,
     pub record_type: op2::DataBlockType,
     pub header: &'a [u8],

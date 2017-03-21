@@ -1,13 +1,12 @@
 
 use nom::{IResult, le_i32};
 use std::mem::size_of;
-use std::borrow::Cow;
 
 use op2;
 
 #[derive(Debug)]
 pub struct DataBlock<'a, T: 'a> {
-    pub name: Cow<'a, str>,
+    pub name: &'a str,
     pub trailer: op2::DataBlockTrailer<'a>,
     pub record_type: op2::DataBlockType,
     pub header: &'a [u8],

@@ -1,7 +1,6 @@
 use std::mem::{size_of, transmute};
 use std::slice::from_raw_parts;
 use std::marker::Sized;
-use std::borrow::Cow;
 
 use nom::{IResult, le_i32};
 
@@ -123,29 +122,25 @@ pub fn read_nastran_data(input: &[u8]) -> IResult<&[u8], &[u8]> {
   )
 }
 
-fn read_string_known_length<'a>(input: &'a [u8], length: i32) -> IResult<&[u8], Cow<'a, str>> {
-    map!(input, take!(length), String::from_utf8_lossy)
-}
-
-pub fn read_nastran_string<'a>(input: &'a [u8]) -> IResult<&[u8], Cow<'a, str>> {
+pub fn read_nastran_string<'a>(input: &'a [u8]) -> IResult<&[u8], &str> {
     do_parse!(input,
   length: read_fortran_i32 >>
   apply!(read_known_i32,length*WORD_SIZE) >>
-  data: take!(length*WORD_SIZE) >>
+  data: take_str!(length*WORD_SIZE) >>
   apply!(read_known_i32,length*WORD_SIZE) >>
-  (String::from_utf8_lossy(data))
+  (data)
   )
 }
 
 pub fn read_nastran_string_known_length<'a>(input: &'a [u8],
                                             length: i32)
-                                            -> IResult<&[u8], Cow<'a, str>> {
+                                            -> IResult<&[u8], &str> {
     do_parse!(input,
   apply!(read_fortran_known_i32,length) >>
   apply!(read_known_i32,length*WORD_SIZE) >>
-  data: take!(length*WORD_SIZE) >>
+  data: take_str!(length*WORD_SIZE) >>
   apply!(read_known_i32,length*WORD_SIZE) >>
-  (String::from_utf8_lossy(data))
+  (data)
   )
 }
 
@@ -210,7 +205,7 @@ named!(pub read_last_table_record<()>,do_parse!(
 ));
 
 pub struct DataBlockStart<'a> {
-    pub name: Cow<'a, str>,
+    pub name: &'a str,
     pub trailer: DataBlockTrailer<'a>,
     pub record_type: DataBlockType,
 }
@@ -245,8 +240,7 @@ pub fn read_struct_array<'a, T>(input: &'a [u8], count: usize) -> IResult<&'a [u
 
 fn read_datablock(input: &[u8]) -> IResult<&[u8], DataBlock> {
     let (input, start) = try_parse!(input,read_datablock_start);
-    let table_name = start.name.clone().into_owned();
-    match table_name.as_str() {
+    match start.name {
         "OUGV1   " => map!(input,apply!(oug::read_datablock,start),DataBlock::OUG),
         "GEOM1S  " => map!(input,apply!(geom1::read_datablock,start),DataBlock::GEOM1),
         "GEOM2S  " => map!(input,apply!(geom2::read_datablock,start),DataBlock::GEOM2),
