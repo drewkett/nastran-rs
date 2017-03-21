@@ -162,7 +162,7 @@ pub fn read_nastran_known_key(input: &[u8], v: i32) -> IResult<&[u8], ()> {
               apply!(read_known_i32, 4) >> ())
 }
 
-fn buf_to_struct<T: Sized>(buf: &[u8]) -> &T {
+pub fn buf_to_struct<T: Sized>(buf: &[u8]) -> &T {
     unsafe { transmute(buf.as_ptr()) }
 }
 
@@ -231,55 +231,6 @@ pub struct GenericDataBlock<'a> {
     pub records: Vec<&'a [u8]>,
 }
 
-#[derive(Debug)]
-pub struct DataBlockIdentPair<'a, T: 'a, U: 'a> {
-    pub name: Cow<'a, str>,
-    pub trailer: DataBlockTrailer<'a>,
-    pub record_type: DataBlockType,
-    pub header: &'a [u8],
-    pub record_pairs: Vec<(&'a T, &'a [U])>,
-}
-
-pub struct OEFIdent {
-    pub acode: i32,
-    pub tcode: i32,
-    pub eltype: i32,
-    pub subcase: i32,
-    pub var1: [u8; 12],
-    pub dloadid: i32,
-    pub fcode: i32,
-    pub numwde: i32,
-    pub ocode: i32,
-    pub pid: i32,
-    pub undef1: i32,
-    pub q4cstr: i32,
-    pub plsloc: i32,
-    pub undef2: i32,
-    pub rmssf: f32,
-    pub undef3: [i32; 5],
-    pub thermal: i32,
-    pub undef4: [i32; 27],
-    pub title: [u8; 128],
-    pub subtitl: [u8; 128],
-    pub label: [u8; 128],
-}
-
-enum OEFValues {
-
-}
-
-pub struct CRODForce {
-    var: i32,
-    af: f32,
-    trq: f32,
-}
-
-pub enum OEFData {
-    CROD(CRODForce),
-}
-
-type OEF<'a> = DataBlockIdentPair<'a, OEFIdent, OEFData>;
-
 named!(pub read_datablock_start<DataBlockStart>,do_parse!(
   name: apply!(read_nastran_string_known_length,2) >>
   apply!(read_nastran_known_key,-1) >>
@@ -314,27 +265,6 @@ fn read_generic_datablock<'a>(input: &'a [u8],
                                          header: header,
                                          records: records,
                                      }))
-}
-
-pub fn read_ident<T>(input: &[u8]) -> IResult<&[u8], &T> {
-    let struct_size: i32 = (size_of::<T>() / 4) as i32;
-    let (input, _) = try_parse!(input,apply!(read_nastran_known_i32,0));
-    let (input, data) = try_parse!(input,apply!(read_nastran_data_known_length,struct_size));
-    let (input, _) = try_parse!(input,read_nastran_eor);
-    IResult::Done(input, buf_to_struct(data))
-}
-
-pub fn read_data<T>(input: &[u8]) -> IResult<&[u8], &[T]> {
-    let struct_size: i32 = (size_of::<T>() / 4) as i32;
-    let (input, _) = try_parse!(input,apply!(read_nastran_known_i32,0));
-    let (input, data) = try_parse!(input,read_nastran_data);
-    let (input, _) = try_parse!(input,read_nastran_eor);
-    if data.len() % size_of::<T>() != 0 {
-        return IResult::Error(ErrorKind::Custom(1));
-    }
-    let count = data.len() / size_of::<T>();
-    let sl = unsafe { from_raw_parts::<T>(transmute(data.as_ptr()), count) };
-    IResult::Done(input, sl)
 }
 
 
