@@ -2,8 +2,8 @@ extern crate nastran;
 
 #[macro_use]
 extern crate nom;
-
 extern crate memmap;
+extern crate ascii;
 
 use memmap::{Mmap, Protection};
 

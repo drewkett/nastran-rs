@@ -6,3 +6,4 @@ authors = ["Andrew Burkett <burkett.andrew@gmail.com>"]
 [dependencies]
 nom = "2.1.0"
 memmap = "0.5"
+ascii = "0.8"
