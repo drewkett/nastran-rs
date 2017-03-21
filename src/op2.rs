@@ -11,6 +11,7 @@ use geom2;
 use geom4;
 use ept;
 use dynamic;
+use oug;
 
 #[derive(Debug)]
 struct Date {
@@ -37,7 +38,7 @@ pub type DataBlockTrailer<'a> = &'a [i32; 7];
 
 pub enum DataBlock<'a> {
     Generic(GenericDataBlock<'a>),
-    OUG(OUG<'a>),
+    OUG(oug::DataBlock<'a>),
     GEOM1(geom1::DataBlock<'a>),
     GEOM2(geom2::DataBlock<'a>),
     GEOM4(geom4::DataBlock<'a>),
@@ -239,35 +240,6 @@ pub struct DataBlockIdentPair<'a, T: 'a, U: 'a> {
     pub record_pairs: Vec<(&'a T, &'a [U])>,
 }
 
-pub struct OUGIdent {
-    pub acode: i32,
-    pub tcode: i32,
-    pub datcod: i32,
-    pub subcase: i32,
-    pub var1: [u8; 12],
-    pub rcode: i32,
-    pub fcode: i32,
-    pub numwde: i32,
-    pub undef1: [i32; 2],
-    pub acflag: i32,
-    pub undef2: [i32; 3],
-    pub rmssf: f32,
-    pub undef3: [i32; 5],
-    pub thermal: i32,
-    pub undef4: [i32; 27],
-    pub title: [u8; 128],
-    pub subtitl: [u8; 128],
-    pub label: [u8; 128],
-}
-
-pub struct OUGData {
-    pub ekey: i32,
-    pub etype: i32,
-    pub data: [f32; 12],
-}
-
-type OUG<'a> = DataBlockIdentPair<'a, OUGIdent, OUGData>;
-
 pub struct OEFIdent {
     pub acode: i32,
     pub tcode: i32,
@@ -343,23 +315,8 @@ fn read_generic_datablock<'a>(input: &'a [u8],
                                          records: records,
                                      }))
 }
-impl fmt::Display for OUGIdent {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let title = String::from_utf8_lossy(&self.title);
-        let subtitle = String::from_utf8_lossy(&self.subtitl);
-        let label = String::from_utf8_lossy(&self.label);
-        write!(f, "OUG_IDENT[");
-        write!(f, "acode={},", self.acode);
-        write!(f, "tcode={},", self.tcode);
-        write!(f, "title=\"{}\",", title);
-        write!(f, "subtitle=\"{}\",", subtitle);
-        write!(f, "label=\"{}\",", label);
-        write!(f, "]")
-    }
-}
 
-
-fn read_ident<T>(input: &[u8]) -> IResult<&[u8], &T> {
+pub fn read_ident<T>(input: &[u8]) -> IResult<&[u8], &T> {
     let struct_size: i32 = (size_of::<T>() / 4) as i32;
     let (input, _) = try_parse!(input,apply!(read_nastran_known_i32,0));
     let (input, data) = try_parse!(input,apply!(read_nastran_data_known_length,struct_size));
@@ -367,7 +324,7 @@ fn read_ident<T>(input: &[u8]) -> IResult<&[u8], &T> {
     IResult::Done(input, buf_to_struct(data))
 }
 
-fn read_data<T>(input: &[u8]) -> IResult<&[u8], &[T]> {
+pub fn read_data<T>(input: &[u8]) -> IResult<&[u8], &[T]> {
     let struct_size: i32 = (size_of::<T>() / 4) as i32;
     let (input, _) = try_parse!(input,apply!(read_nastran_known_i32,0));
     let (input, data) = try_parse!(input,read_nastran_data);
@@ -378,23 +335,6 @@ fn read_data<T>(input: &[u8]) -> IResult<&[u8], &[T]> {
     let count = data.len() / size_of::<T>();
     let sl = unsafe { from_raw_parts::<T>(transmute(data.as_ptr()), count) };
     IResult::Done(input, sl)
-}
-
-fn read_OUG_datablock<'a>(input: &'a [u8],
-                          start: DataBlockStart<'a>)
-                          -> IResult<&'a [u8], DataBlock<'a>> {
-    let (input, header) = try_parse!(input,read_datablock_header);
-    let (input, record_pairs) =
-        try_parse!(input,many0!(pair!(read_ident::<OUGIdent>,read_data::<OUGData>)));
-    let (input, _) = try_parse!(input,read_last_table_record);
-    IResult::Done(input,
-                  DataBlock::OUG(OUG {
-                                     name: start.name,
-                                     trailer: start.trailer,
-                                     record_type: start.record_type,
-                                     header: header,
-                                     record_pairs: record_pairs,
-                                 }))
 }
 
 
@@ -409,7 +349,7 @@ fn read_datablock(input: &[u8]) -> IResult<&[u8], DataBlock> {
     let (input, start) = try_parse!(input,read_datablock_start);
     let table_name = start.name.clone().into_owned();
     match table_name.as_str() {
-        "OUGV1   " => read_OUG_datablock(input, start),
+        "OUGV1   " => oug::read_datablock(input, start),
         "GEOM1S  " => geom1::read_datablock(input, start),
         "GEOM2S  " => geom2::read_datablock(input, start),
         "GEOM4S  " => geom4::read_datablock(input, start),
