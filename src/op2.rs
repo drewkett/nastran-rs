@@ -12,6 +12,7 @@ use geom4;
 use ept;
 use dynamic;
 use oug;
+use generic;
 
 #[derive(Debug)]
 struct Date {
@@ -37,7 +38,7 @@ pub enum DataBlockType {
 pub type DataBlockTrailer<'a> = &'a [i32; 7];
 
 pub enum DataBlock<'a> {
-    Generic(GenericDataBlock<'a>),
+    Generic(generic::DataBlock<'a>),
     OUG(oug::DataBlock<'a>),
     GEOM1(geom1::DataBlock<'a>),
     GEOM2(geom2::DataBlock<'a>),
@@ -209,26 +210,10 @@ named!(pub read_last_table_record<()>,do_parse!(
   ()
 ));
 
-named!(read_table_record,do_parse!(
-  apply!(read_nastran_known_i32,0) >>
-  data : read_nastran_data >>
-  read_nastran_eor >>
-  (data)
-));
-
 pub struct DataBlockStart<'a> {
     pub name: Cow<'a, str>,
     pub trailer: DataBlockTrailer<'a>,
     pub record_type: DataBlockType,
-}
-
-#[derive(Debug)]
-pub struct GenericDataBlock<'a> {
-    pub name: Cow<'a, str>,
-    pub trailer: DataBlockTrailer<'a>,
-    pub record_type: DataBlockType,
-    pub header: &'a [u8],
-    pub records: Vec<&'a [u8]>,
 }
 
 named!(pub read_datablock_start<DataBlockStart>,do_parse!(
@@ -251,22 +236,6 @@ named!(pub read_datablock_header,do_parse!(
   (header)
 ));
 
-fn read_generic_datablock<'a>(input: &'a [u8],
-                              start: DataBlockStart<'a>)
-                              -> IResult<&'a [u8], DataBlock<'a>> {
-    let (input, header) = try_parse!(input,read_datablock_header);
-    let (input, records) = try_parse!(input,many0!(read_table_record));
-    let (input, _) = try_parse!(input,read_last_table_record);
-    IResult::Done(input,
-                  DataBlock::Generic(GenericDataBlock {
-                                         name: start.name,
-                                         trailer: start.trailer,
-                                         record_type: start.record_type,
-                                         header: header,
-                                         records: records,
-                                     }))
-}
-
 
 pub fn read_struct_array<'a, T>(input: &'a [u8], count: usize) -> IResult<&'a [u8], &'a [T]> {
     let length = size_of::<T>() * count;
@@ -279,13 +248,13 @@ fn read_datablock(input: &[u8]) -> IResult<&[u8], DataBlock> {
     let (input, start) = try_parse!(input,read_datablock_start);
     let table_name = start.name.clone().into_owned();
     match table_name.as_str() {
-        "OUGV1   " => oug::read_datablock(input, start),
-        "GEOM1S  " => geom1::read_datablock(input, start),
-        "GEOM2S  " => geom2::read_datablock(input, start),
-        "GEOM4S  " => geom4::read_datablock(input, start),
-        "EPTS    " => ept::read_datablock(input, start),
-        "DYNAMICS" => dynamic::read_datablock(input, start),
-        _ => read_generic_datablock(input, start),
+        "OUGV1   " => map!(input,apply!(oug::read_datablock,start),DataBlock::OUG),
+        "GEOM1S  " => map!(input,apply!(geom1::read_datablock,start),DataBlock::GEOM1),
+        "GEOM2S  " => map!(input,apply!(geom2::read_datablock,start),DataBlock::GEOM2),
+        "GEOM4S  " => map!(input,apply!(geom4::read_datablock,start),DataBlock::GEOM4),
+        "EPTS    " => map!(input,apply!(ept::read_datablock,start),DataBlock::EPT),
+        "DYNAMICS" => map!(input,apply!(dynamic::read_datablock,start),DataBlock::DYNAMIC),
+        _ => map!(input,apply!(generic::read_datablock,start),DataBlock::Generic),
     }
 }
 

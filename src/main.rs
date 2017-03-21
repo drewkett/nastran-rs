@@ -20,6 +20,7 @@ mod geom2;
 mod geom4;
 mod ept;
 mod dynamic;
+mod generic;
 
 pub fn main() {
     let filename = "../../../Documents/op2/run.op2";
