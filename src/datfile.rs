@@ -341,3 +341,4 @@ pub fn parse_buffer(buffer: &[u8]) -> Option<Deck> {
     let mut it = NastranIterator::new(&mut it);
     return it.parse_file();
 }
+
