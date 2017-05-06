@@ -4,7 +4,7 @@ use std::fmt;
 use nom::IResult;
 
 use op2;
-use ident;
+use op2::ident;
 
 pub struct Ident {
     pub acode: i32,

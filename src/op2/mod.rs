@@ -4,13 +4,15 @@ use std::marker::Sized;
 
 use nom::{IResult, le_i32};
 
-use geom1;
-use geom2;
-use geom4;
-use ept;
-use dynamic;
-use oug;
-use generic;
+mod geom1;
+mod geom2;
+mod geom4;
+mod ept;
+mod dynamic;
+mod keyed;
+mod ident;
+mod oug;
+mod generic;
 
 #[derive(Debug)]
 struct Date {

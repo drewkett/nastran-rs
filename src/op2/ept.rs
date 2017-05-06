@@ -1,42 +1,35 @@
 
 use op2;
-use keyed;
+use op2::keyed;
 use nom::IResult;
-use ascii::AsciiChar;
 
 pub type DataBlock<'a> = keyed::DataBlock<'a, Record<'a>>;
 
 #[derive(Debug)]
-pub struct EIGR {
-    sid: i32,
-    method: [AsciiChar; 8],
-    f1: f32,
-    f2: f32,
-    ne: i32,
-    nd: i32,
-    undef1: [i32; 2],
-    norm: [AsciiChar; 8],
-    g: i32,
-    c: i32,
-    undef2: [i32; 5],
+pub struct PBUSH {
+    pid: i32,
+    k: [f32; 6],
+    b: [f32; 6],
+    ge: f32,
+    sa: f32,
+    st: f32,
+    ea: f32,
+    et: f32,
 }
-
-pub type EIGCs<'a> = &'a [u8];
 
 #[derive(Debug)]
 pub enum Record<'a> {
-    EIGR(&'a [EIGR]),
-    EIGC(EIGCs<'a>),
+    PBUSH(&'a [PBUSH]),
     Unknown(keyed::Key, keyed::UnknownRecord<'a>),
 }
 
 named!(read_record<Record>,
     switch!(call!(keyed::read_record_key),
-      keyed::RecordKey { key: (307,3,85), size } => map!(apply!(keyed::read_fixed_size_record,size),Record::EIGR) |
-      keyed::RecordKey { key: (207,2,87), size } => map!(apply!(keyed::read_variable_record,size),Record::EIGC) |
+      keyed::RecordKey { key: (1402,14,37), size } => map!(apply!(keyed::read_fixed_size_record,size),Record::PBUSH) |
       keyed::RecordKey { key, size } => map!(apply!(keyed::read_unknown_record,size),|r| Record::Unknown(key,r) )
     ) 
 );
+
 
 pub fn read_datablock<'a>(input: &'a [u8],
                           start: op2::DataBlockStart<'a>)

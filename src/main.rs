@@ -8,15 +8,6 @@ extern crate ascii;
 use memmap::{Mmap, Protection};
 
 mod op2;
-mod ident;
-mod oug;
-mod keyed;
-mod geom1;
-mod geom2;
-mod geom4;
-mod ept;
-mod dynamic;
-mod generic;
 
 pub fn main() {
     let filename = "../../../Documents/op2/run.op2";
