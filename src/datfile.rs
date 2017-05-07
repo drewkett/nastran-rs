@@ -9,8 +9,8 @@ pub enum Field {
     Int(i32),
     Float(f32),
     Double(f64),
-    Continuation(String),
-    String(String),
+    Continuation(Vec<u8>),
+    String(Vec<u8>),
 }
 
 #[derive(Debug,PartialEq)]
@@ -22,7 +22,7 @@ pub struct CardFlags {
 #[derive(Debug,PartialEq)]
 pub struct Card {
     pub fields: Vec<Field>,
-    pub comment: Option<String>,
+    pub comment: Option<Vec<u8>>,
 }
 
 impl fmt::Display for Card {
@@ -32,7 +32,7 @@ impl fmt::Display for Card {
             try!(write!(f, "{:?},", field));
         }
         if let Some(ref c) = self.comment {
-            try!(write!(f, "Comment='{}'", c));
+            try!(write!(f, "Comment='{}'", String::from_utf8_lossy(c)));
         }
         write!(f, ")")
     }
@@ -79,6 +79,7 @@ impl<'a> NastranIterator<'a> {
         self.line_index += 1;
         return self.iter.next();
     }
+
     fn reset_line(&mut self) {
         self.is_comma = false;
         self.is_double = false;
@@ -92,6 +93,7 @@ impl<'a> NastranIterator<'a> {
         }
         return Some(Deck { cards: cards });
     }
+
     fn parse_line(&mut self) -> Option<Card> {
         self.reset_line();
         let mut fields = vec![];
@@ -104,10 +106,9 @@ impl<'a> NastranIterator<'a> {
             .take_while(|&&c| c != b'\r')
             .cloned()
             .collect();
-        let comment = String::from_utf8(v).ok();
         return Some(Card {
                         fields: fields,
-                        comment: comment,
+                        comment: Some(v),
                     });
     }
 
@@ -122,10 +123,7 @@ impl<'a> NastranIterator<'a> {
             .take_while(|&&c| c != b',' && c != b'\t')
             .cloned()
             .collect();
-        return match String::from_utf8(c) {
-                   Ok(s) => Some(Field::Continuation(s)),
-                   _ => None,
-               };
+            return Some(Field::Continuation(c));
     }
 
     fn parse_first_string(&mut self) -> Option<Field> {
@@ -184,10 +182,7 @@ impl<'a> NastranIterator<'a> {
         if !string_started {
             Some(Field::Blank)
         } else {
-            match String::from_utf8(svec) {
-                Ok(s) => Some(Field::String(s)),
-                _ => None,
-            }
+            Some(Field::String(svec))
         }
     }
 
@@ -197,8 +192,7 @@ impl<'a> NastranIterator<'a> {
             return None;
         }
         return match self.iter.peek() {
-                   Some(&&b'+') |
-                   Some(&&b'*') => self.parse_first_continuation(),
+                   Some(&&b'+') | Some(&&b'*') => self.parse_first_continuation(),
                    Some(_) => self.parse_first_string(),
                    None => None,
                };
