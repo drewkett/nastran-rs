@@ -27,12 +27,12 @@ pub struct Card {
 
 impl fmt::Display for Card {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Card(");
+        try!(write!(f, "Card("));
         for field in self.fields.iter() {
-            write!(f, "{:?},", field);
+            try!(write!(f, "{:?},", field));
         }
         if let Some(ref c) = self.comment {
-            write!(f, "Comment='{}'", c);
+            try!(write!(f, "Comment='{}'", c));
         }
         write!(f, ")")
     }
@@ -45,9 +45,9 @@ pub struct Deck {
 
 impl fmt::Display for Deck {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Deck(\n");
+        try!(write!(f, "Deck(\n"));
         for card in self.cards.iter() {
-            write!(f, "  {},\n", card);
+            try!(write!(f, "  {},\n", card));
         }
         write!(f, ")")
     }
