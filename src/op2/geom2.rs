@@ -29,6 +29,7 @@ pub struct CDAMP2 {
 }
 
 #[derive(Debug)]
+#[allow(non_snake_case)]
 pub struct CONM2 {
     eid: i32,
     g: i32,

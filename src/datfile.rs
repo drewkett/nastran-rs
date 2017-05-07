@@ -204,9 +204,9 @@ impl<'a> NastranIterator<'a> {
                };
     }
 
-    fn parse_string<I: Iterator>(&mut self, iter: I) -> Option<Field> {
-        return None;
-    }
+    // fn parse_string<I: Iterator>(&mut self, iter: I) -> Option<Field> {
+    //     return None;
+    // }
 
     fn parse_comma_field(&mut self) -> Option<Field> {
         let mut field_started = false;
