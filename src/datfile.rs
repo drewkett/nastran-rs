@@ -22,7 +22,7 @@ pub struct CardFlags {
 #[derive(Debug,PartialEq)]
 pub struct Card {
     pub fields: Vec<Field>,
-    comment: Option<String>,
+    pub comment: Option<String>,
 }
 
 impl fmt::Display for Card {

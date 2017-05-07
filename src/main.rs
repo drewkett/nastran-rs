@@ -1,5 +1,3 @@
-extern crate nastran;
-
 #[macro_use]
 extern crate nom;
 extern crate memmap;
@@ -8,6 +6,7 @@ extern crate ascii;
 use memmap::{Mmap, Protection};
 
 mod op2;
+mod datfile;
 
 pub fn main() {
     let filename = "../../../Documents/op2/run.op2";
