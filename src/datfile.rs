@@ -103,7 +103,7 @@ impl<'a> NastranIterator<'a> {
             return None;
         }
         let v = self.iter
-            .take_while(|&&c| c != b'\r')
+            .take_while(|&c| chars::is_newline(c))
             .cloned()
             .collect();
         return Some(Card {
@@ -169,7 +169,6 @@ impl<'a> NastranIterator<'a> {
             }
         }
         if !field_ended {
-            {
                 let mut it = self.iter.by_ref();
                 if let Some(&&c) = it.peek() {
                     if c == b',' {
@@ -177,7 +176,6 @@ impl<'a> NastranIterator<'a> {
                         it.next();
                     }
                 }
-            }
         }
         if !string_started {
             Some(Field::Blank)
