@@ -101,7 +101,7 @@ impl<'a> NastranIterator<'a> {
             return None;
         }
         let v = self.iter
-            .take_while(|&&c| c != chars::LF)
+            .take_while(|&&c| c != b'\r')
             .cloned()
             .collect();
         let comment = String::from_utf8(v).ok();
@@ -113,13 +113,13 @@ impl<'a> NastranIterator<'a> {
 
     fn parse_first_continuation(&mut self) -> Option<Field> {
         if let Some(&&c) = self.iter.peek() {
-            if c == chars::STAR {
+            if c == b'*' {
                 self.is_double = true;
             }
         }
         let c = self.iter
             .take(8)
-            .take_while(|&&c| c != chars::COMMA && c != chars::TAB)
+            .take_while(|&&c| c != b',' && c != b'\t')
             .cloned()
             .collect();
         return match String::from_utf8(c) {
@@ -136,34 +136,34 @@ impl<'a> NastranIterator<'a> {
         {
             let mut it = self.iter.by_ref().take(8);
             while let Some(&c) = it.next() {
-                if c == chars::COMMA {
+                if c == b',' {
                     self.is_comma = true;
                     field_ended = true;
                     break;
-                } else if c == chars::TAB {
+                } else if c == b'\t' {
                     field_ended = true;
                     break;
                 } else if !string_started {
                     if chars::is_alpha(&c) {
                         string_started = true;
                         svec.push(c);
-                    } else if !chars::is_space(&&c) {
+                    } else if c != b' ' {
                         println!("Expected Space or alpha");
                         return None;
                     }
                 } else if string_started && !string_ended {
                     if !chars::is_alphanumeric(&&c) {
                         string_ended = true;
-                        if c == chars::STAR {
+                        if c == b'*' {
                             self.is_double = true;
                         }
                     } else {
                         svec.push(c);
                     }
                 } else if string_ended {
-                    if !self.is_double && c == chars::STAR {
+                    if !self.is_double && c == b'*' {
                         self.is_double = true;
-                    } else if c != chars::SPACE {
+                    } else if c != b' ' {
                         println!("Expected Space '{}'", c as char);
                         return None;
                     }
@@ -174,7 +174,7 @@ impl<'a> NastranIterator<'a> {
             {
                 let mut it = self.iter.by_ref();
                 if let Some(&&c) = it.peek() {
-                    if c == chars::COMMA {
+                    if c == b',' {
                         self.is_comma = true;
                         it.next();
                     }
@@ -197,8 +197,8 @@ impl<'a> NastranIterator<'a> {
             return None;
         }
         return match self.iter.peek() {
-                   Some(&&chars::PLUS) |
-                   Some(&&chars::STAR) => self.parse_first_continuation(),
+                   Some(&&b'+') |
+                   Some(&&b'*') => self.parse_first_continuation(),
                    Some(_) => self.parse_first_string(),
                    None => None,
                };
@@ -210,9 +210,8 @@ impl<'a> NastranIterator<'a> {
 
     fn parse_comma_field(&mut self) -> Option<Field> {
         let mut field_started = false;
-        let mut field_ended = false;
         while let Some(&c) = self.iter.next() {
-            if !field_started && c != chars::SPACE {
+            if !field_started && c != b' ' {
                 field_started = true;
             }
         }
@@ -229,56 +228,24 @@ impl<'a> NastranIterator<'a> {
 }
 
 mod chars {
-    pub const LF: u8 = '\n' as u8;
-    pub const CR: u8 = '\r' as u8;
-    pub const TAB: u8 = '\t' as u8;
-    pub const COMMA: u8 = ',' as u8;
-    pub const SPACE: u8 = ' ' as u8;
-    pub const STAR: u8 = '*' as u8;
-    pub const PLUS: u8 = '+' as u8;
-
-
     pub fn is_newline(&c: &u8) -> bool {
-        c == LF || c == CR
+        c == b'\r' || c == b'\n'
     }
-    // pub fn is_field_end(&c: &u8) -> bool {
-    //     c == TAB || c == COMMA
-    // }
-    // pub fn is_not_field_end(&c: &u8) -> bool {
-    //     !is_field_end(&c)
-    // }
+    pub fn is_field_end(&c: &u8) -> bool {
+        c == b'\t' || c == b','
+    }
+    pub fn is_not_field_end(&c: &u8) -> bool {
+        !is_field_end(&c)
+    }
     pub fn is_alpha(&b: &u8) -> bool {
-        let c = b as char;
-        (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+        (b >= b'a' && b <= b'z') || (b >= b'A' && b <= b'Z')
     }
     pub fn is_numeric(&b: &u8) -> bool {
-        let c = b as char;
-        c >= '0' && c <= '9'
+        b >= b'0' && b <= b'9'
     }
     pub fn is_alphanumeric(&&b: &&u8) -> bool {
         is_alpha(&b) || is_numeric(&b)
     }
-    pub fn is_space(&&b: &&u8) -> bool {
-        b == SPACE
-    }
-    // pub fn is_not_tab(&&c: &&u8) -> bool {
-    //     c != TAB
-    // }
-    // pub fn is_comma(&c: &u8) -> bool {
-    //     c == COMMA
-    // }
-    // pub fn is_not_comma(&&c: &&u8) -> bool {
-    //     c != COMMA
-    // }
-    // pub fn is_comma_tab(&c: &u8) -> bool {
-    //     c == TAB || c == COMMA
-    // }
-    // pub fn is_not_comma_tab(&&c: &&u8) -> bool {
-    //     c != TAB && c != COMMA
-    // }
-    // pub fn is_star_or_plus(&c: &u8) -> bool {
-    //     c == STAR || c == PLUS
-    // }
 }
 
 // fn take_spaces(line: &[u8]) -> usize {
