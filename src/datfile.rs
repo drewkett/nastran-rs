@@ -2,6 +2,7 @@ use std::cmp::min;
 use std::iter::Peekable;
 use std::slice::Iter;
 use std::fmt;
+use nom::IResult;
 
 #[derive(Debug,PartialEq)]
 pub enum Field {
@@ -295,9 +296,46 @@ mod chars {
 //     }
 // }
 
+fn parse_field(buffer: &[u8]) -> IResult<&[u8],&[u8]> {
+    let mut it = buffer.iter().enumerate().take(8);
+    let mut field = &buffer[0..0];
+    let mut remainder = buffer;
+    let mut check_for_trailing_comma = false;
+    while let Some((i,&c)) = it.next() {
+        if c == b',' {
+            field = &buffer[0..i];
+            remainder = &buffer[i..];
+            break;
+        } else if c == b'\t' || c == b'$' || c == b'\r' || c == b'\n' {
+            field = &buffer[0..i];
+            remainder = &buffer[i..];
+            break;
+        } else if i == 8 {
+            field = &buffer[0..i];
+            remainder = &buffer[i..];
+            check_for_trailing_comma = true;
+            break
+        }
+    }
+    if check_for_trailing_comma && remainder.len() > 0 {
+        if remainder[0] == b',' {
+            remainder = &remainder[1..];
+        }
+    }
+    IResult::Done(field,remainder)
+}
+
 pub fn parse_buffer(buffer: &[u8]) -> Option<Deck> {
-    let mut it = buffer.iter().peekable();
-    let mut it = NastranIterator::new(&mut it);
-    return it.parse_file();
+    // let mut it = buffer.iter().peekable();
+    // let mut it = NastranIterator::new(&mut it);
+    // return it.parse_file();
+    let mut fields = vec![];
+    let mut comment = None;
+    while let IResult::Done(field,buffer) = parse_field(buffer) {
+        fields.push(Field::field)
+    }
+    let mut card = Card { fields, comment };
+    // if let IResult::Done(field,remainder) = parse_field(buffer);
+    return Some(Deck { cards: vec![card] });
 }
 
