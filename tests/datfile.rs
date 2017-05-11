@@ -12,9 +12,9 @@ fn comma_separated() {
         cards: vec![
             datfile::Card {
                 fields: vec![
-                    datfile::Field::String("PARAM".to_owned())
+                    datfile::Field::String(b"PARAM".to_vec())
                 ],
-                comment: Some("POST".to_owned())
+                comment: Some(b"POST".to_vec())
             }
         ]
     }), datfile::parse_buffer(b"PARAM,POST"))

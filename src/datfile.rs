@@ -330,11 +330,11 @@ pub fn parse_buffer(buffer: &[u8]) -> Option<Deck> {
     // let mut it = NastranIterator::new(&mut it);
     // return it.parse_file();
     let mut fields = vec![];
-    let mut comment = None;
+    let comment = None;
     while let IResult::Done(field,buffer) = parse_field(buffer) {
-        fields.push(Field::field)
+        fields.push(Field::String(field.to_owned()))
     }
-    let mut card = Card { fields, comment };
+    let card = Card { fields, comment };
     // if let IResult::Done(field,remainder) = parse_field(buffer);
     return Some(Deck { cards: vec![card] });
 }
