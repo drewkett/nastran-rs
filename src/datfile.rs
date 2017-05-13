@@ -124,7 +124,7 @@ impl<'a> NastranIterator<'a> {
             .take_while(|&&c| c != b',' && c != b'\t')
             .cloned()
             .collect();
-            return Some(Field::Continuation(c));
+        return Some(Field::Continuation(c));
     }
 
     fn parse_first_string(&mut self) -> Option<Field> {
@@ -170,13 +170,13 @@ impl<'a> NastranIterator<'a> {
             }
         }
         if !field_ended {
-                let mut it = self.iter.by_ref();
-                if let Some(&&c) = it.peek() {
-                    if c == b',' {
-                        self.is_comma = true;
-                        it.next();
-                    }
+            let mut it = self.iter.by_ref();
+            if let Some(&&c) = it.peek() {
+                if c == b',' {
+                    self.is_comma = true;
+                    it.next();
                 }
+            }
         }
         if !string_started {
             Some(Field::Blank)
@@ -296,46 +296,52 @@ mod chars {
 //     }
 // }
 
-fn parse_field(buffer: &[u8]) -> IResult<&[u8],&[u8]> {
+fn parse_field(buffer: &[u8]) -> IResult<&[u8], Field> {
     let mut it = buffer.iter().enumerate().take(8);
     let mut field = &buffer[0..0];
     let mut remainder = buffer;
     let mut check_for_trailing_comma = false;
-    while let Some((i,&c)) = it.next() {
-        if c == b',' {
+    let mut found_end = false;
+    while let Some((i, &c)) = it.next() {
+        if c == b',' || c == b'\t' || c == b'\r' || c == b'\n' {
             field = &buffer[0..i];
-            remainder = &buffer[i..];
+            remainder = &buffer[i+1..];
+            found_end = true;
             break;
-        } else if c == b'\t' || c == b'$' || c == b'\r' || c == b'\n' {
+        } else if c == b'$' {
             field = &buffer[0..i];
             remainder = &buffer[i..];
+            found_end = true;
             break;
         } else if i == 8 {
             field = &buffer[0..i];
             remainder = &buffer[i..];
             check_for_trailing_comma = true;
-            break
+            found_end = true;
+            break;
         }
+    }
+    if !found_end {
+        field = buffer;
+        remainder = &[];
     }
     if check_for_trailing_comma && remainder.len() > 0 {
         if remainder[0] == b',' {
             remainder = &remainder[1..];
         }
     }
-    IResult::Done(field,remainder)
+    IResult::Done(remainder, Field::String(field.to_owned()))
 }
 
-pub fn parse_buffer(buffer: &[u8]) -> Option<Deck> {
+pub fn parse_buffer(buffer: &[u8]) -> IResult<&[u8], Deck> {
     // let mut it = buffer.iter().peekable();
     // let mut it = NastranIterator::new(&mut it);
     // return it.parse_file();
-    let mut fields = vec![];
     let comment = None;
-    while let IResult::Done(field,buffer) = parse_field(buffer) {
-        fields.push(Field::String(field.to_owned()))
-    }
-    let card = Card { fields, comment };
-    // if let IResult::Done(field,remainder) = parse_field(buffer);
-    return Some(Deck { cards: vec![card] });
+    let res = map!(buffer,
+                   many0!(parse_field),
+                   |fields| Deck { cards: vec![Card { fields, comment }] });
+    println!("{:?}", res);
+    return res;
 }
 

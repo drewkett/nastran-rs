@@ -8,14 +8,15 @@ PARAM,POST
 
 #[test]
 fn comma_separated() {
-    assert_eq!(Some(datfile::Deck {
+    assert_eq!(datfile::Deck {
         cards: vec![
             datfile::Card {
                 fields: vec![
-                    datfile::Field::String(b"PARAM".to_vec())
+                    datfile::Field::String(b"PARAM".to_vec()),
+                    datfile::Field::String(b"POST".to_vec()),
                 ],
-                comment: Some(b"POST".to_vec())
+                comment: None
             }
         ]
-    }), datfile::parse_buffer(b"PARAM,POST"))
+    }, datfile::parse_buffer(b"PARAM,POST").unwrap().1)
 }
