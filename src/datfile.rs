@@ -304,14 +304,60 @@ impl<'a> Iterator for Lines<'a> {
     }
 }
 
+fn read_first_field(line: &[u8]) -> (Field, CardFlags, &[u8]) {
+    let mut flags = CardFlags {
+        is_comma: false,
+        is_double: false,
+    };
+    let length = line.len();
+    let size = min(length,8);
+    let mut i_end = size;
+    let mut i_next = size;
+    for i in 0..size {
+        if line[i] == b',' {
+            flags.is_comma = true;
+            i_end = i;
+            i_next = i + 1;
+            break;
+        } else if line[i] == b'\t' {
+            i_end = i;
+            i_next = i + 1;
+            break;
+        }
+    }
+    if i_end == size && length > 8 {
+        if line[8] == b',' {
+            flags.is_comma = true;
+            i_next = 9;
+        }
+    }
+    let first_field = (&line[..i_end]).to_owned();
+    let remainder = &line[i_next..];
+    return (Field::String(first_field), flags, remainder);
+}
+
+fn split_line(line: &[u8]) -> Vec<Field> {
+    let (field, flags, remainder) = read_first_field(line);
+    let mut fields = vec![field];
+    if flags.is_comma {
+        let it = remainder.split(|&b| b == b',').map(|s| Field::String(s.to_owned()));
+        for f in it {
+            fields.push(f);
+        }
+    }
+    return fields;
+}
 
 pub fn parse_buffer(buffer: &[u8]) -> Option<Deck> {
     let mut cards = vec![];
     let mut lines_it = Lines::new(buffer);
     while let Some(line) = lines_it.next() {
-        let field = Field::String(line.buffer.to_owned());
+        let fields = split_line(line.buffer);
         let comment = Some(line.comment.to_owned());
-        cards.push(Card { fields: vec![field], comment})
+        cards.push(Card {
+                       fields,
+                       comment,
+                   })
     }
     return Some(Deck { cards });
 }

@@ -13,15 +13,36 @@ ABCDEF,123456,123456,123456,123456,123456,123456,123456,123456,123456,123456,123
 fn comma_separated() {
     assert_eq!(Some(datfile::Deck {
                         cards: vec![datfile::Card {
-                                        fields: vec![datfile::Field::String(b"PARAM,POST,1".to_vec())],
+                                        fields: vec![
+                                            datfile::Field::String(b"PARAM".to_vec()),
+                                            datfile::Field::String(b"POST".to_vec()),
+                                            datfile::Field::String(b"1".to_vec()),
+                                            ],
                                         comment: Some(b"$ABC".to_vec()),
                                     },
                                     datfile::Card {
-                                        fields: vec![datfile::Field::String(b"PARAM,WTMASS,0.00259".to_vec())],
+                                        fields: vec![
+                                            datfile::Field::String(b"PARAM".to_vec()),
+                                            datfile::Field::String(b"WTMASS".to_vec()),
+                                            datfile::Field::String(b"0.00259".to_vec()),
+                                            ],
                                         comment: Some(b"".to_vec()),
                                     },
                                     datfile::Card {
-                                        fields: vec![datfile::Field::String(b"ABCDEF,123456,123456,123456,123456,123456,123456,123456,123456,123456,123456,123".to_vec())],
+                                        fields: vec![
+                                            datfile::Field::String(b"ABCDEF".to_vec()),
+                                            datfile::Field::String(b"123456".to_vec()),
+                                            datfile::Field::String(b"123456".to_vec()),
+                                            datfile::Field::String(b"123456".to_vec()),
+                                            datfile::Field::String(b"123456".to_vec()),
+                                            datfile::Field::String(b"123456".to_vec()),
+                                            datfile::Field::String(b"123456".to_vec()),
+                                            datfile::Field::String(b"123456".to_vec()),
+                                            datfile::Field::String(b"123456".to_vec()),
+                                            datfile::Field::String(b"123456".to_vec()),
+                                            datfile::Field::String(b"123456".to_vec()),
+                                            datfile::Field::String(b"123".to_vec()),
+                                            ],
                                         comment: Some(b"456,123456".to_vec()),
                                     }],
                     }),
