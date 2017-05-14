@@ -13,19 +13,19 @@ ABCDEF,123456,123456,123456,123456,123456,123456,123456,123456,123456,123456,123
 fn comma_separated() {
     assert_eq!(datfile::Deck {
                    cards: vec![datfile::Card {
-                                   fields: vec![datfile::Field::String(b"PARAM".to_vec()),
-                                                datfile::Field::String(b"POST".to_vec()),
+                                   fields: vec![datfile::Field::String("PARAM".to_owned()),
+                                                datfile::Field::String("POST".to_owned()),
                                                 datfile::Field::Int(1)],
                                    comment: Some(b"$ABC".to_vec()),
                                },
                                datfile::Card {
-                                   fields: vec![datfile::Field::String(b"PARAM".to_vec()),
-                                                datfile::Field::String(b"WTMASS".to_vec()),
+                                   fields: vec![datfile::Field::String("PARAM".to_owned()),
+                                                datfile::Field::String("WTMASS".to_owned()),
                                                 datfile::Field::Float(0.00259)],
                                    comment: Some(b"".to_vec()),
                                },
                                datfile::Card {
-                                   fields: vec![datfile::Field::String(b"ABCDEF".to_vec()),
+                                   fields: vec![datfile::Field::String("ABCDEF".to_owned()),
                                                 datfile::Field::Int(123456),
                                                 datfile::Field::Int(123456),
                                                 datfile::Field::Int(123456),
