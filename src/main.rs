@@ -1,9 +1,10 @@
 #![allow(dead_code)]
 
-#[macro_use]
-extern crate nom;
+#[macro_use] extern crate nom;
 extern crate memmap;
 extern crate ascii;
+#[macro_use] extern crate lazy_static;
+extern crate regex;
 
 use memmap::{Mmap, Protection};
 

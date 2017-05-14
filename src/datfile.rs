@@ -2,6 +2,8 @@ use std::cmp::min;
 use std::iter::Peekable;
 use std::slice::Iter;
 use std::fmt;
+use std::io::{Result, Error, ErrorKind};
+use regex::bytes::Regex;
 
 #[derive(Debug,PartialEq)]
 pub enum Field {
@@ -246,7 +248,7 @@ struct Line<'a> {
 }
 
 impl<'a> fmt::Display for Line<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f,
                "Line ('{}',Comment='{}')",
                String::from_utf8_lossy(self.buffer),
@@ -310,7 +312,7 @@ fn read_first_field(line: &[u8]) -> (Field, CardFlags, &[u8]) {
         is_double: false,
     };
     let length = line.len();
-    let size = min(length,8);
+    let size = min(length, 8);
     let mut i_end = size;
     let mut i_next = size;
     for i in 0..size {
@@ -336,29 +338,117 @@ fn read_first_field(line: &[u8]) -> (Field, CardFlags, &[u8]) {
     return (Field::String(first_field), flags, remainder);
 }
 
-fn split_line(line: &[u8]) -> Vec<Field> {
+fn strip_spaces(field: &[u8]) -> &[u8] {
+    let length = field.len();
+    let mut i_start = 0;
+    for i in 0..length {
+        if field[i] == b' ' {
+            i_start = i + 1;
+        } else {
+            break;
+        }
+    }
+    let field = &field[i_start..];
+    if field.len() == 0 {
+        return field;
+    }
+    let length = field.len();
+    let mut i_end = length;
+    for i in length - 1..0 {
+        if field[i] == b' ' {
+            i_end = i;
+        } else {
+            break;
+        }
+    }
+    return &field[..i_end];
+}
+
+fn parse_field_as_string(field: &[u8]) -> Result<Field> {
+    for i in 0..field.len() {
+        match field[i] {
+            b'a'...b'z' | b'A'...b'Z' | b'0'...b'9' => (),
+            _ => return Err(Error::new(ErrorKind::Other, "Invalid character in field")),
+        }
+    }
+    return Ok(Field::String(field.to_owned()));
+}
+
+fn parse_field_as_float(field: &[u8]) -> Result<Field> {
+    let length = field.len();
+    if length == 0 {
+        return Ok(Field::Blank);
+    }
+    lazy_static! {
+        static ref STRING: Regex = Regex::new(r"^[a-zA-Z]+$").unwrap();
+    }
+    if STRING.is_match(field) {
+        return Ok(Field::String(field.to_owned())) 
+    } else {
+        return Err(Error::new(ErrorKind::Other, "Invalid String"))
+    }
+}
+
+fn parse_field_as_number(field: &[u8]) -> Result<Field> {
+    let length = field.len();
+    if length == 0 {
+        return Ok(Field::Blank);
+    }
+    lazy_static! {
+        static ref INT: Regex = Regex::new(r"^-?[0-9]+$").unwrap();
+        static ref FLOAT: Regex = Regex::new(r"^[-+]?([0-9]+\.[0-9]*|\.[0-9]+)(([eE][-+]?|[-+])[0-9]+)?$").unwrap();
+    }
+    if INT.is_match(field) {
+        let number: i32 = String::from_utf8_lossy(field).parse().unwrap();
+        return Ok(Field::Int(number))
+    } else if FLOAT.is_match(field) {
+        let number: f32 = String::from_utf8_lossy(field).parse().unwrap();
+        return Ok(Field::Float(number))
+    } else {
+        return Err(Error::new(ErrorKind::Other, "Can't parse number"))
+    }
+}
+
+fn parse_field(field: &[u8]) -> Result<Field> {
+    let field = strip_spaces(field);
+    if field.len() == 0 {
+        return Ok(Field::Blank);
+    }
+    return match field[0] {
+               b'a'...b'z' | b'A'...b'Z' => parse_field_as_string(field),
+               b'0'...b'9' | b'-' | b'+' | b'.' => parse_field_as_number(field),
+               _ => Err(Error::new(ErrorKind::Other, "Can't parse field")),
+           };
+}
+
+fn split_line(line: &[u8]) -> Result<Vec<Field>> {
     let (field, flags, remainder) = read_first_field(line);
     let mut fields = vec![field];
     if flags.is_comma {
-        let it = remainder.split(|&b| b == b',').map(|s| Field::String(s.to_owned()));
+        let it = remainder
+            .split(|&b| b == b',')
+            .map(parse_field);
         for f in it {
-            fields.push(f);
+            match f {
+                Ok(field) => fields.push(field),
+                Err(e) => return Err(e)
+            }
         }
     }
-    return fields;
+    return Ok(fields);
 }
 
-pub fn parse_buffer(buffer: &[u8]) -> Option<Deck> {
+pub fn parse_buffer(buffer: &[u8]) -> Result<Deck> {
     let mut cards = vec![];
     let mut lines_it = Lines::new(buffer);
     while let Some(line) = lines_it.next() {
-        let fields = split_line(line.buffer);
+        let fields = match split_line(line.buffer) {
+            Ok(fields) => fields,
+            Err(e) => return Err(e)
+        };
         let comment = Some(line.comment.to_owned());
-        cards.push(Card {
-                       fields,
-                       comment,
-                   })
+        cards.push(Card { fields, comment })
     }
-    return Some(Deck { cards });
+    return Ok(Deck { cards });
 }
 
