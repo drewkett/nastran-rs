@@ -1,7 +1,18 @@
 use std::cmp::min;
 use std::fmt;
 use std::io::{Result, Error, ErrorKind};
-use regex::bytes::Regex;
+use regex::bytes::{Regex};
+
+lazy_static! {
+    static ref INT: Regex = Regex::new(r"^ *(-?\d+) *$").unwrap();
+    static ref FLOAT: Regex = Regex::new(r"^ *([-+]?(\d+\.\d*|\.\d+)([eE][-+]?\d+)?|(\d+[eE][-+]?\d+)) *$").unwrap();
+    static ref NASFLOAT: Regex = Regex::new(r"^ *([-+]?(\d+\.\d*|\.\d+))([-+]\d+) *$").unwrap();
+    static ref BLANK: Regex = Regex::new(r"^ *$").unwrap();
+    static ref STRING: Regex = Regex::new(r"^ *([a-zA-Z][a-zA-Z0-9]*) *$").unwrap();
+    static ref DSTRING: Regex = Regex::new(r"^ *([a-zA-Z][a-zA-Z0-9]*) *\* *$").unwrap();
+    static ref CONT: Regex = Regex::new(r"^\+([a-zA-Z0-9 ]*)$").unwrap();
+    static ref DCONT: Regex = Regex::new(r"^\*([a-zA-Z0-9 ]*)$").unwrap();
+}
 
 #[derive(Debug,PartialEq)]
 pub enum Field {
@@ -118,30 +129,32 @@ impl<'a> Iterator for Lines<'a> {
 }
 
 fn parse_first_field(field_slice: &[u8]) -> Result<(Field, bool)> {
-    lazy_static! {
-        static ref STRING: Regex = Regex::new(r"^ *([a-zA-Z][a-zA-Z0-9]*) *$").unwrap();
-        static ref DSTRING: Regex = Regex::new(r"^ *([a-zA-Z][a-zA-Z0-9]*) *\* *$").unwrap();
-        static ref CONT: Regex = Regex::new(r"^\+ *([a-zA-Z][a-zA-Z0-9]*) *$").unwrap();
-        static ref DCONT: Regex = Regex::new(r"^\* *([a-zA-Z][a-zA-Z0-9]*) *$").unwrap();
-    }
-    if STRING.is_match(field_slice) {
+    if BLANK.is_match(field_slice) {
+        return Ok((Field::Blank,false))
+    } else if STRING.is_match(field_slice) {
         let cap = STRING.captures(field_slice).unwrap();
-        let s = String::from_utf8_lossy(&cap[0]).into_owned();
+        let s = String::from_utf8_lossy(&cap[1]).into_owned();
         return Ok((Field::String(s),false))
     } else if DSTRING.is_match(field_slice) {
         let cap = DSTRING.captures(field_slice).unwrap();
-        let s = String::from_utf8_lossy(&cap[0]).into_owned();
+        let s = String::from_utf8_lossy(&cap[1]).into_owned();
         return Ok((Field::String(s),true))
     } else if CONT.is_match(field_slice) {
         let cap = CONT.captures(field_slice).unwrap();
-        let s = String::from_utf8_lossy(&cap[0]).into_owned();
+        let s = match cap.get(1) {
+            Some(c) => String::from_utf8_lossy(c.as_bytes()).into_owned(),
+            None => "".to_owned()
+        };
         return Ok((Field::Continuation(s),false))
     } else if DCONT.is_match(field_slice) {
         let cap = DCONT.captures(field_slice).unwrap();
-        let s = String::from_utf8_lossy(&cap[0]).into_owned();
+        let s = match cap.get(1) {
+            Some(c) => String::from_utf8_lossy(c.as_bytes()).into_owned(),
+            None => "".to_owned()
+        };
         return Ok((Field::Continuation(s),true))
     } else {
-        return Err(Error::new(ErrorKind::Other,"Invalid first field"))
+        return Err(Error::new(ErrorKind::Other,format!("Invalid first field '{}'",String::from_utf8_lossy(field_slice))))
     }
 }
 
@@ -172,9 +185,6 @@ fn read_first_field(line: &[u8]) -> Result<(Field, CardFlags, &[u8])> {
             i_next = 9;
         }
     }
-    lazy_static! {
-        static ref STRING: Regex = Regex::new(r"^[a-zA-Z]+$").unwrap();
-    }
     let (field,is_double) = match parse_first_field(&line[..i_end]) {
         Ok(res) => res,
         Err(e) => return Err(e)
@@ -198,9 +208,6 @@ fn strip_spaces(field: &[u8]) -> &[u8] {
 }
 
 fn parse_field_as_string(field: &[u8]) -> Result<Field> {
-    lazy_static! {
-        static ref STRING: Regex = Regex::new(r"^ *([a-zA-Z][a-zA-Z0-9]*) *$").unwrap();
-    }
     if let Some(cap) = STRING.captures(field) {
         let s = String::from_utf8_lossy(&cap[1]).into_owned();
         return Ok(Field::String(s))
@@ -209,13 +216,22 @@ fn parse_field_as_string(field: &[u8]) -> Result<Field> {
     }
 }
 
+fn parse_field_as_continuation(field: &[u8]) -> Result<Field> {
+    if let Some(cap) = CONT.captures(field) {
+        let s = match cap.get(1) {
+            Some(c) => String::from_utf8_lossy(c.as_bytes()).into_owned(),
+            None => "".to_owned()
+        };
+        return Ok(Field::Continuation(s))
+    } else {
+        return Err(Error::new(ErrorKind::Other, format!("Invalid continuation '{}'",String::from_utf8_lossy(field))))
+    }
+}
+
 fn parse_field_as_float(field: &[u8]) -> Result<Field> {
     let length = field.len();
     if length == 0 {
         return Ok(Field::Blank);
-    }
-    lazy_static! {
-        static ref STRING: Regex = Regex::new(r"^[a-zA-Z]+$").unwrap();
     }
     if STRING.is_match(field) {
         return Ok(Field::String(String::from_utf8_lossy(field).into_owned())) 
@@ -229,18 +245,32 @@ fn parse_field_as_number(field: &[u8]) -> Result<Field> {
     if length == 0 {
         return Ok(Field::Blank);
     }
-    lazy_static! {
-        static ref INT: Regex = Regex::new(r"^ *(-?[0-9]+) *$").unwrap();
-        static ref FLOAT: Regex = Regex::new(r"^ *([-+]?([0-9]+\.[0-9]*|\.[0-9]+)(([eE][-+]?|[-+])[0-9]+)?) *$").unwrap();
-    }
     if let Some(cap) = INT.captures(field) {
         let number: i32 = String::from_utf8_lossy(&cap[1]).parse().unwrap();
         return Ok(Field::Int(number))
     } else if let Some(cap) = FLOAT.captures(field) {
-        let number: f32 = String::from_utf8_lossy(&cap[1]).parse().unwrap();
-        return Ok(Field::Float(number))
+        return match String::from_utf8_lossy(&cap[1]).parse::<f32>() {
+            Ok(n) => Ok(Field::Float(n)),
+            Err(_) => Err(Error::new(ErrorKind::Other,format!("Error parsing float '{}'",String::from_utf8_lossy(&cap[1]))))
+        }
+    } else if let Some(cap) = NASFLOAT.captures(field) {
+        let value = &cap[1];
+        let exponent = &cap[3];
+        let length = value.len() + exponent.len() + 1;
+        let mut temp = Vec::with_capacity(length);
+        for &c in value {
+            temp.push(c);
+        }
+        temp.push(b'e');
+        for &c in exponent {
+            temp.push(c);
+        }
+        return match String::from_utf8_lossy(&temp[..]).parse::<f32>() {
+            Ok(n) => Ok(Field::Float(n)),
+            Err(_) => Err(Error::new(ErrorKind::Other,format!("Error parsing float '{}'",String::from_utf8_lossy(&temp[..]))))
+        }
     } else {
-        return Err(Error::new(ErrorKind::Other, "Can't parse number"))
+        return Err(Error::new(ErrorKind::Other, format!("Can't parse number '{}'",String::from_utf8_lossy(field))))
     }
 }
 
@@ -251,7 +281,8 @@ fn parse_field(field: &[u8]) -> Result<Field> {
     }
     return match field[0] {
                b'a'...b'z' | b'A'...b'Z' => parse_field_as_string(field),
-               b'0'...b'9' | b'-' | b'+' | b'.' => parse_field_as_number(field),
+               b'0'...b'9' | b'-' | b'.' => parse_field_as_number(field),
+                b'+' => parse_field_as_continuation(field),
                _ => Err(Error::new(ErrorKind::Other, "Can't parse field")),
            };
 }
