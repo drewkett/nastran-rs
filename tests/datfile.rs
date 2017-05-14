@@ -2,8 +2,8 @@ extern crate nastran;
 use nastran::datfile;
 
 const DATFILE: &'static [u8] = b"\
-PARAM,POST,1$ABC
-PARAM,WTMASS,0.00259
+PARAM,POST , 1 $ABC
+PARAM, WTMASS,0.00259
 
 
 ABCDEF,123456,123456,123456,123456,123456,123456,123456,123456,123456,123456,123456,123456
@@ -11,6 +11,10 @@ ABCDEF,123456,123456,123456,123456,123456,123456,123456,123456,123456,123456,123
 
 #[test]
 fn comma_separated() {
+    let res = match datfile::parse_buffer(DATFILE) {
+        Ok(d) => d,
+        Err(e) => {println!("{:?}",e); assert!(false); return}
+    };
     assert_eq!(datfile::Deck {
                    cards: vec![datfile::Card {
                                    fields: vec![datfile::Field::String("PARAM".to_owned()),
@@ -40,11 +44,6 @@ fn comma_separated() {
                                    comment: Some(b"456,123456".to_vec()),
                                }],
                },
-               datfile::parse_buffer(DATFILE).unwrap_or(datfile::Deck { cards: vec![] }))
+               res)
 }
-
-// #[test]
-// fn comment() {
-//     assert_eq!(b"$ABC",datfile::read_comment(b"$ABC").unwrap().1);
-// }
 

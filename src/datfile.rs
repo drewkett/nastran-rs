@@ -117,6 +117,34 @@ impl<'a> Iterator for Lines<'a> {
     }
 }
 
+fn parse_first_field(field_slice: &[u8]) -> Result<(Field, bool)> {
+    lazy_static! {
+        static ref STRING: Regex = Regex::new(r"^ *([a-zA-Z][a-zA-Z0-9]*) *$").unwrap();
+        static ref DSTRING: Regex = Regex::new(r"^ *([a-zA-Z][a-zA-Z0-9]*) *\* *$").unwrap();
+        static ref CONT: Regex = Regex::new(r"^\+ *([a-zA-Z][a-zA-Z0-9]*) *$").unwrap();
+        static ref DCONT: Regex = Regex::new(r"^\* *([a-zA-Z][a-zA-Z0-9]*) *$").unwrap();
+    }
+    if STRING.is_match(field_slice) {
+        let cap = STRING.captures(field_slice).unwrap();
+        let s = String::from_utf8_lossy(&cap[0]).into_owned();
+        return Ok((Field::String(s),false))
+    } else if DSTRING.is_match(field_slice) {
+        let cap = DSTRING.captures(field_slice).unwrap();
+        let s = String::from_utf8_lossy(&cap[0]).into_owned();
+        return Ok((Field::String(s),true))
+    } else if CONT.is_match(field_slice) {
+        let cap = CONT.captures(field_slice).unwrap();
+        let s = String::from_utf8_lossy(&cap[0]).into_owned();
+        return Ok((Field::Continuation(s),false))
+    } else if DCONT.is_match(field_slice) {
+        let cap = DCONT.captures(field_slice).unwrap();
+        let s = String::from_utf8_lossy(&cap[0]).into_owned();
+        return Ok((Field::Continuation(s),true))
+    } else {
+        return Err(Error::new(ErrorKind::Other,"Invalid first field"))
+    }
+}
+
 fn read_first_field(line: &[u8]) -> Result<(Field, CardFlags, &[u8])> {
     let mut flags = CardFlags {
         is_comma: false,
@@ -147,14 +175,13 @@ fn read_first_field(line: &[u8]) -> Result<(Field, CardFlags, &[u8])> {
     lazy_static! {
         static ref STRING: Regex = Regex::new(r"^[a-zA-Z]+$").unwrap();
     }
-    let first_slice = &line[..i_end];
-    let first_field = if STRING.is_match(first_slice) {
-        Field::String(String::from_utf8_lossy(first_slice).into_owned())
-    } else {
-        return Err(Error::new(ErrorKind::Other,"Invalid first field"))
+    let (field,is_double) = match parse_first_field(&line[..i_end]) {
+        Ok(res) => res,
+        Err(e) => return Err(e)
     };
+    flags.is_double = is_double;
     let remainder = &line[i_next..];
-    return Ok((first_field, flags, remainder));
+    return Ok((field, flags, remainder));
 }
 
 fn strip_spaces(field: &[u8]) -> &[u8] {
@@ -167,30 +194,19 @@ fn strip_spaces(field: &[u8]) -> &[u8] {
             break;
         }
     }
-    let field = &field[i_start..];
-    if field.len() == 0 {
-        return field;
-    }
-    let length = field.len();
-    let mut i_end = length;
-    for i in length - 1..0 {
-        if field[i] == b' ' {
-            i_end = i;
-        } else {
-            break;
-        }
-    }
-    return &field[..i_end];
+    return &field[i_start..];
 }
 
 fn parse_field_as_string(field: &[u8]) -> Result<Field> {
-    for i in 0..field.len() {
-        match field[i] {
-            b'a'...b'z' | b'A'...b'Z' | b'0'...b'9' => (),
-            _ => return Err(Error::new(ErrorKind::Other, "Invalid character in field")),
-        }
+    lazy_static! {
+        static ref STRING: Regex = Regex::new(r"^ *([a-zA-Z][a-zA-Z0-9]*) *$").unwrap();
     }
-    return Ok(Field::String(String::from_utf8_lossy(field).into_owned()));
+    if let Some(cap) = STRING.captures(field) {
+        let s = String::from_utf8_lossy(&cap[1]).into_owned();
+        return Ok(Field::String(s))
+    } else {
+        return Err(Error::new(ErrorKind::Other, format!("Invalid character in field '{}'",String::from_utf8_lossy(field))))
+    }
 }
 
 fn parse_field_as_float(field: &[u8]) -> Result<Field> {
@@ -214,14 +230,14 @@ fn parse_field_as_number(field: &[u8]) -> Result<Field> {
         return Ok(Field::Blank);
     }
     lazy_static! {
-        static ref INT: Regex = Regex::new(r"^-?[0-9]+$").unwrap();
-        static ref FLOAT: Regex = Regex::new(r"^[-+]?([0-9]+\.[0-9]*|\.[0-9]+)(([eE][-+]?|[-+])[0-9]+)?$").unwrap();
+        static ref INT: Regex = Regex::new(r"^ *(-?[0-9]+) *$").unwrap();
+        static ref FLOAT: Regex = Regex::new(r"^ *([-+]?([0-9]+\.[0-9]*|\.[0-9]+)(([eE][-+]?|[-+])[0-9]+)?) *$").unwrap();
     }
-    if INT.is_match(field) {
-        let number: i32 = String::from_utf8_lossy(field).parse().unwrap();
+    if let Some(cap) = INT.captures(field) {
+        let number: i32 = String::from_utf8_lossy(&cap[1]).parse().unwrap();
         return Ok(Field::Int(number))
-    } else if FLOAT.is_match(field) {
-        let number: f32 = String::from_utf8_lossy(field).parse().unwrap();
+    } else if let Some(cap) = FLOAT.captures(field) {
+        let number: f32 = String::from_utf8_lossy(&cap[1]).parse().unwrap();
         return Ok(Field::Float(number))
     } else {
         return Err(Error::new(ErrorKind::Other, "Can't parse number"))
