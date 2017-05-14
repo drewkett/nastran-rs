@@ -1,6 +1,4 @@
 use std::cmp::min;
-use std::iter::Peekable;
-use std::slice::Iter;
 use std::fmt;
 use std::io::{Result, Error, ErrorKind};
 use regex::bytes::Regex;
