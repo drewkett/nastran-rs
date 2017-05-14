@@ -95,7 +95,7 @@ impl<'a> Iterator for Lines<'a> {
         if length == 0 {
             return None;
         }
-        let mut i_comment = 80;
+        let mut i_comment = min(80,length);
         let mut i_end = length;
         let mut i_next = length;
         for i in 0..self.buffer.len() {
@@ -287,6 +287,37 @@ fn parse_field(field: &[u8]) -> Result<Field> {
            };
 }
 
+struct ShortCardIterator<'a> {
+    remainder: &'a [u8]
+}
+
+impl <'a> ShortCardIterator<'a> {
+    fn new(remainder: &'a [u8]) -> ShortCardIterator {
+        return ShortCardIterator { remainder };
+    }
+}
+
+impl <'a> Iterator for ShortCardIterator<'a> {
+    type Item = &'a [u8];
+    fn next(&mut self) -> Option<Self::Item> {
+        let n = min(8,self.remainder.len());
+        if n == 0 {
+            return None;
+        }
+        for i in 0..n {
+            if self.remainder[i] == b'\t' {
+                let field = &self.remainder[..i];
+                self.remainder = &self.remainder[i+1..];
+                return Some(field)
+            }
+        }
+        let field = &self.remainder[..n];
+        self.remainder = &self.remainder[n..];
+        return Some(field)
+    }
+}
+
+
 fn split_line(line: &[u8]) -> Result<Vec<Field>> {
     let (field, flags, remainder) = match read_first_field(line) {
         Ok(r) => r,
@@ -302,6 +333,21 @@ fn split_line(line: &[u8]) -> Result<Vec<Field>> {
                 Ok(field) => fields.push(field),
                 Err(e) => return Err(e)
             }
+        }
+    } else if flags.is_double {
+    } else {
+        let mut it = ShortCardIterator::new(remainder);
+        let mut i = 0;
+        while let Some(field_slice) = it.next() {
+            if i > 9 {
+                break;
+                // return Err(Error::new(ErrorKind::Other,format!("Too many fields found in line '{}'",String::from_utf8_lossy(line))))
+            }
+            match parse_field(field_slice) {
+                Ok(field) => fields.push(field),
+                Err(e) => return Err(e)
+            }
+            i += 1;
         }
     }
     return Ok(fields);
