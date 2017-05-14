@@ -2,7 +2,6 @@ use std::cmp::min;
 use std::iter::Peekable;
 use std::slice::Iter;
 use std::fmt;
-use nom::IResult;
 
 #[derive(Debug,PartialEq)]
 pub enum Field {
@@ -241,107 +240,79 @@ mod chars {
     }
 }
 
-// fn take_spaces(line: &[u8]) -> usize {
-//     return line.iter().take_while(chars::is_space).count();
-// }
-
-// fn take_string(line: &[u8]) -> usize {
-//     if line.len() == 0 {
-//         return 0;
-//     }
-//     if chars::is_alpha(&line[0]) {
-//         return 1 + line.iter().take_while(chars::is_alphanumeric).count();
-//     } else {
-//         return 0;
-//     }
-// }
-
-
-// fn parse_string<'a, I>(mut it: I) -> Option<Field>
-//     where I: Iterator<Item = &'a u8>
-// {
-//     let mut started = false;
-//     let mut ended = false;
-//     let mut string = vec![];
-//     while let Some(b) = it.next() {
-//         if !started {
-//             if chars::is_space(&b) {
-//                 continue;
-//             } else if chars::is_alpha(b) {
-//                 started = true;
-//                 string.push(*b);
-//             } else {
-//                 return None;
-//             }
-//         } else if started && !ended {
-//             if chars::is_alphanumeric(&b) {
-//                 string.push(*b);
-//             } else if chars::is_space(&b) {
-//                 ended = true
-//             } else {
-//                 return None;
-//             }
-//         } else {
-//             if chars::is_space(&b) {
-//                 continue;
-//             } else {
-//                 return None;
-//             }
-//         }
-//     }
-//     if let Ok(s) = String::from_utf8(string) {
-//         return Some(Field::String(s));
-//     } else {
-//         return None;
-//     }
-// }
-
-fn parse_field(buffer: &[u8]) -> IResult<&[u8], Field> {
-    let mut it = buffer.iter().enumerate().take(8);
-    let mut field = &buffer[0..0];
-    let mut remainder = buffer;
-    let mut check_for_trailing_comma = false;
-    let mut found_end = false;
-    while let Some((i, &c)) = it.next() {
-        if c == b',' || c == b'\t' || c == b'\r' || c == b'\n' {
-            field = &buffer[0..i];
-            remainder = &buffer[i+1..];
-            found_end = true;
-            break;
-        } else if c == b'$' {
-            field = &buffer[0..i];
-            remainder = &buffer[i..];
-            found_end = true;
-            break;
-        } else if i == 8 {
-            field = &buffer[0..i];
-            remainder = &buffer[i..];
-            check_for_trailing_comma = true;
-            found_end = true;
-            break;
-        }
-    }
-    if !found_end {
-        field = buffer;
-        remainder = &[];
-    }
-    if check_for_trailing_comma && remainder.len() > 0 {
-        if remainder[0] == b',' {
-            remainder = &remainder[1..];
-        }
-    }
-    IResult::Done(remainder, Field::String(field.to_owned()))
+struct Line<'a> {
+    buffer: &'a [u8],
+    comment: &'a [u8],
 }
 
-pub fn parse_buffer(buffer: &[u8]) -> IResult<&[u8], Deck> {
-    // let mut it = buffer.iter().peekable();
-    // let mut it = NastranIterator::new(&mut it);
-    // return it.parse_file();
-    let comment = None;
-    let res = map!(buffer,
-                   many0!(parse_field),
-                   |fields| Deck { cards: vec![Card { fields, comment }] });
-    println!("{:?}", res);
-    return res;
+impl<'a> fmt::Display for Line<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+        write!(f,
+               "Line ('{}',Comment='{}')",
+               String::from_utf8_lossy(self.buffer),
+               String::from_utf8_lossy(self.comment))
+    }
+}
+
+struct Lines<'a> {
+    buffer: &'a [u8],
+}
+
+impl<'a> Lines<'a> {
+    fn new(buffer: &'a [u8]) -> Lines<'a> {
+        return Lines { buffer };
+    }
+}
+
+impl<'a> Iterator for Lines<'a> {
+    type Item = Line<'a>;
+    fn next(&mut self) -> Option<Self::Item> {
+        let length = self.buffer.len();
+        if length == 0 {
+            return None;
+        }
+        let mut i_comment = 80;
+        let mut i_end = length;
+        let mut i_next = length;
+        for i in 0..self.buffer.len() {
+            let c = self.buffer[i];
+            if c == b'$' && i < i_comment {
+                i_comment = i;
+            } else if c == b'\r' || c == b'\n' {
+                i_end = i;
+                if i_comment > i_end {
+                    i_comment = i_end;
+                }
+                i_next = i + 1;
+                for i in i..self.buffer.len() {
+                    let c = self.buffer[i];
+                    if c == b'\r' || c == b'\n' {
+                        i_next = i + 1;
+                    } else {
+                        break;
+                    }
+                }
+                break;
+            }
+        }
+        let line = Line {
+            buffer: &self.buffer[..i_comment],
+            comment: &self.buffer[i_comment..i_end],
+        };
+        self.buffer = &self.buffer[i_next..];
+        return Some(line);
+    }
+}
+
+
+pub fn parse_buffer(buffer: &[u8]) -> Option<Deck> {
+    let mut cards = vec![];
+    let mut lines_it = Lines::new(buffer);
+    while let Some(line) = lines_it.next() {
+        let field = Field::String(line.buffer.to_owned());
+        let comment = Some(line.comment.to_owned());
+        cards.push(Card { fields: vec![field], comment})
+    }
+    return Some(Deck { cards });
 }
 
