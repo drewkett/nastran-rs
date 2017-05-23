@@ -11,8 +11,8 @@ lazy_static! {
     static ref BLANK: Regex = Regex::new(r"^ *$").unwrap();
     static ref STRING: Regex = Regex::new(r"^ *([a-zA-Z][a-zA-Z0-9]*) *$").unwrap();
     static ref DSTRING: Regex = Regex::new(r"^ *([a-zA-Z][a-zA-Z0-9]*) *\* *$").unwrap();
-    static ref CONT: Regex = Regex::new(r"^\+([a-zA-Z0-9 ]*)$").unwrap();
-    static ref DCONT: Regex = Regex::new(r"^\*([a-zA-Z0-9 ]*)$").unwrap();
+    static ref CONT: Regex = Regex::new(r"^\+([a-zA-Z0-9 \.]*)$").unwrap();
+    static ref DCONT: Regex = Regex::new(r"^\*([a-zA-Z0-9 \.]*)$").unwrap();
 }
 
 #[derive(Debug,PartialEq)]
@@ -291,20 +291,20 @@ fn parse_field_as_number(field: &[u8]) -> Result<Field> {
 }
 
 pub fn parse_field(field: &[u8]) -> Result<Field> {
-    return match parse_field_nom(field) {
-        IResult::Done(_,f) => Ok(f),
-        _ => Err(Error::new(ErrorKind::Other, format!("Can't parse field '{}'",String::from_utf8_lossy(field)))),
-    };
-    // let field = strip_spaces(field);
-    // if field.len() == 0 {
-    //     return Ok(Field::Blank);
-    // }
-    // return match field[0] {
-    //            b'a'...b'z' | b'A'...b'Z' => parse_field_as_string(field),
-    //            b'0'...b'9' | b'-' | b'.' => parse_field_as_number(field),
-    //            b'+' => parse_field_as_continuation(field),
-    //            _ => Err(Error::new(ErrorKind::Other, "Can't parse field")),
-    //        };
+    // return match parse_field_nom(field) {
+    //     IResult::Done(_,f) => Ok(f),
+    //     _ => Err(Error::new(ErrorKind::Other, format!("Can't parse field '{}'",String::from_utf8_lossy(field)))),
+    // };
+    let field = strip_spaces(field);
+    if field.len() == 0 {
+        return Ok(Field::Blank);
+    }
+    return match field[0] {
+               b'a'...b'z' | b'A'...b'Z' => parse_field_as_string(field),
+               b'0'...b'9' | b'-' | b'.' => parse_field_as_number(field),
+               b'+' => parse_field_as_continuation(field),
+               _ => Err(Error::new(ErrorKind::Other, "Can't parse field")),
+           };
 }
 
 use nom;
@@ -363,22 +363,28 @@ fn field_cont(input: &[u8]) -> IResult<&[u8], Field> {
 
 named!(field_float<Field>,map!(my_float, |f| Field::Float(f)));
 
+named!(decimal_float_value, recognize!(alt!(
+          delimited!(digit, tag!("."), opt!(complete!(digit)))
+          | terminated!(tag!("."), digit)
+        )
+));
+
+named!(float_exponent, recognize!(tuple!(
+          alt!(tag!("e") | tag!("E")),
+          opt!(alt!(tag!("+") | tag!("-"))),
+          digit
+          )
+));
+
 fn my_float(input: &[u8]) -> IResult<&[u8],f32> {
   flat_map!(input,
     recognize!(
       tuple!(
         opt!(alt!(tag!("+") | tag!("-"))),
         alt!(
-          delimited!(digit, tag!("."), opt!(digit))
-          | terminated!(digit, tag!("."))
-          | terminated!(tag!("."), digit)
-        ),
-        opt!(complete!(tuple!(
-          alt!(tag!("e") | tag!("E")),
-          opt!(alt!(tag!("+") | tag!("-"))),
-          digit
-          )
-        ))
+            terminated!(decimal_float_value,opt!(complete!(float_exponent))) |
+            terminated!(digit,float_exponent)
+        )
       )
     ),
     parse_to!(f32)
@@ -442,7 +448,7 @@ mod tests {
         assert_eq!(Field::Float(1.23),parse_field(black_box(b" 1.23 ")).unwrap_or(Field::Blank));
         assert_eq!(Field::Float(1.24),parse_field_nom(black_box(b" 1.24 ")).to_result().unwrap_or(Field::Blank));
         assert_eq!(Field::Float(1.),parse_field(black_box(b" 1. ")).unwrap_or(Field::Blank));
-        assert_eq!(Field::Float(2.),parse_field_nom(black_box(b" 2.")).to_result().unwrap());
+        assert_eq!(Field::Float(2.),parse_field_nom(black_box(b" 2.")).to_result().unwrap_or(Field::Blank));
         assert_eq!(Field::Float(1.23e7),parse_field(black_box(b"1.23e+7")).unwrap_or(Field::Blank));
         assert_eq!(Field::Float(1.24e7),parse_field_nom(black_box(b"1.24e+7")).to_result().unwrap_or(Field::Blank));
         assert_eq!(Field::Float(1.25e7),parse_field(black_box(b"1.25+7")).unwrap_or(Field::Blank));
