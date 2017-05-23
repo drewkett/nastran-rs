@@ -1,5 +1,9 @@
+#![feature(test)]
+
 extern crate nastran;
 use nastran::datfile;
+
+extern crate test;
 
 const DATFILE: &'static [u8] = b"\
 PARAM,POST , 1 $ABC
@@ -46,4 +50,3 @@ fn comma_separated() {
                },
                res)
 }
-

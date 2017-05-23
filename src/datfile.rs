@@ -1,7 +1,8 @@
+
 use std::cmp::min;
 use std::fmt;
 use std::io::{Result, Error, ErrorKind};
-use regex::bytes::{Regex};
+use regex::bytes::Regex;
 
 lazy_static! {
     static ref INT: Regex = Regex::new(r"^ *(-?\d+) *$").unwrap();
@@ -95,7 +96,7 @@ impl<'a> Iterator for Lines<'a> {
         if length == 0 {
             return None;
         }
-        let mut i_comment = min(80,length);
+        let mut i_comment = min(80, length);
         let mut i_end = length;
         let mut i_next = length;
         for i in 0..self.buffer.len() {
@@ -130,31 +131,33 @@ impl<'a> Iterator for Lines<'a> {
 
 fn parse_first_field(field_slice: &[u8]) -> Result<(Field, bool)> {
     if BLANK.is_match(field_slice) {
-        return Ok((Field::Blank,false))
+        return Ok((Field::Blank, false));
     } else if STRING.is_match(field_slice) {
         let cap = STRING.captures(field_slice).unwrap();
         let s = String::from_utf8_lossy(&cap[1]).into_owned();
-        return Ok((Field::String(s),false))
+        return Ok((Field::String(s), false));
     } else if DSTRING.is_match(field_slice) {
         let cap = DSTRING.captures(field_slice).unwrap();
         let s = String::from_utf8_lossy(&cap[1]).into_owned();
-        return Ok((Field::String(s),true))
+        return Ok((Field::String(s), true));
     } else if CONT.is_match(field_slice) {
         let cap = CONT.captures(field_slice).unwrap();
         let s = match cap.get(1) {
             Some(c) => String::from_utf8_lossy(c.as_bytes()).into_owned(),
-            None => "".to_owned()
+            None => "".to_owned(),
         };
-        return Ok((Field::Continuation(s),false))
+        return Ok((Field::Continuation(s), false));
     } else if DCONT.is_match(field_slice) {
         let cap = DCONT.captures(field_slice).unwrap();
         let s = match cap.get(1) {
             Some(c) => String::from_utf8_lossy(c.as_bytes()).into_owned(),
-            None => "".to_owned()
+            None => "".to_owned(),
         };
-        return Ok((Field::Continuation(s),true))
+        return Ok((Field::Continuation(s), true));
     } else {
-        return Err(Error::new(ErrorKind::Other,format!("Invalid first field '{}'",String::from_utf8_lossy(field_slice))))
+        return Err(Error::new(ErrorKind::Other,
+                              format!("Invalid first field '{}'",
+                                      String::from_utf8_lossy(field_slice))));
     }
 }
 
@@ -185,9 +188,9 @@ fn read_first_field(line: &[u8]) -> Result<(Field, CardFlags, &[u8])> {
             i_next = 9;
         }
     }
-    let (field,is_double) = match parse_first_field(&line[..i_end]) {
+    let (field, is_double) = match parse_first_field(&line[..i_end]) {
         Ok(res) => res,
-        Err(e) => return Err(e)
+        Err(e) => return Err(e),
     };
     flags.is_double = is_double;
     let remainder = &line[i_next..];
@@ -210,9 +213,11 @@ fn strip_spaces(field: &[u8]) -> &[u8] {
 fn parse_field_as_string(field: &[u8]) -> Result<Field> {
     if let Some(cap) = STRING.captures(field) {
         let s = String::from_utf8_lossy(&cap[1]).into_owned();
-        return Ok(Field::String(s))
+        return Ok(Field::String(s));
     } else {
-        return Err(Error::new(ErrorKind::Other, format!("Invalid character in field '{}'",String::from_utf8_lossy(field))))
+        return Err(Error::new(ErrorKind::Other,
+                              format!("Invalid character in field '{}'",
+                                      String::from_utf8_lossy(field))));
     }
 }
 
@@ -220,11 +225,13 @@ fn parse_field_as_continuation(field: &[u8]) -> Result<Field> {
     if let Some(cap) = CONT.captures(field) {
         let s = match cap.get(1) {
             Some(c) => String::from_utf8_lossy(c.as_bytes()).into_owned(),
-            None => "".to_owned()
+            None => "".to_owned(),
         };
-        return Ok(Field::Continuation(s))
+        return Ok(Field::Continuation(s));
     } else {
-        return Err(Error::new(ErrorKind::Other, format!("Invalid continuation '{}'",String::from_utf8_lossy(field))))
+        return Err(Error::new(ErrorKind::Other,
+                              format!("Invalid continuation '{}'",
+                                      String::from_utf8_lossy(field))));
     }
 }
 
@@ -234,9 +241,9 @@ fn parse_field_as_float(field: &[u8]) -> Result<Field> {
         return Ok(Field::Blank);
     }
     if STRING.is_match(field) {
-        return Ok(Field::String(String::from_utf8_lossy(field).into_owned())) 
+        return Ok(Field::String(String::from_utf8_lossy(field).into_owned()));
     } else {
-        return Err(Error::new(ErrorKind::Other, "Invalid String"))
+        return Err(Error::new(ErrorKind::Other, "Invalid String"));
     }
 }
 
@@ -247,12 +254,16 @@ fn parse_field_as_number(field: &[u8]) -> Result<Field> {
     }
     if let Some(cap) = INT.captures(field) {
         let number: i32 = String::from_utf8_lossy(&cap[1]).parse().unwrap();
-        return Ok(Field::Int(number))
+        return Ok(Field::Int(number));
     } else if let Some(cap) = FLOAT.captures(field) {
         return match String::from_utf8_lossy(&cap[1]).parse::<f32>() {
-            Ok(n) => Ok(Field::Float(n)),
-            Err(_) => Err(Error::new(ErrorKind::Other,format!("Error parsing float '{}'",String::from_utf8_lossy(&cap[1]))))
-        }
+                   Ok(n) => Ok(Field::Float(n)),
+                   Err(_) => {
+                       Err(Error::new(ErrorKind::Other,
+                                      format!("Error parsing float '{}'",
+                                              String::from_utf8_lossy(&cap[1]))))
+                   }
+               };
     } else if let Some(cap) = NASFLOAT.captures(field) {
         let value = &cap[1];
         let exponent = &cap[3];
@@ -266,54 +277,256 @@ fn parse_field_as_number(field: &[u8]) -> Result<Field> {
             temp.push(c);
         }
         return match String::from_utf8_lossy(&temp[..]).parse::<f32>() {
-            Ok(n) => Ok(Field::Float(n)),
-            Err(_) => Err(Error::new(ErrorKind::Other,format!("Error parsing float '{}'",String::from_utf8_lossy(&temp[..]))))
-        }
+                   Ok(n) => Ok(Field::Float(n)),
+                   Err(_) => {
+                       Err(Error::new(ErrorKind::Other,
+                                      format!("Error parsing float '{}'",
+                                              String::from_utf8_lossy(&temp[..]))))
+                   }
+               };
     } else {
-        return Err(Error::new(ErrorKind::Other, format!("Can't parse number '{}'",String::from_utf8_lossy(field))))
+        return Err(Error::new(ErrorKind::Other,
+                              format!("Can't parse number '{}'", String::from_utf8_lossy(field))));
     }
 }
 
-fn parse_field(field: &[u8]) -> Result<Field> {
-    let field = strip_spaces(field);
-    if field.len() == 0 {
-        return Ok(Field::Blank);
+pub fn parse_field(field: &[u8]) -> Result<Field> {
+    return match parse_field_nom(field) {
+        IResult::Done(_,f) => Ok(f),
+        _ => Err(Error::new(ErrorKind::Other, format!("Can't parse field '{}'",String::from_utf8_lossy(field)))),
+    };
+    // let field = strip_spaces(field);
+    // if field.len() == 0 {
+    //     return Ok(Field::Blank);
+    // }
+    // return match field[0] {
+    //            b'a'...b'z' | b'A'...b'Z' => parse_field_as_string(field),
+    //            b'0'...b'9' | b'-' | b'.' => parse_field_as_number(field),
+    //            b'+' => parse_field_as_continuation(field),
+    //            _ => Err(Error::new(ErrorKind::Other, "Can't parse field")),
+    //        };
+}
+
+use nom;
+use nom::{Slice, begin, digit, float, IResult, is_alphabetic, is_alphanumeric};
+
+fn parse_nastran_float(value: &[u8], exponent: &[u8]) -> f32 {
+    let length = value.len() + exponent.len() + 1;
+    let mut temp = Vec::with_capacity(length);
+    for &c in value {
+        temp.push(c);
     }
-    return match field[0] {
-               b'a'...b'z' | b'A'...b'Z' => parse_field_as_string(field),
-               b'0'...b'9' | b'-' | b'.' => parse_field_as_number(field),
-                b'+' => parse_field_as_continuation(field),
-               _ => Err(Error::new(ErrorKind::Other, "Can't parse field")),
-           };
+    temp.push(b'e');
+    for &c in exponent {
+        temp.push(c);
+    }
+    return String::from_utf8_lossy(&temp[..]).parse::<f32>().unwrap();
+}
+
+fn field_string(input: &[u8]) -> IResult<&[u8], Field> {
+    let input_length = input.len();
+    if input_length == 0 {
+        return IResult::Incomplete(nom::Needed::Unknown);
+    }
+    for (idx, &item) in input.iter().enumerate() {
+        if idx == 0 {
+            if !is_alphabetic(item) {
+                return IResult::Error(error_position!(nom::ErrorKind::Custom(100), input));
+            }
+        } else if !is_alphanumeric(item) {
+            let s = String::from_utf8_lossy(&input[0..idx]).into_owned();
+            return IResult::Done(&input[idx..], Field::String(s));
+        }
+    }
+    let s = String::from_utf8_lossy(input).into_owned();
+    IResult::Done(&input[input_length..], Field::String(s))
+}
+
+fn field_cont(input: &[u8]) -> IResult<&[u8], Field> {
+    let input_length = input.len();
+    if input_length == 0 {
+        return IResult::Incomplete(nom::Needed::Unknown);
+    }
+    for (idx, &item) in input.iter().enumerate() {
+        if idx == 0 {
+            if item != b'+' {
+                return IResult::Error(error_position!(nom::ErrorKind::Custom(101), input));
+            }
+        } else if !(is_alphanumeric(item) || item == b' ') {
+            let s = String::from_utf8_lossy(&input[1..idx]).into_owned();
+            return IResult::Done(&input[idx..], Field::Continuation(s));
+        }
+    }
+    let s = String::from_utf8_lossy(&input[1..]).into_owned();
+    IResult::Done(&input[input_length..], Field::Continuation(s))
+}
+
+named!(field_float<Field>,map!(my_float, |f| Field::Float(f)));
+
+fn my_float(input: &[u8]) -> IResult<&[u8],f32> {
+  flat_map!(input,
+    recognize!(
+      tuple!(
+        opt!(alt!(tag!("+") | tag!("-"))),
+        alt!(
+          delimited!(digit, tag!("."), opt!(digit))
+          | terminated!(digit, tag!("."))
+          | terminated!(tag!("."), digit)
+        ),
+        opt!(complete!(tuple!(
+          alt!(tag!("e") | tag!("E")),
+          opt!(alt!(tag!("+") | tag!("-"))),
+          digit
+          )
+        ))
+      )
+    ),
+    parse_to!(f32)
+  )
+}
+
+named!(field_nastran_float<Field>,map!(
+    tuple!(
+        recognize!(
+            tuple!(
+                opt!(alt!(tag!("+") | tag!("-"))),
+alt!(
+          delimited!(digit, tag!("."), opt!(digit))
+          | terminated!(tag!("."), digit)
+        )
+
+            )
+        ),
+        recognize!(tuple!(
+            alt!(tag!("+") | tag!("-")),
+            digit
+        ))
+        ),
+        |(value,exponent)| Field::Float(parse_nastran_float(value,exponent))
+    )
+);
+
+named!(field_integer<Field>,map!(flat_map!(
+        recognize!(
+            tuple!(
+                opt!(tag!("-")),
+                digit
+            )
+        ),
+        parse_to!(i32))
+    ,|i| Field::Int(i))
+);
+
+named!(parse_field_nom<Field>,
+       alt_complete!(
+delimited!(many0!(tag!(" ")),field_float,tuple!(many0!(tag!(" ")),eof!())) |
+delimited!(many0!(tag!(" ")),field_nastran_float,tuple!(many0!(tag!(" ")),eof!())) |
+delimited!(many0!(tag!(" ")),field_integer,tuple!(many0!(tag!(" ")),eof!())) |
+terminated!(field_cont,eof!()) |
+value!(Field::Blank,terminated!(many0!(tag!(" ")),eof!())) |
+delimited!(many0!(tag!(" ")),field_string,tuple!(many0!(tag!(" ")),eof!()))
+// terminated!(field_nastran_float,eof!()) |
+// terminated!(field_integer,eof!()) |
+// terminated!(field_cont,eof!()) |
+// terminated!(field_string,eof!())
+)
+);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use test::{Bencher, black_box};
+
+    #[test]
+    fn test_parse() {
+        assert_eq!(Field::Float(1.23),parse_field(black_box(b" 1.23 ")).unwrap_or(Field::Blank));
+        assert_eq!(Field::Float(1.24),parse_field_nom(black_box(b" 1.24 ")).to_result().unwrap_or(Field::Blank));
+        assert_eq!(Field::Float(1.),parse_field(black_box(b" 1. ")).unwrap_or(Field::Blank));
+        assert_eq!(Field::Float(2.),parse_field_nom(black_box(b" 2.")).to_result().unwrap());
+        assert_eq!(Field::Float(1.23e7),parse_field(black_box(b"1.23e+7")).unwrap_or(Field::Blank));
+        assert_eq!(Field::Float(1.24e7),parse_field_nom(black_box(b"1.24e+7")).to_result().unwrap_or(Field::Blank));
+        assert_eq!(Field::Float(1.25e7),parse_field(black_box(b"1.25+7")).unwrap_or(Field::Blank));
+        assert_eq!(Field::Float(1.26e7),parse_field_nom(black_box(b"1.26+7")).to_result().unwrap());
+        assert_eq!(Field::Int(123456),parse_field(black_box(b"123456")).unwrap_or(Field::Blank));
+        assert_eq!(Field::Int(123456),parse_field_nom(black_box(b"123456")).to_result().unwrap_or(Field::Blank));
+        assert_eq!(Field::Continuation("A B".to_owned()),parse_field(black_box(b"+A B")).unwrap_or(Field::Blank));
+        assert_eq!(Field::Continuation("A C".to_owned()),parse_field_nom(black_box(b"+A C")).to_result().unwrap_or(Field::Blank));
+        assert_eq!(Field::String("HI1".to_owned()),parse_field(black_box(b"HI1")).unwrap_or(Field::Blank));
+        assert_eq!(Field::String("HI1".to_owned()),parse_field_nom(black_box(b"HI1")).to_result().unwrap_or(Field::Blank));
+    }
+
+    #[bench]
+    fn bench_parse_float(b: &mut Bencher) {
+        b.iter(|| parse_field(black_box(b"1.23e+7")))
+    }
+
+    #[bench]
+    fn bench_parse_float_nom(b: &mut Bencher) {
+        b.iter(|| parse_field_nom(black_box(b"1.23e+7")))
+    }
+
+    #[bench]
+    fn bench_parse_nastran_float(b: &mut Bencher) {
+        b.iter(|| parse_field(black_box(b"1.23+7")))
+    }
+
+    #[bench]
+    fn bench_parse_nastran_float_nom(b: &mut Bencher) {
+        b.iter(|| parse_field_nom(black_box(b"1.23+7")))
+    }
+    #[bench]
+    fn bench_parse_int(b: &mut Bencher) {
+        b.iter(|| parse_field(black_box(b"1232456")))
+    }
+    #[bench]
+    fn bench_parse_int_nom(b: &mut Bencher) {
+        b.iter(|| parse_field_nom(black_box(b"1232456")))
+    }
+    #[bench]
+    fn bench_parse_cont(b: &mut Bencher) {
+        b.iter(|| parse_field(black_box(b"+A CDEF1")))
+    }
+    #[bench]
+    fn bench_parse_cont_nom(b: &mut Bencher) {
+        b.iter(|| parse_field_nom(black_box(b"+A CDEF1")))
+    }
+    #[bench]
+    fn bench_parse_string(b: &mut Bencher) {
+        b.iter(|| parse_field(black_box(b"ABCDEF1")))
+    }
+    #[bench]
+    fn bench_parse_string_nom(b: &mut Bencher) {
+        b.iter(|| parse_field_nom(black_box(b"ABCDEF1")))
+    }
 }
 
 struct ShortCardIterator<'a> {
-    remainder: &'a [u8]
+    remainder: &'a [u8],
 }
 
-impl <'a> ShortCardIterator<'a> {
+impl<'a> ShortCardIterator<'a> {
     fn new(remainder: &'a [u8]) -> ShortCardIterator {
         return ShortCardIterator { remainder };
     }
 }
 
-impl <'a> Iterator for ShortCardIterator<'a> {
+impl<'a> Iterator for ShortCardIterator<'a> {
     type Item = &'a [u8];
     fn next(&mut self) -> Option<Self::Item> {
-        let n = min(8,self.remainder.len());
+        let n = min(8, self.remainder.len());
         if n == 0 {
             return None;
         }
         for i in 0..n {
             if self.remainder[i] == b'\t' {
                 let field = &self.remainder[..i];
-                self.remainder = &self.remainder[i+1..];
-                return Some(field)
+                self.remainder = &self.remainder[i + 1..];
+                return Some(field);
             }
         }
         let field = &self.remainder[..n];
         self.remainder = &self.remainder[n..];
-        return Some(field)
+        return Some(field);
     }
 }
 
@@ -321,17 +534,15 @@ impl <'a> Iterator for ShortCardIterator<'a> {
 fn split_line(line: &[u8]) -> Result<Vec<Field>> {
     let (field, flags, remainder) = match read_first_field(line) {
         Ok(r) => r,
-        Err(e) => return Err(e)
+        Err(e) => return Err(e),
     };
     let mut fields = vec![field];
     if flags.is_comma {
-        let it = remainder
-            .split(|&b| b == b',')
-            .map(parse_field);
+        let it = remainder.split(|&b| b == b',').map(parse_field);
         for f in it {
             match f {
                 Ok(field) => fields.push(field),
-                Err(e) => return Err(e)
+                Err(e) => return Err(e),
             }
         }
     } else if flags.is_double {
@@ -345,7 +556,7 @@ fn split_line(line: &[u8]) -> Result<Vec<Field>> {
             }
             match parse_field(field_slice) {
                 Ok(field) => fields.push(field),
-                Err(e) => return Err(e)
+                Err(e) => return Err(e),
             }
             i += 1;
         }
@@ -359,11 +570,10 @@ pub fn parse_buffer(buffer: &[u8]) -> Result<Deck> {
     while let Some(line) = lines_it.next() {
         let fields = match split_line(line.buffer) {
             Ok(fields) => fields,
-            Err(e) => return Err(e)
+            Err(e) => return Err(e),
         };
         let comment = Some(line.comment.to_owned());
         cards.push(Card { fields, comment })
     }
     return Ok(Deck { cards });
 }
-
