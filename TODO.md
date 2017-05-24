@@ -1,0 +1,6 @@
+- Add built in benchmarking for parsing. Likely as option on command line execution
+- Get rid of nightly requirement due to current benchmarking code
+- Add c library interface for use from python
+- Improve datfile test cases
+- Get basic op2 parsing working for practical purposes
+  - Probably expose iterator for all data types rather than try to map the data
