@@ -318,21 +318,21 @@ named!(field_integer<Field>,map!(flat_map!(
     ,|i| Field::Int(i))
 );
 
-macro_rules! pad_space(
+macro_rules! pad_space_eof(
   ($i:expr, $submac:ident!( $($args:tt)* )) => (
     delimited!($i, many0!(tag!(" ")),$submac!($($args)*),tuple!(many0!(tag!(" ")),eof!()))
   );
   ($i:expr, $f:expr) => (
-    pad_space!($i, call!($f));
+    pad_space_eof!($i, call!($f));
   );
 );
 
 named!(parse_field_nom<Field>,
        alt_complete!(
-           pad_space!(field_float) |
-           pad_space!(field_nastran_float) |
-           pad_space!(field_integer) |
-           pad_space!(field_string) |
+           pad_space_eof!(field_float) |
+           pad_space_eof!(field_nastran_float) |
+           pad_space_eof!(field_integer) |
+           pad_space_eof!(field_string) |
             terminated!(field_cont,eof!()) |
             value!(Field::Blank,terminated!(many0!(tag!(" ")),eof!()))
 ));
