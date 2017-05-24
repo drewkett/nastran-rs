@@ -4,10 +4,10 @@ use std::fmt;
 use std::io::{Result, Error, ErrorKind};
 use regex::bytes::Regex;
 
+use nom;
+use nom::{Slice, digit, IResult, is_alphabetic, is_alphanumeric};
+
 lazy_static! {
-    static ref INT: Regex = Regex::new(r"^ *(-?\d+) *$").unwrap();
-    static ref FLOAT: Regex = Regex::new(r"^ *([-+]?(\d+\.\d*|\.\d+)([eE][-+]?\d+)?|(\d+[eE][-+]?\d+)) *$").unwrap();
-    static ref NASFLOAT: Regex = Regex::new(r"^ *([-+]?(\d+\.\d*|\.\d+))([-+]\d+) *$").unwrap();
     static ref BLANK: Regex = Regex::new(r"^ *$").unwrap();
     static ref STRING: Regex = Regex::new(r"^ *([a-zA-Z][a-zA-Z0-9]*) *$").unwrap();
     static ref DSTRING: Regex = Regex::new(r"^ *([a-zA-Z][a-zA-Z0-9]*) *\* *$").unwrap();
@@ -197,118 +197,13 @@ fn read_first_field(line: &[u8]) -> Result<(Field, CardFlags, &[u8])> {
     return Ok((field, flags, remainder));
 }
 
-fn strip_spaces(field: &[u8]) -> &[u8] {
-    let length = field.len();
-    let mut i_start = 0;
-    for i in 0..length {
-        if field[i] == b' ' {
-            i_start = i + 1;
-        } else {
-            break;
-        }
-    }
-    return &field[i_start..];
-}
-
-fn parse_field_as_string(field: &[u8]) -> Result<Field> {
-    if let Some(cap) = STRING.captures(field) {
-        let s = String::from_utf8_lossy(&cap[1]).into_owned();
-        return Ok(Field::String(s));
-    } else {
-        return Err(Error::new(ErrorKind::Other,
-                              format!("Invalid character in field '{}'",
-                                      String::from_utf8_lossy(field))));
-    }
-}
-
-fn parse_field_as_continuation(field: &[u8]) -> Result<Field> {
-    if let Some(cap) = CONT.captures(field) {
-        let s = match cap.get(1) {
-            Some(c) => String::from_utf8_lossy(c.as_bytes()).into_owned(),
-            None => "".to_owned(),
-        };
-        return Ok(Field::Continuation(s));
-    } else {
-        return Err(Error::new(ErrorKind::Other,
-                              format!("Invalid continuation '{}'",
-                                      String::from_utf8_lossy(field))));
-    }
-}
-
-fn parse_field_as_float(field: &[u8]) -> Result<Field> {
-    let length = field.len();
-    if length == 0 {
-        return Ok(Field::Blank);
-    }
-    if STRING.is_match(field) {
-        return Ok(Field::String(String::from_utf8_lossy(field).into_owned()));
-    } else {
-        return Err(Error::new(ErrorKind::Other, "Invalid String"));
-    }
-}
-
-fn parse_field_as_number(field: &[u8]) -> Result<Field> {
-    let length = field.len();
-    if length == 0 {
-        return Ok(Field::Blank);
-    }
-    if let Some(cap) = INT.captures(field) {
-        let number: i32 = String::from_utf8_lossy(&cap[1]).parse().unwrap();
-        return Ok(Field::Int(number));
-    } else if let Some(cap) = FLOAT.captures(field) {
-        return match String::from_utf8_lossy(&cap[1]).parse::<f32>() {
-                   Ok(n) => Ok(Field::Float(n)),
-                   Err(_) => {
-                       Err(Error::new(ErrorKind::Other,
-                                      format!("Error parsing float '{}'",
-                                              String::from_utf8_lossy(&cap[1]))))
-                   }
-               };
-    } else if let Some(cap) = NASFLOAT.captures(field) {
-        let value = &cap[1];
-        let exponent = &cap[3];
-        let length = value.len() + exponent.len() + 1;
-        let mut temp = Vec::with_capacity(length);
-        for &c in value {
-            temp.push(c);
-        }
-        temp.push(b'e');
-        for &c in exponent {
-            temp.push(c);
-        }
-        return match String::from_utf8_lossy(&temp[..]).parse::<f32>() {
-                   Ok(n) => Ok(Field::Float(n)),
-                   Err(_) => {
-                       Err(Error::new(ErrorKind::Other,
-                                      format!("Error parsing float '{}'",
-                                              String::from_utf8_lossy(&temp[..]))))
-                   }
-               };
-    } else {
-        return Err(Error::new(ErrorKind::Other,
-                              format!("Can't parse number '{}'", String::from_utf8_lossy(field))));
-    }
-}
 
 pub fn parse_field(field: &[u8]) -> Result<Field> {
-    // return match parse_field_nom(field) {
-    //     IResult::Done(_,f) => Ok(f),
-    //     _ => Err(Error::new(ErrorKind::Other, format!("Can't parse field '{}'",String::from_utf8_lossy(field)))),
-    // };
-    let field = strip_spaces(field);
-    if field.len() == 0 {
-        return Ok(Field::Blank);
-    }
-    return match field[0] {
-               b'a'...b'z' | b'A'...b'Z' => parse_field_as_string(field),
-               b'0'...b'9' | b'-' | b'.' => parse_field_as_number(field),
-               b'+' => parse_field_as_continuation(field),
-               _ => Err(Error::new(ErrorKind::Other, "Can't parse field")),
-           };
+    return match parse_field_nom(field) {
+        IResult::Done(_,f) => Ok(f),
+        _ => Err(Error::new(ErrorKind::Other, format!("Can't parse field '{}'",String::from_utf8_lossy(field)))),
+    };
 }
-
-use nom;
-use nom::{Slice, begin, digit, float, IResult, is_alphabetic, is_alphanumeric};
 
 fn parse_nastran_float(value: &[u8], exponent: &[u8]) -> f32 {
     let length = value.len() + exponent.len() + 1;
