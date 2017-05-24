@@ -7,6 +7,7 @@ PARAM, WTMASS,0.00259
 
 
 ABCDEF,123456,123456,123456,123456,123456,123456,123456,123456,123456,123456,123456,123456
+BLAH    123      1.+5   1e2     ABC
 ";
 
 #[test]
@@ -42,7 +43,16 @@ fn comma_separated() {
                                                 datfile::Field::Int(123456),
                                                 datfile::Field::Int(123)],
                                    comment: Some(b"456,123456".to_vec()),
-                               }],
+                               },
+                               datfile::Card {
+                                   fields: vec![datfile::Field::String("BLAH".to_owned()),
+                                                datfile::Field::Int(123),
+                                                datfile::Field::Float(1e5),
+                                                datfile::Field::Float(1e2),
+                                                datfile::Field::String("ABC".to_owned())],
+                                   comment: Some(b"".to_vec()),
+                               }
+                               ],
                },
                res)
 }
