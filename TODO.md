@@ -2,5 +2,7 @@
 - Get rid of nightly requirement due to current benchmarking code
 - Add c library interface for use from python
 - Improve datfile test cases
+- Add support for combining continuations
+- Add double field parsing
 - Get basic op2 parsing working for practical purposes
   - Probably expose iterator for all data types rather than try to map the data
