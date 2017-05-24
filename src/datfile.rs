@@ -2,10 +2,11 @@
 use std::cmp::min;
 use std::fmt;
 use std::io::{Result, Error, ErrorKind};
+use std::str;
 use regex::bytes::Regex;
 
 use nom;
-use nom::{Slice, digit, IResult, is_alphabetic, is_alphanumeric};
+use nom::{Slice, digit, IResult, alpha, alphanumeric};
 
 lazy_static! {
     static ref BLANK: Regex = Regex::new(r"^ *$").unwrap();
@@ -23,6 +24,20 @@ pub enum Field {
     Double(f64),
     Continuation(String),
     String(String),
+}
+
+fn string_field_from_slice(b: &[u8]) -> IResult<&[u8], Field> {
+    match str::from_utf8(b) {
+        Ok(s) => IResult::Done(b"",Field::String(s.to_owned())),
+        Err(_) => IResult::Error(error_code!(nom::ErrorKind::Custom(102)))
+    }
+}
+
+fn cont_field_from_slice(b: &[u8]) -> IResult<&[u8], Field> {
+    match str::from_utf8(b) {
+        Ok(s) => IResult::Done(b"",Field::Continuation(s.to_owned())),
+        Err(_) => IResult::Error(error_code!(nom::ErrorKind::Custom(102)))
+    }
 }
 
 #[derive(Debug,PartialEq)]
@@ -218,44 +233,8 @@ fn parse_nastran_float(value: &[u8], exponent: &[u8]) -> f32 {
     return String::from_utf8_lossy(&temp[..]).parse::<f32>().unwrap();
 }
 
-fn field_string(input: &[u8]) -> IResult<&[u8], Field> {
-    let input_length = input.len();
-    if input_length == 0 {
-        return IResult::Incomplete(nom::Needed::Unknown);
-    }
-    for (idx, &item) in input.iter().enumerate() {
-        if idx == 0 {
-            if !is_alphabetic(item) {
-                return IResult::Error(error_position!(nom::ErrorKind::Custom(100), input));
-            }
-        } else if !is_alphanumeric(item) {
-            let s = String::from_utf8_lossy(&input[0..idx]).into_owned();
-            return IResult::Done(&input[idx..], Field::String(s));
-        }
-    }
-    let s = String::from_utf8_lossy(input).into_owned();
-    IResult::Done(&input[input_length..], Field::String(s))
-}
-
-fn field_cont(input: &[u8]) -> IResult<&[u8], Field> {
-    let input_length = input.len();
-    if input_length == 0 {
-        return IResult::Incomplete(nom::Needed::Unknown);
-    }
-    for (idx, &item) in input.iter().enumerate() {
-        if idx == 0 {
-            if item != b'+' {
-                return IResult::Error(error_position!(nom::ErrorKind::Custom(101), input));
-            }
-        } else if !(is_alphanumeric(item) || item == b' ') {
-            let s = String::from_utf8_lossy(&input[1..idx]).into_owned();
-            return IResult::Done(&input[idx..], Field::Continuation(s));
-        }
-    }
-    let s = String::from_utf8_lossy(&input[1..]).into_owned();
-    IResult::Done(&input[input_length..], Field::Continuation(s))
-}
-
+named!(field_string<Field>,flat_map!(recognize!(tuple!(alpha,many0!(alphanumeric))),string_field_from_slice));
+named!(field_cont<Field>,flat_map!(preceded!(tag!("+"),recognize!(many0!(alt!(tag!(" ")|alphanumeric)))),cont_field_from_slice));
 named!(field_float<Field>,map!(my_float, |f| Field::Float(f)));
 
 named!(decimal_float_value, recognize!(alt!(
