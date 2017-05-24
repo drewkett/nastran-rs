@@ -1,9 +1,5 @@
-#![feature(test)]
-
 extern crate nastran;
 use nastran::datfile;
-
-extern crate test;
 
 const DATFILE: &'static [u8] = b"\
 PARAM,POST , 1 $ABC
@@ -49,4 +45,15 @@ fn comma_separated() {
                                }],
                },
                res)
+}
+
+#[test]
+fn test_parse() {
+    assert_eq!(Field::Float(1.23),parse_field(b" 1.23 ").unwrap_or(Field::Blank));
+    assert_eq!(Field::Float(1.),parse_field(b" 1. ").unwrap_or(Field::Blank));
+    assert_eq!(Field::Float(1.23e7),parse_field(b"1.23e+7").unwrap_or(Field::Blank));
+    assert_eq!(Field::Float(1.25e7),parse_field(b"1.25+7").unwrap_or(Field::Blank));
+    assert_eq!(Field::Int(123456),parse_field(b"123456").unwrap_or(Field::Blank));
+    assert_eq!(Field::Continuation("A B".to_owned()),parse_field(b"+A B").unwrap_or(Field::Blank));
+    assert_eq!(Field::String("HI1".to_owned()),parse_field(b"HI1").unwrap_or(Field::Blank));
 }
