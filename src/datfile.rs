@@ -318,20 +318,24 @@ named!(field_integer<Field>,map!(flat_map!(
     ,|i| Field::Int(i))
 );
 
+macro_rules! pad_space(
+  ($i:expr, $submac:ident!( $($args:tt)* )) => (
+    delimited!($i, many0!(tag!(" ")),$submac!($($args)*),tuple!(many0!(tag!(" ")),eof!()))
+  );
+  ($i:expr, $f:expr) => (
+    pad_space!($i, call!($f));
+  );
+);
+
 named!(parse_field_nom<Field>,
        alt_complete!(
-delimited!(many0!(tag!(" ")),field_float,tuple!(many0!(tag!(" ")),eof!())) |
-delimited!(many0!(tag!(" ")),field_nastran_float,tuple!(many0!(tag!(" ")),eof!())) |
-delimited!(many0!(tag!(" ")),field_integer,tuple!(many0!(tag!(" ")),eof!())) |
-terminated!(field_cont,eof!()) |
-value!(Field::Blank,terminated!(many0!(tag!(" ")),eof!())) |
-delimited!(many0!(tag!(" ")),field_string,tuple!(many0!(tag!(" ")),eof!()))
-// terminated!(field_nastran_float,eof!()) |
-// terminated!(field_integer,eof!()) |
-// terminated!(field_cont,eof!()) |
-// terminated!(field_string,eof!())
-)
-);
+           pad_space!(field_float) |
+           pad_space!(field_nastran_float) |
+           pad_space!(field_integer) |
+           pad_space!(field_string) |
+            terminated!(field_cont,eof!()) |
+            value!(Field::Blank,terminated!(many0!(tag!(" ")),eof!()))
+));
 
 struct ShortCardIterator<'a> {
     remainder: &'a [u8],
