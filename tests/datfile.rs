@@ -4,6 +4,8 @@ use nastran::datfile;
 const DATFILE: &'static [u8] = b"\
 PARAM,POST , 1 $ABC
 PARAM, WTMASS,0.00259
++,1,2
++a,1,2
 
 
 ABCDEF,123456,123456,123456,123456,123456,123456,123456,123456,123456,123456,123456,123456
@@ -27,6 +29,18 @@ fn comma_separated() {
                                    fields: vec![datfile::Field::String("PARAM".to_owned()),
                                                 datfile::Field::String("WTMASS".to_owned()),
                                                 datfile::Field::Float(0.00259)],
+                                   comment: Some(b"".to_vec()),
+                               },
+                               datfile::Card {
+                                   fields: vec![datfile::Field::Continuation("".to_owned()),
+                                                datfile::Field::Int(1),
+                                                datfile::Field::Int(2)],
+                                   comment: Some(b"".to_vec()),
+                               },
+                               datfile::Card {
+                                   fields: vec![datfile::Field::Continuation("a".to_owned()),
+                                                datfile::Field::Int(1),
+                                                datfile::Field::Int(2)],
                                    comment: Some(b"".to_vec()),
                                },
                                datfile::Card {
