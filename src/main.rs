@@ -3,8 +3,6 @@
 #[macro_use] extern crate nom;
 extern crate memmap;
 extern crate ascii;
-#[macro_use] extern crate lazy_static;
-extern crate regex;
 
 use memmap::{Mmap, Protection};
 
@@ -16,8 +14,8 @@ pub fn main() {
     let f = Mmap::open_path(filename, Protection::Read).unwrap();
     let sl = unsafe { f.as_slice() };
     let deck = datfile::parse_buffer(sl).unwrap();
-    for card in deck.cards {
-        println!("{}",card)
+    for _card in deck.cards {
+        // println!("{}",card)
     }
     // let filename = "../../../Documents/op2/run.op2";
     // let f = Mmap::open_path(filename, Protection::Read).unwrap();

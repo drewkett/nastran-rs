@@ -202,7 +202,7 @@ fn parse_nastran_float(value: &[u8], exponent: &[u8]) -> f32 {
     for &c in exponent {
         temp.push(c);
     }
-    return String::from_utf8_lossy(&temp[..]).parse::<f32>().unwrap();
+    return String::from_utf8_lossy(&temp[..]).parse::<f32>().expect("Failed to parse nastran float");
 }
 
 named!(field_string<Field>,flat_map!(recognize!(tuple!(alpha,many0!(alphanumeric))),string_field_from_slice));
