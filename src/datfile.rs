@@ -3,18 +3,9 @@ use std::cmp::min;
 use std::fmt;
 use std::io::{Result, Error, ErrorKind};
 use std::str;
-use regex::bytes::Regex;
 
 use nom;
 use nom::{Slice, digit, IResult, alpha, alphanumeric};
-
-lazy_static! {
-    static ref BLANK: Regex = Regex::new(r"^ *$").unwrap();
-    static ref STRING: Regex = Regex::new(r"^ *([a-zA-Z][a-zA-Z0-9]*) *$").unwrap();
-    static ref DSTRING: Regex = Regex::new(r"^ *([a-zA-Z][a-zA-Z0-9]*) *\* *$").unwrap();
-    static ref CONT: Regex = Regex::new(r"^\+([a-zA-Z0-9 \.]*)$").unwrap();
-    static ref DCONT: Regex = Regex::new(r"^\*([a-zA-Z0-9 \.]*)$").unwrap();
-}
 
 #[derive(Debug,PartialEq)]
 pub enum Field {
@@ -24,6 +15,11 @@ pub enum Field {
     Double(f64),
     Continuation(String),
     String(String),
+}
+
+struct FlaggedField {
+    field: Field,
+    flags: CardFlags
 }
 
 fn string_field_from_slice(b: &[u8]) -> IResult<&[u8], Field> {
@@ -144,36 +140,11 @@ impl<'a> Iterator for Lines<'a> {
     }
 }
 
-fn parse_first_field(field_slice: &[u8]) -> Result<(Field, bool)> {
-    if BLANK.is_match(field_slice) {
-        return Ok((Field::Blank, false));
-    } else if STRING.is_match(field_slice) {
-        let cap = STRING.captures(field_slice).unwrap();
-        let s = String::from_utf8_lossy(&cap[1]).into_owned();
-        return Ok((Field::String(s), false));
-    } else if DSTRING.is_match(field_slice) {
-        let cap = DSTRING.captures(field_slice).unwrap();
-        let s = String::from_utf8_lossy(&cap[1]).into_owned();
-        return Ok((Field::String(s), true));
-    } else if CONT.is_match(field_slice) {
-        let cap = CONT.captures(field_slice).unwrap();
-        let s = match cap.get(1) {
-            Some(c) => String::from_utf8_lossy(c.as_bytes()).into_owned(),
-            None => "".to_owned(),
-        };
-        return Ok((Field::Continuation(s), false));
-    } else if DCONT.is_match(field_slice) {
-        let cap = DCONT.captures(field_slice).unwrap();
-        let s = match cap.get(1) {
-            Some(c) => String::from_utf8_lossy(c.as_bytes()).into_owned(),
-            None => "".to_owned(),
-        };
-        return Ok((Field::Continuation(s), true));
-    } else {
-        return Err(Error::new(ErrorKind::Other,
-                              format!("Invalid first field '{}'",
-                                      String::from_utf8_lossy(field_slice))));
-    }
+fn parse_first_field(field_slice: &[u8]) -> Result<FlaggedField> {
+    return match first_field(field_slice) {
+        IResult::Done(_,f) => Ok(f),
+        _ => Err(Error::new(ErrorKind::Other, format!("Can't parse field '{}'",String::from_utf8_lossy(field_slice)))),
+    };
 }
 
 fn read_first_field(line: &[u8]) -> Result<(Field, CardFlags, &[u8])> {
@@ -203,18 +174,19 @@ fn read_first_field(line: &[u8]) -> Result<(Field, CardFlags, &[u8])> {
             i_next = 9;
         }
     }
-    let (field, is_double) = match parse_first_field(&line[..i_end]) {
+    let flagged_field = match parse_first_field(&line[..i_end]) {
         Ok(res) => res,
         Err(e) => return Err(e),
     };
-    flags.is_double = is_double;
+    let field = flagged_field.field;
+    flags.is_double = flagged_field.flags.is_double;
     let remainder = &line[i_next..];
     return Ok((field, flags, remainder));
 }
 
 
 pub fn parse_field(field: &[u8]) -> Result<Field> {
-    return match parse_field_nom(field) {
+    return match short_field(field) {
         IResult::Done(_,f) => Ok(f),
         _ => Err(Error::new(ErrorKind::Other, format!("Can't parse field '{}'",String::from_utf8_lossy(field)))),
     };
@@ -234,7 +206,13 @@ fn parse_nastran_float(value: &[u8], exponent: &[u8]) -> f32 {
 }
 
 named!(field_string<Field>,flat_map!(recognize!(tuple!(alpha,many0!(alphanumeric))),string_field_from_slice));
+named!(field_string_double<Field>,flat_map!(
+    terminated!(
+        recognize!( tuple!(alpha,many0!(alphanumeric)))
+        ,tuple!(many0!(tag!(" ")),tag!("*"))
+    ), string_field_from_slice));
 named!(field_cont<Field>,flat_map!(preceded!(tag!("+"),recognize!(many0!(alt!(tag!(" ")|alphanumeric)))),cont_field_from_slice));
+named!(field_cont_double<Field>,flat_map!(preceded!(tag!("*"),recognize!(many0!(alt!(tag!(" ")|alphanumeric)))),cont_field_from_slice));
 named!(field_float<Field>,map!(my_float, |f| Field::Float(f)));
 
 named!(decimal_float_value, recognize!(alt!(
@@ -306,7 +284,7 @@ macro_rules! pad_space_eof(
   );
 );
 
-named!(parse_field_nom<Field>,
+named!(short_field<Field>,
        alt_complete!(
            pad_space_eof!(field_float) |
            pad_space_eof!(field_nastran_float) |
@@ -314,6 +292,15 @@ named!(parse_field_nom<Field>,
            pad_space_eof!(field_string) |
             terminated!(field_cont,eof!()) |
             value!(Field::Blank,terminated!(many0!(tag!(" ")),eof!()))
+));
+
+named!(first_field<FlaggedField>,
+       alt_complete!(
+           map!(pad_space_eof!(field_string),|field| FlaggedField {field, flags: CardFlags { is_double: false, is_comma: false }}) |
+           map!(pad_space_eof!(field_string_double),|field| FlaggedField {field, flags: CardFlags { is_double: true, is_comma: false }}) |
+            map!(terminated!(field_cont,eof!()),|field| FlaggedField {field, flags: CardFlags { is_double: false, is_comma: false }}) |
+            map!(terminated!(field_cont_double,eof!()),|field| FlaggedField {field, flags: CardFlags { is_double: true, is_comma: false }}) |
+            value!(FlaggedField {field:Field::Blank, flags: CardFlags{is_double:false,is_comma:false}},terminated!(many0!(tag!(" ")),eof!()))
 ));
 
 struct ShortCardIterator<'a> {
