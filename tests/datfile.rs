@@ -73,21 +73,21 @@ fn comma_separated() {
 
 #[test]
 fn test_parse() {
-    assert_eq!(datfile::Field::Float(1.23),datfile::parse_field(b" 1.23 ").unwrap_or(datfile::Field::Blank));
-    assert_eq!(datfile::Field::Float(1.24),datfile::parse_field(b" 1.24").unwrap_or(datfile::Field::Blank));
-    assert_eq!(datfile::Field::Float(1.25),datfile::parse_field(b"1.25").unwrap_or(datfile::Field::Blank));
-    assert_eq!(datfile::Field::Float(1.26),datfile::parse_field(b"1.26  ").unwrap_or(datfile::Field::Blank));
-    assert_eq!(datfile::Field::Float(1.),datfile::parse_field(b" 1. ").unwrap_or(datfile::Field::Blank));
-    assert_eq!(datfile::Field::Float(2.),datfile::parse_field(b" 2.").unwrap_or(datfile::Field::Blank));
-    assert_eq!(datfile::Field::Float(3.),datfile::parse_field(b"3.").unwrap_or(datfile::Field::Blank));
-    assert_eq!(datfile::Field::Float(4.),datfile::parse_field(b"4. ").unwrap_or(datfile::Field::Blank));
-    assert_eq!(datfile::Field::Float(1.23e7),datfile::parse_field(b"1.23e+7").unwrap_or(datfile::Field::Blank));
-    assert_eq!(datfile::Field::Float(1.24e7),datfile::parse_field(b"1.24e+7 ").unwrap_or(datfile::Field::Blank));
-    assert_eq!(datfile::Field::Float(2.0e7),datfile::parse_field(b"2e+7 ").unwrap_or(datfile::Field::Blank));
-    assert_eq!(datfile::Field::Float(1.25e7),datfile::parse_field(b"1.25+7").unwrap_or(datfile::Field::Blank));
-    assert_eq!(datfile::Field::Float(1.26e7),datfile::parse_field(b"1.26+7 ").unwrap_or(datfile::Field::Blank));
-    assert_eq!(datfile::Field::Float(1.0e7),datfile::parse_field(b"1.+7 ").unwrap_or(datfile::Field::Blank));
-    assert_eq!(datfile::Field::Int(123456),datfile::parse_field(b"123456").unwrap_or(datfile::Field::Blank));
-    assert_eq!(datfile::Field::Continuation("A B".to_owned()),datfile::parse_field(b"+A B").unwrap_or(datfile::Field::Blank));
-    assert_eq!(datfile::Field::String("HI1".to_owned()),datfile::parse_field(b"HI1").unwrap_or(datfile::Field::Blank));
+    assert_eq!(datfile::Field::Float(1.23),datfile::parse_short_field(b" 1.23 ").unwrap_or(datfile::Field::Blank));
+    assert_eq!(datfile::Field::Float(1.24),datfile::parse_short_field(b" 1.24").unwrap_or(datfile::Field::Blank));
+    assert_eq!(datfile::Field::Float(1.25),datfile::parse_short_field(b"1.25").unwrap_or(datfile::Field::Blank));
+    assert_eq!(datfile::Field::Float(1.26),datfile::parse_short_field(b"1.26  ").unwrap_or(datfile::Field::Blank));
+    assert_eq!(datfile::Field::Float(1.),datfile::parse_short_field(b" 1. ").unwrap_or(datfile::Field::Blank));
+    assert_eq!(datfile::Field::Float(2.),datfile::parse_short_field(b" 2.").unwrap_or(datfile::Field::Blank));
+    assert_eq!(datfile::Field::Float(3.),datfile::parse_short_field(b"3.").unwrap_or(datfile::Field::Blank));
+    assert_eq!(datfile::Field::Float(4.),datfile::parse_short_field(b"4. ").unwrap_or(datfile::Field::Blank));
+    assert_eq!(datfile::Field::Float(1.23e7),datfile::parse_short_field(b"1.23e+7").unwrap_or(datfile::Field::Blank));
+    assert_eq!(datfile::Field::Float(1.24e7),datfile::parse_short_field(b"1.24e+7 ").unwrap_or(datfile::Field::Blank));
+    assert_eq!(datfile::Field::Float(2.0e7),datfile::parse_short_field(b"2e+7 ").unwrap_or(datfile::Field::Blank));
+    assert_eq!(datfile::Field::Float(1.25e7),datfile::parse_short_field(b"1.25+7").unwrap_or(datfile::Field::Blank));
+    assert_eq!(datfile::Field::Float(1.26e7),datfile::parse_short_field(b"1.26+7 ").unwrap_or(datfile::Field::Blank));
+    assert_eq!(datfile::Field::Float(1.0e7),datfile::parse_short_field(b"1.+7 ").unwrap_or(datfile::Field::Blank));
+    assert_eq!(datfile::Field::Int(123456),datfile::parse_short_field(b"123456").unwrap_or(datfile::Field::Blank));
+    assert_eq!(datfile::Field::Continuation("A B".to_owned()),datfile::parse_short_field_cont(b"+A B").unwrap_or(datfile::Field::Blank));
+    assert_eq!(datfile::Field::String("HI1".to_owned()),datfile::parse_short_field(b"HI1").unwrap_or(datfile::Field::Blank));
 }

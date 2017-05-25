@@ -185,8 +185,22 @@ fn read_first_field(line: &[u8]) -> Result<(Field, CardFlags, &[u8])> {
 }
 
 
-pub fn parse_field(field: &[u8]) -> Result<Field> {
+pub fn parse_short_field(field: &[u8]) -> Result<Field> {
     return match short_field(field) {
+        IResult::Done(_,f) => Ok(f),
+        _ => Err(Error::new(ErrorKind::Other, format!("Can't parse field '{}'",String::from_utf8_lossy(field)))),
+    };
+}
+
+pub fn parse_short_field_cont(field: &[u8]) -> Result<Field> {
+    return match short_field_cont(field) {
+        IResult::Done(_,f) => Ok(f),
+        _ => Err(Error::new(ErrorKind::Other, format!("Can't parse field '{}'",String::from_utf8_lossy(field)))),
+    };
+}
+
+pub fn parse_long_field(field: &[u8]) -> Result<Field> {
+    return match long_field(field) {
         IResult::Done(_,f) => Ok(f),
         _ => Err(Error::new(ErrorKind::Other, format!("Can't parse field '{}'",String::from_utf8_lossy(field)))),
     };
@@ -214,6 +228,7 @@ named!(field_string_double<Field>,flat_map!(
 named!(field_cont<Field>,flat_map!(preceded!(tag!("+"),recognize!(many0!(alt!(tag!(" ")|alphanumeric)))),cont_field_from_slice));
 named!(field_cont_double<Field>,flat_map!(preceded!(tag!("*"),recognize!(many0!(alt!(tag!(" ")|alphanumeric)))),cont_field_from_slice));
 named!(field_float<Field>,map!(my_float, |f| Field::Float(f)));
+named!(field_double<Field>,map!(my_double, |f| Field::Double(f)));
 
 named!(decimal_float_value, recognize!(alt!(
           delimited!(digit, tag!("."), opt!(complete!(digit)))
@@ -223,6 +238,13 @@ named!(decimal_float_value, recognize!(alt!(
 
 named!(float_exponent, recognize!(tuple!(
           alt!(tag!("e") | tag!("E")),
+          opt!(alt!(tag!("+") | tag!("-"))),
+          digit
+          )
+));
+
+named!(double_exponent, recognize!(tuple!(
+          alt!(tag!("d") | tag!("D")),
           opt!(alt!(tag!("+") | tag!("-"))),
           digit
           )
@@ -240,6 +262,21 @@ fn my_float(input: &[u8]) -> IResult<&[u8],f32> {
       )
     ),
     parse_to!(f32)
+  )
+}
+
+fn my_double(input: &[u8]) -> IResult<&[u8],f64> {
+  flat_map!(input,
+    recognize!(
+      tuple!(
+        opt!(alt!(tag!("+") | tag!("-"))),
+        alt!(
+            terminated!(decimal_float_value,double_exponent) |
+            terminated!(digit,double_exponent)
+        )
+      )
+    ),
+    parse_to!(f64)
   )
 }
 
@@ -290,7 +327,26 @@ named!(short_field<Field>,
            pad_space_eof!(field_nastran_float) |
            pad_space_eof!(field_integer) |
            pad_space_eof!(field_string) |
+            value!(Field::Blank,terminated!(many0!(tag!(" ")),eof!()))
+));
+
+named!(short_field_cont<Field>,
+       alt_complete!(
+           pad_space_eof!(field_float) |
+           pad_space_eof!(field_nastran_float) |
+           pad_space_eof!(field_integer) |
+           pad_space_eof!(field_string) |
             terminated!(field_cont,eof!()) |
+            value!(Field::Blank,terminated!(many0!(tag!(" ")),eof!()))
+));
+
+named!(long_field<Field>,
+       alt_complete!(
+           pad_space_eof!(field_float) |
+           pad_space_eof!(field_double) |
+           pad_space_eof!(field_nastran_float) |
+           pad_space_eof!(field_integer) |
+           pad_space_eof!(field_string) |
             value!(Field::Blank,terminated!(many0!(tag!(" ")),eof!()))
 ));
 
@@ -341,7 +397,7 @@ fn split_line(line: &[u8]) -> Result<Vec<Field>> {
     };
     let mut fields = vec![field];
     if flags.is_comma {
-        let it = remainder.split(|&b| b == b',').map(parse_field);
+        let it = remainder.split(|&b| b == b',').map(parse_short_field);
         for f in it {
             match f {
                 Ok(field) => fields.push(field),
@@ -356,10 +412,16 @@ fn split_line(line: &[u8]) -> Result<Vec<Field>> {
             if i > 9 {
                 break;
                 // return Err(Error::new(ErrorKind::Other,format!("Too many fields found in line '{}'",String::from_utf8_lossy(line))))
-            }
-            match parse_field(field_slice) {
-                Ok(field) => fields.push(field),
-                Err(e) => return Err(e),
+            } else if i == 9 {
+                match parse_short_field_cont(field_slice) {
+                    Ok(field) => fields.push(field),
+                    Err(e) => return Err(e),
+                }
+            } else {
+                match parse_short_field(field_slice) {
+                    Ok(field) => fields.push(field),
+                    Err(e) => return Err(e),
+                }
             }
             i += 1;
         }
