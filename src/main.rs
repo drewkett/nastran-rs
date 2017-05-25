@@ -3,11 +3,13 @@
 #[macro_use] extern crate nom;
 extern crate memmap;
 extern crate ascii;
+#[macro_use] extern crate error_chain;
 
 use memmap::{Mmap, Protection};
 
 mod op2;
 mod datfile;
+mod errors;
 
 pub fn main() {
     let filename = "./A320_fr.dat";

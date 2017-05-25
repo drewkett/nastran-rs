@@ -4,5 +4,6 @@
 - Improve datfile test cases
 - Add support for combining continuations
 - Add double field parsing
+- Make sure there are good error messages
 - Get basic op2 parsing working for practical purposes
   - Probably expose iterator for all data types rather than try to map the data

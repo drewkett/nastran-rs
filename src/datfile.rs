@@ -1,11 +1,12 @@
 
 use std::cmp::min;
 use std::fmt;
-use std::io::{Result, Error, ErrorKind};
 use std::str;
 
 use nom;
 use nom::{Slice, digit, IResult, alphanumeric, is_digit, is_alphanumeric, InputIter, is_alphabetic};
+
+use errors::{Result,ErrorKind};
 
 macro_rules! take_m_n_while (
   ($i:expr, $m:expr, $n: expr, $submac:ident!( $($args:tt)* )) => (
@@ -88,12 +89,12 @@ pub struct CardFlags {
 }
 
 #[derive(Debug,PartialEq)]
-pub struct Card {
+pub struct Card <'a> {
     pub fields: Vec<Field>,
-    pub comment: Option<Vec<u8>>,
+    pub comment: Option<&'a [u8]>,
 }
 
-impl fmt::Display for Card {
+impl <'a> fmt::Display for Card<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         try!(write!(f, "Card("));
         for field in self.fields.iter() {
@@ -107,11 +108,11 @@ impl fmt::Display for Card {
 }
 
 #[derive(Debug,PartialEq)]
-pub struct Deck {
-    pub cards: Vec<Card>,
+pub struct Deck<'a> {
+    pub cards: Vec<Card<'a>>,
 }
 
-impl fmt::Display for Deck {
+impl <'a> fmt::Display for Deck<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         try!(write!(f, "Deck(\n"));
         for card in self.cards.iter() {
@@ -188,7 +189,7 @@ impl<'a> Iterator for Lines<'a> {
 fn parse_first_field(field_slice: &[u8]) -> Result<FlaggedField> {
     return match first_field(field_slice) {
         IResult::Done(_,f) => Ok(f),
-        _ => Err(Error::new(ErrorKind::Other, format!("Can't parse field '{}'",String::from_utf8_lossy(field_slice)))),
+        _ => Err(ErrorKind::ParseFailure.into()),
     };
 }
 
@@ -233,21 +234,21 @@ fn read_first_field(line: &[u8]) -> Result<(Field, CardFlags, &[u8])> {
 pub fn parse_short_field(field: &[u8]) -> Result<Field> {
     return match short_field(field) {
         IResult::Done(_,f) => Ok(f),
-        _ => Err(Error::new(ErrorKind::Other, format!("Can't parse field '{}'",String::from_utf8_lossy(field)))),
+        _ => Err(ErrorKind::ParseFailure.into()),
     };
 }
 
 pub fn parse_short_field_cont(field: &[u8]) -> Result<Field> {
     return match short_field_cont(field) {
         IResult::Done(_,f) => Ok(f),
-        _ => Err(Error::new(ErrorKind::Other, format!("Can't parse field '{}'",String::from_utf8_lossy(field)))),
+        _ => Err(ErrorKind::ParseFailure.into()),
     };
 }
 
 pub fn parse_long_field(field: &[u8]) -> Result<Field> {
     return match long_field(field) {
         IResult::Done(_,f) => Ok(f),
-        _ => Err(Error::new(ErrorKind::Other, format!("Can't parse field '{}'",String::from_utf8_lossy(field)))),
+        _ => Err(ErrorKind::ParseFailure.into()),
     };
 }
 
@@ -438,7 +439,7 @@ impl<'a> Iterator for ShortCardIterator<'a> {
 fn split_line(line: &[u8]) -> Result<Vec<Field>> {
     let (field, flags, remainder) = match read_first_field(line) {
         Ok(r) => r,
-        Err(e) => return Err(e),
+        Err(_) => return Err(ErrorKind::ParseFailure.into()),
     };
     let mut fields = vec![field];
     if flags.is_comma {
@@ -474,16 +475,19 @@ fn split_line(line: &[u8]) -> Result<Vec<Field>> {
     return Ok(fields);
 }
 
+named!(split_line_nom<Card>,map!(
+    tuple!(
+        take_m_n_while!(0,80,call!(|c| c != b'$' && c != b'\n')),
+        take_until_and_consume!("\n")
+    )
+,|(line,comment)| Card { fields: vec![], comment: Some(comment)}));
+
+named!(split_lines_nom<Deck>,map!(complete!(many0!(split_line_nom)),|cards| Deck { cards }));
+
 pub fn parse_buffer(buffer: &[u8]) -> Result<Deck> {
-    let mut cards = vec![];
-    let mut lines_it = Lines::new(buffer);
-    while let Some(line) = lines_it.next() {
-        let fields = match split_line(line.buffer) {
-            Ok(fields) => fields,
-            Err(e) => return Err(e),
-        };
-        let comment = Some(line.comment.to_owned());
-        cards.push(Card { fields, comment })
+    match split_lines_nom(buffer) {
+        IResult::Done(_,d) => Ok(d),
+        IResult::Error(_) => Err(ErrorKind::ParseFailure.into()),
+        IResult::Incomplete(_) => unreachable!()
     }
-    return Ok(Deck { cards });
 }
