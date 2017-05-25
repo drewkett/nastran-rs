@@ -15,6 +15,7 @@ BLAH    123      1.+5   1e2     ABC
 #[test]
 fn comma_separated() {
     let res = match datfile::parse_buffer(DATFILE) {
+
         Ok(d) => d,
         Err(e) => {println!("{:?}",e); assert!(false); return}
     };
@@ -91,4 +92,7 @@ fn test_parse() {
     assert_eq!(datfile::Field::Int(123456),datfile::parse_short_field(b"123456").unwrap_or(datfile::Field::Blank));
     assert_eq!(datfile::Field::Continuation("A B".to_owned()),datfile::parse_short_field_cont(b"+A B").unwrap_or(datfile::Field::Blank));
     assert_eq!(datfile::Field::String("HI1".to_owned()),datfile::parse_short_field(b"HI1").unwrap_or(datfile::Field::Blank));
+    assert_eq!(datfile::Field::Blank,datfile::parse_short_field(b"ABCDEFGHIJ").unwrap_or(datfile::Field::Blank));
+    assert_eq!(datfile::Field::Blank,datfile::parse_short_field(b"ABCDEFGHI").unwrap_or(datfile::Field::Blank));
+    assert_eq!(datfile::Field::String("ABCDEFGH".to_owned()),datfile::parse_short_field(b"ABCDEFGH").unwrap_or(datfile::Field::Blank));
 }

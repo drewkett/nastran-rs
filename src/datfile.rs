@@ -5,7 +5,52 @@ use std::io::{Result, Error, ErrorKind};
 use std::str;
 
 use nom;
-use nom::{Slice, digit, IResult, alpha, alphanumeric, is_digit, InputIter};
+use nom::{Slice, digit, IResult, alphanumeric, is_digit, is_alphanumeric, InputIter, is_alphabetic};
+
+macro_rules! take_m_n_while (
+  ($i:expr, $m:expr, $n: expr, $submac:ident!( $($args:tt)* )) => (
+      {
+          let input = $i;
+          let mn: usize = $m;
+          let mx: usize = $n;
+          let l = min(input.len(),mx);
+          if l < mn {
+              return IResult::Incomplete(nom::Needed::Size(mn-l))
+          }
+          let temp = input.slice(..l);
+          match temp.position(|c| !$submac!(c, $($args)*)) {
+            Some(j) if j + 1 < mn =>  IResult::Incomplete(nom::Needed::Size(mn-j-1)),
+            Some(j) => IResult::Done(input.slice(j..), input.slice(..j)),
+            None    => IResult::Done(input.slice(l..), input.slice(..l))
+        }
+      }
+  );
+  ($input:expr, $m:expr, $n: expr, $f:expr) => (
+    take_m_n_while!($input, $m, $n, call!($f));
+  );
+);
+
+macro_rules! char_if (
+  ($i:expr, $submac:ident!( $($args:tt)* )) => (
+      {
+          let input = $i;
+          if $i.len() == 0 {
+              return IResult::Incomplete(nom::Needed::Size(1))
+          }
+            match ($i).iter_elements().next().map(|&c| $submac!(c, $($args)*)) {
+                None        => IResult::Incomplete::<_, _>(nom::Needed::Size(1)),
+                Some(false) => IResult::Error(error_position!(nom::ErrorKind::Char, $i)),
+                //the unwrap should be safe here
+                Some(true)  => IResult::Done($i.slice(1..), $i.iter_elements().next().unwrap())
+            }
+      }
+  );
+  ($input:expr,  $f:expr) => (
+    char_if!($input, call!($f));
+  );
+);
+
+
 
 #[derive(Debug,PartialEq)]
 pub enum Field {
@@ -219,10 +264,10 @@ fn parse_nastran_float(value: &[u8], exponent: &[u8]) -> f32 {
     return String::from_utf8_lossy(&temp[..]).parse::<f32>().expect("Failed to parse nastran float");
 }
 
-named!(field_string<Field>,flat_map!(recognize!(tuple!(alpha,many0!(alphanumeric))),string_field_from_slice));
+named!(field_string<Field>,flat_map!(recognize!(tuple!(char_if!(is_alphabetic),take_m_n_while!(0,7,is_alphanumeric))),string_field_from_slice));
 named!(field_string_double<Field>,flat_map!(
     terminated!(
-        recognize!( tuple!(alpha,many0!(alphanumeric)))
+        recognize!( tuple!(char_if!(is_alphabetic),take_m_n_while!(0,7,is_alphanumeric)))
         ,tuple!(many0!(tag!(" ")),tag!("*"))
     ), string_field_from_slice));
 named!(field_cont<Field>,flat_map!(preceded!(tag!("+"),recognize!(many0!(alt!(tag!(" ")|alphanumeric)))),cont_field_from_slice));
@@ -301,34 +346,11 @@ alt!(
     )
 );
 
-macro_rules! take_m_n_while (
-  ($i:expr, $m:expr, $n: expr, $submac:ident!( $($args:tt)* )) => (
-      {
-          let input = $i;
-          let mn: usize = $m;
-          let mx: usize = $n;
-          let l = min(input.len(),mx);
-          if l < $m {
-              return IResult::Incomplete(nom::Needed::Size(mn-l))
-          }
-          let temp = input.slice(..l);
-          match temp.position(|c| !$submac!(c, $($args)*)) {
-            Some(j) if j < mn => IResult::Incomplete(nom::Needed::Size(mn-j)),
-            Some(j) => IResult::Done(input.slice(j..), input.slice(..j)),
-            None    => IResult::Done(input.slice(l..), input.slice(..l))
-        }
-      }
-  );
-  ($input:expr, $m:expr, $n: expr, $f:expr) => (
-    take_m_n_while!($input, $m, $n, call!($f));
-  );
-);
-
 named!(field_integer<Field>,map!(flat_map!(
         recognize!(
             alt!(
                 preceded!(tag!("-"),take_m_n_while!(1,7,is_digit))|
-                take_m_n_while!(1,8,nom::is_digit)
+                take_m_n_while!(1,8,is_digit)
             )
         ),
         parse_to!(i32))
