@@ -76,6 +76,7 @@ fn test_parse() {
     assert_eq!(datfile::Field::Float(1.23),datfile::parse_short_field(b" 1.23 ").unwrap_or(datfile::Field::Blank));
     assert_eq!(datfile::Field::Float(1.24),datfile::parse_short_field(b" 1.24").unwrap_or(datfile::Field::Blank));
     assert_eq!(datfile::Field::Float(1.25),datfile::parse_short_field(b"1.25").unwrap_or(datfile::Field::Blank));
+    assert_eq!(datfile::Field::Blank,datfile::parse_short_field(b"1252341551").unwrap_or(datfile::Field::Blank));
     assert_eq!(datfile::Field::Float(1.26),datfile::parse_short_field(b"1.26  ").unwrap_or(datfile::Field::Blank));
     assert_eq!(datfile::Field::Float(1.),datfile::parse_short_field(b" 1. ").unwrap_or(datfile::Field::Blank));
     assert_eq!(datfile::Field::Float(2.),datfile::parse_short_field(b" 2.").unwrap_or(datfile::Field::Blank));

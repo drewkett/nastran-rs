@@ -5,7 +5,7 @@ use std::io::{Result, Error, ErrorKind};
 use std::str;
 
 use nom;
-use nom::{Slice, digit, IResult, alpha, alphanumeric};
+use nom::{Slice, digit, IResult, alpha, alphanumeric, is_digit, InputIter};
 
 #[derive(Debug,PartialEq)]
 pub enum Field {
@@ -301,11 +301,34 @@ alt!(
     )
 );
 
+macro_rules! take_m_n_while (
+  ($i:expr, $m:expr, $n: expr, $submac:ident!( $($args:tt)* )) => (
+      {
+          let input = $i;
+          let mn: usize = $m;
+          let mx: usize = $n;
+          let l = min(input.len(),mx);
+          if l < $m {
+              return IResult::Incomplete(nom::Needed::Size(mn-l))
+          }
+          let temp = input.slice(..l);
+          match temp.position(|c| !$submac!(c, $($args)*)) {
+            Some(j) if j < mn => IResult::Incomplete(nom::Needed::Size(mn-j)),
+            Some(j) => IResult::Done(input.slice(j..), input.slice(..j)),
+            None    => IResult::Done(input.slice(l..), input.slice(..l))
+        }
+      }
+  );
+  ($input:expr, $m:expr, $n: expr, $f:expr) => (
+    take_m_n_while!($input, $m, $n, call!($f));
+  );
+);
+
 named!(field_integer<Field>,map!(flat_map!(
         recognize!(
-            tuple!(
-                opt!(tag!("-")),
-                digit
+            alt!(
+                preceded!(tag!("-"),take_m_n_while!(1,7,is_digit))|
+                take_m_n_while!(1,8,nom::is_digit)
             )
         ),
         parse_to!(i32))
