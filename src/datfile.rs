@@ -491,3 +491,50 @@ pub fn parse_buffer(buffer: &[u8]) -> Result<Deck> {
         IResult::Incomplete(_) => unreachable!()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    extern crate test;
+    use test::Bencher;
+
+    use super::*;
+
+    #[bench]
+    fn bench_field_nastran_float(b: &mut Bencher) {
+        b.iter(|| {
+            field_nastran_float(b"11.22+7")
+        });
+    }
+
+    #[bench]
+    fn bench_field_float(b: &mut Bencher) {
+        b.iter(|| {
+            field_float(b"11.22e+7")
+        });
+    }
+
+    #[test]
+    fn test_parse() {
+        assert_eq!(Field::Float(1.23),parse_short_field(b" 1.23 ").unwrap_or(Field::Blank));
+        assert_eq!(Field::Float(1.24),parse_short_field(b" 1.24").unwrap_or(Field::Blank));
+        assert_eq!(Field::Float(1.25),parse_short_field(b"1.25").unwrap_or(Field::Blank));
+        assert_eq!(Field::Blank,parse_short_field(b"1252341551").unwrap_or(Field::Blank));
+        assert_eq!(Field::Float(1.26),parse_short_field(b"1.26  ").unwrap_or(Field::Blank));
+        assert_eq!(Field::Float(1.),parse_short_field(b" 1. ").unwrap_or(Field::Blank));
+        assert_eq!(Field::Float(2.),parse_short_field(b" 2.").unwrap_or(Field::Blank));
+        assert_eq!(Field::Float(3.),parse_short_field(b"3.").unwrap_or(Field::Blank));
+        assert_eq!(Field::Float(4.),parse_short_field(b"4. ").unwrap_or(Field::Blank));
+        assert_eq!(Field::Float(1.23e7),parse_short_field(b"1.23e+7").unwrap_or(Field::Blank));
+        assert_eq!(Field::Float(1.24e7),parse_short_field(b"1.24e+7 ").unwrap_or(Field::Blank));
+        assert_eq!(Field::Float(2.0e7),parse_short_field(b"2e+7 ").unwrap_or(Field::Blank));
+        assert_eq!(Field::Float(1.25e7),parse_short_field(b"1.25+7").unwrap_or(Field::Blank));
+        assert_eq!(Field::Float(1.26e7),parse_short_field(b"1.26+7 ").unwrap_or(Field::Blank));
+        assert_eq!(Field::Float(1.0e7),parse_short_field(b"1.+7 ").unwrap_or(Field::Blank));
+        assert_eq!(Field::Int(123456),parse_short_field(b"123456").unwrap_or(Field::Blank));
+        assert_eq!(Field::Continuation("A B".to_owned()),parse_short_field_cont(b"+A B").unwrap_or(Field::Blank));
+        assert_eq!(Field::String("HI1".to_owned()),parse_short_field(b"HI1").unwrap_or(Field::Blank));
+        assert_eq!(Field::Blank,parse_short_field(b"ABCDEFGHIJ").unwrap_or(Field::Blank));
+        assert_eq!(Field::Blank,parse_short_field(b"ABCDEFGHI").unwrap_or(Field::Blank));
+        assert_eq!(Field::String("ABCDEFGH".to_owned()),parse_short_field(b"ABCDEFGH").unwrap_or(Field::Blank));
+    }
+}
