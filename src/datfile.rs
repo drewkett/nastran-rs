@@ -231,21 +231,21 @@ fn read_first_field(line: &[u8]) -> Result<(Field, CardFlags, &[u8])> {
 }
 
 
-pub fn parse_short_field(field: &[u8]) -> Result<Field> {
+fn parse_short_field(field: &[u8]) -> Result<Field> {
     return match short_field(field) {
         IResult::Done(_,f) => Ok(f),
         _ => Err(ErrorKind::ParseFailure.into()),
     };
 }
 
-pub fn parse_short_field_cont(field: &[u8]) -> Result<Field> {
+fn parse_short_field_cont(field: &[u8]) -> Result<Field> {
     return match short_field_cont(field) {
         IResult::Done(_,f) => Ok(f),
         _ => Err(ErrorKind::ParseFailure.into()),
     };
 }
 
-pub fn parse_long_field(field: &[u8]) -> Result<Field> {
+fn parse_long_field(field: &[u8]) -> Result<Field> {
     return match long_field(field) {
         IResult::Done(_,f) => Ok(f),
         _ => Err(ErrorKind::ParseFailure.into()),
