@@ -54,32 +54,18 @@ macro_rules! char_if (
 
 
 #[derive(Debug,PartialEq)]
-pub enum Field {
+pub enum Field<'a> {
     Blank,
     Int(i32),
     Float(f32),
     Double(f64),
-    Continuation(String),
-    String(String),
+    Continuation(&'a [u8]),
+    String(&'a [u8]),
 }
 
-struct FlaggedField {
-    field: Field,
+struct FlaggedField<'a> {
+    field: Field<'a>,
     flags: CardFlags
-}
-
-fn string_field_from_slice(b: &[u8]) -> IResult<&[u8], Field> {
-    match str::from_utf8(b) {
-        Ok(s) => IResult::Done(b"",Field::String(s.to_owned())),
-        Err(_) => IResult::Error(error_code!(nom::ErrorKind::Custom(102)))
-    }
-}
-
-fn cont_field_from_slice(b: &[u8]) -> IResult<&[u8], Field> {
-    match str::from_utf8(b) {
-        Ok(s) => IResult::Done(b"",Field::Continuation(s.to_owned())),
-        Err(_) => IResult::Error(error_code!(nom::ErrorKind::Custom(102)))
-    }
 }
 
 #[derive(Debug,PartialEq)]
@@ -90,8 +76,8 @@ pub struct CardFlags {
 
 #[derive(Debug,PartialEq)]
 pub struct Card <'a> {
-    pub fields: Vec<Field>,
-    pub comment: Option<&'a [u8]>,
+    pub fields: Vec<Field<'a>>,
+    pub comment: &'a [u8],
 }
 
 impl <'a> fmt::Display for Card<'a> {
@@ -100,8 +86,8 @@ impl <'a> fmt::Display for Card<'a> {
         for field in self.fields.iter() {
             try!(write!(f, "{:?},", field));
         }
-        if let Some(ref c) = self.comment {
-            try!(write!(f, "Comment='{}'", String::from_utf8_lossy(c)));
+        if self.comment.len() > 0 {
+            try!(write!(f, "Comment='{}'", String::from_utf8_lossy(self.comment)));
         }
         write!(f, ")")
     }
@@ -265,14 +251,14 @@ fn parse_nastran_float(value: &[u8], exponent: &[u8]) -> f32 {
     return String::from_utf8_lossy(&temp[..]).parse::<f32>().expect("Failed to parse nastran float");
 }
 
-named!(field_string<Field>,flat_map!(recognize!(tuple!(char_if!(is_alphabetic),take_m_n_while!(0,7,is_alphanumeric))),string_field_from_slice));
-named!(field_string_double<Field>,flat_map!(
+named!(field_string<Field>,map!(recognize!(tuple!(char_if!(is_alphabetic),take_m_n_while!(0,7,is_alphanumeric))),Field::String));
+named!(field_string_double<Field>,map!(
     terminated!(
         recognize!( tuple!(char_if!(is_alphabetic),take_m_n_while!(0,7,is_alphanumeric)))
         ,tuple!(many0!(tag!(" ")),tag!("*"))
-    ), string_field_from_slice));
-named!(field_cont<Field>,flat_map!(preceded!(tag!("+"),recognize!(many0!(alt!(tag!(" ")|alphanumeric)))),cont_field_from_slice));
-named!(field_cont_double<Field>,flat_map!(preceded!(tag!("*"),recognize!(many0!(alt!(tag!(" ")|alphanumeric)))),cont_field_from_slice));
+    ), Field::String));
+named!(field_cont<Field>,map!(preceded!(tag!("+"),recognize!(many0!(alt!(tag!(" ")|alphanumeric)))),Field::Continuation));
+named!(field_cont_double<Field>,map!(preceded!(tag!("*"),recognize!(many0!(alt!(tag!(" ")|alphanumeric)))),Field::Continuation));
 named!(field_float<Field>,map!(my_float, |f| Field::Float(f)));
 named!(field_double<Field>,map!(my_double, |f| Field::Double(f)));
 
@@ -477,10 +463,10 @@ fn split_line(line: &[u8]) -> Result<Vec<Field>> {
 
 named!(split_line_nom<Card>,map!(
     tuple!(
-        take_m_n_while!(0,80,call!(|c| c != b'$' && c != b'\n')),
+        map_res!(take_m_n_while!(0,80,call!(|c| c != b'$' && c != b'\n')),split_line),
         take_until_and_consume!("\n")
     )
-,|(line,comment)| Card { fields: vec![], comment: Some(comment)}));
+,|(fields,comment)| Card { fields, comment}));
 
 named!(split_lines_nom<Deck>,map!(complete!(many0!(split_line_nom)),|cards| Deck { cards }));
 
@@ -531,10 +517,10 @@ mod tests {
         assert_eq!(Field::Float(1.26e7),parse_short_field(b"1.26+7 ").unwrap_or(Field::Blank));
         assert_eq!(Field::Float(1.0e7),parse_short_field(b"1.+7 ").unwrap_or(Field::Blank));
         assert_eq!(Field::Int(123456),parse_short_field(b"123456").unwrap_or(Field::Blank));
-        assert_eq!(Field::Continuation("A B".to_owned()),parse_short_field_cont(b"+A B").unwrap_or(Field::Blank));
-        assert_eq!(Field::String("HI1".to_owned()),parse_short_field(b"HI1").unwrap_or(Field::Blank));
+        assert_eq!(Field::Continuation(b"A B"),parse_short_field_cont(b"+A B").unwrap_or(Field::Blank));
+        assert_eq!(Field::String(b"HI1"),parse_short_field(b"HI1").unwrap_or(Field::Blank));
         assert_eq!(Field::Blank,parse_short_field(b"ABCDEFGHIJ").unwrap_or(Field::Blank));
         assert_eq!(Field::Blank,parse_short_field(b"ABCDEFGHI").unwrap_or(Field::Blank));
-        assert_eq!(Field::String("ABCDEFGH".to_owned()),parse_short_field(b"ABCDEFGH").unwrap_or(Field::Blank));
+        assert_eq!(Field::String(b"ABCDEFGH"),parse_short_field(b"ABCDEFGH").unwrap_or(Field::Blank));
     }
 }
