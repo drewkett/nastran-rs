@@ -195,7 +195,7 @@ fn read_first_field(line: &[u8]) -> IResult<&[u8],(Field, CardFlags)> {
     let flagged_field = match first_field(&line[..i_end]) {
         IResult::Done(_,res) => res,
         IResult::Error(e) => return IResult::Error(e),
-        _ => unreachable!()
+        IResult::Incomplete(n) => return IResult::Incomplete(n)
     };
     let field = flagged_field.field;
     flags.is_double = flagged_field.flags.is_double;
@@ -225,8 +225,8 @@ named!(field_string_double<Field>,map!(
     ), Field::String));
 named!(field_cont_single<Field>,map!(preceded!(tag!("+"),recognize!(many0!(alt!(tag!(" ")|alphanumeric)))),Field::Continuation));
 named!(field_cont_double<Field>,map!(preceded!(tag!("*"),recognize!(many0!(alt!(tag!(" ")|alphanumeric)))),Field::Continuation));
-named!(field_cont_anon<Field>,map!(recognize!(many0!(alt!(tag!(" ")|alphanumeric))),Field::Continuation));
-named!(field_cont<Field>,alt!(field_cont_single|field_cont_double|field_cont_anon));
+named!(field_cont_anon<Field>,map!(take_m_n_while!(0,8,move |c| is_alphanumeric(c) || c == b' '),Field::Continuation));
+named!(field_cont<Field>,alt_complete!(field_cont_single|field_cont_double|field_cont_anon));
 named!(field_float<Field>,map!(my_float, |f| Field::Float(f)));
 named!(field_double<Field>,map!(my_double, |f| Field::Double(f)));
 
@@ -415,7 +415,7 @@ fn split_line(line: &[u8]) -> IResult<&[u8],Vec<Field>> {
     let (field, flags, mut remainder) = match read_first_field(line) {
         IResult::Done(remainder,(field,flags)) => (field,flags,remainder),
         IResult::Error(e) => return IResult::Error(e),
-        _ => unreachable!()
+        IResult::Incomplete(n) => return IResult::Incomplete(n)
     };
     let mut fields = vec![field];
     if flags.is_comma {
@@ -425,14 +425,14 @@ fn split_line(line: &[u8]) -> IResult<&[u8],Vec<Field>> {
              match short_field_cont(sl) {
                 IResult::Done(_,field) => fields.push(field),
                 IResult::Error(e) => return IResult::Error(e),
-                _ => unreachable!()
+                IResult::Incomplete(n) => return IResult::Incomplete(n)
 
              }
            } else {
              match short_field(sl) {
                 IResult::Done(_,field) => fields.push(field),
                 IResult::Error(e) => return IResult::Error(e),
-                _ => unreachable!()
+                IResult::Incomplete(n) => return IResult::Incomplete(n)
              }
            }
            i += 1;
@@ -442,41 +442,41 @@ fn split_line(line: &[u8]) -> IResult<&[u8],Vec<Field>> {
         match split_long(remainder) {
             IResult::Done(_,rem_fields) => fields.extend(rem_fields),
             IResult::Error(e) => return IResult::Error(e),
-            _ => unreachable!()
+            IResult::Incomplete(n) => return IResult::Incomplete(n)
         }
     } else {
         let mut it = ShortCardIterator::new(remainder);
         let mut i = 2;
         while let Some(field_slice) = it.next() {
-            if i > 10 {
-                break;
-                // return Err(Error::new(ErrorKind::Other,format!("Too many fields found in line '{}'",String::from_utf8_lossy(line))))
-            } else if i == 10 {
+            if i == 10 {
                 match field_cont(field_slice) {
                     IResult::Done(_,field) => fields.push(field),
                     IResult::Error(e) => return IResult::Error(e),
-                    _ => unreachable!()
+                    IResult::Incomplete(n) => return IResult::Incomplete(n)
                 }
+                break
             } else {
                 match short_field(field_slice) {
                     IResult::Done(_,field) => fields.push(field),
                     IResult::Error(e) => return IResult::Error(e),
-                    _ => unreachable!()
-
+                    IResult::Incomplete(n) => return IResult::Incomplete(n)
                 }
             }
             i += 1;
         }
         remainder = it.remainder;
+        if remainder.len() > 0 {
+            println!("Remainder: '{}'",unsafe { str::from_utf8_unchecked(remainder)})
+        }
     }
     return IResult::Done(remainder,fields);
 }
 
 named!(split_line_nom<Card>,map!(
     tuple!(
-        dbg!(flat_map!(take_m_n_while!(0,80,call!(|c| c != b'$' && c != b'\n')),split_line)),
+        flat_map!(take_m_n_while!(0,80,call!(|c| c != b'$' && c != b'\n')),split_line),
         alt!(
-            map!(tag!("\n"),|_| None) | 
+            map!(alt!(eof!()|tag!("\n")),|_| None) | 
             map!(preceded!(opt!(tag!("$")),take_until_and_consume!("\n")),|c| Some(c))
         )
     )
@@ -488,7 +488,7 @@ pub fn parse_buffer(buffer: &[u8]) -> Result<Deck> {
     match split_lines_nom(buffer) {
         IResult::Done(_,d) => Ok(d),
         IResult::Error(_) => Err(ErrorKind::ParseFailure.into()),
-        IResult::Incomplete(_) => unreachable!()
+        IResult::Incomplete(_) => Err(ErrorKind::ParseFailure.into())
     }
 }
 
