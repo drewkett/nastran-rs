@@ -10,6 +10,8 @@ PARAM, WTMASS,0.00259
 
 ABCDEF,123456,123456,123456,123456,123456,123456,123456,123456,123456,123456,123456,123456
 BLAH    123      1.+5   1e2     ABC
+GRID*            1100001               0    3.732130e+02    3.329000e+00 ED00013
+*ED00013    7.408100e+01               0
 ";
 
 #[test]
@@ -86,5 +88,24 @@ fn comma_separated() {
                                      datfile::Field::String(b"ABC")],
                         comment: None,
                     }));
+    assert_eq!(it.next(),
+               Some(datfile::Card {
+                        fields: vec![datfile::Field::String(b"GRID"),
+                                     datfile::Field::Int(1100001),
+                                     datfile::Field::Int(0),
+                                     datfile::Field::Float(373.213),
+                                     datfile::Field::Float(3.329),
+                                     datfile::Field::Continuation(b" ED00013")],
+                        comment: None,
+                    }));
+    assert_eq!(it.next(),
+               Some(datfile::Card {
+                        fields: vec![datfile::Field::Continuation(b"ED00013"),
+                                     datfile::Field::Float(74.081),
+                                     datfile::Field::Int(0),
+                                     ],
+                        comment: None,
+                    }));
+    assert_eq!(it.next(),None);
 }
 
