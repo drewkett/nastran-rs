@@ -422,10 +422,10 @@ impl<'a> Iterator for ShortCardIterator<'a> {
 }
 
 
-fn split_line(line: &[u8]) -> Result<Vec<Field>> {
-    let (field, flags, remainder) = match read_first_field(line) {
+fn split_line(line: &[u8]) -> IResult<&[u8],Vec<Field>> {
+    let (field, flags, mut remainder) = match read_first_field(line) {
         Ok(r) => r,
-        Err(_) => return Err(ErrorKind::ParseFailure.into()),
+        Err(_) => return IResult::Error(nom::ErrorKind::Custom(122))
     };
     let mut fields = vec![field];
     if flags.is_comma {
@@ -433,9 +433,10 @@ fn split_line(line: &[u8]) -> Result<Vec<Field>> {
         for f in it {
             match f {
                 Ok(field) => fields.push(field),
-                Err(e) => return Err(e),
+                Err(_) => return IResult::Error(nom::ErrorKind::Custom(122))
             }
         }
+        remainder = b"";
     } else if flags.is_double {
     } else {
         let mut it = ShortCardIterator::new(remainder);
@@ -447,23 +448,24 @@ fn split_line(line: &[u8]) -> Result<Vec<Field>> {
             } else if i == 9 {
                 match parse_short_field_cont(field_slice) {
                     Ok(field) => fields.push(field),
-                    Err(e) => return Err(e),
+        Err(_) => return IResult::Error(nom::ErrorKind::Custom(122))
                 }
             } else {
                 match parse_short_field(field_slice) {
                     Ok(field) => fields.push(field),
-                    Err(e) => return Err(e),
+        Err(_) => return IResult::Error(nom::ErrorKind::Custom(122))
                 }
             }
             i += 1;
         }
+        remainder = it.remainder;
     }
-    return Ok(fields);
+    return IResult::Done(remainder,fields);
 }
 
 named!(split_line_nom<Card>,map!(
     tuple!(
-        map_res!(take_m_n_while!(0,80,call!(|c| c != b'$' && c != b'\n')),split_line),
+        flat_map!(take_m_n_while!(0,80,call!(|c| c != b'$' && c != b'\n')),split_line),
         take_until_and_consume!("\n")
     )
 ,|(fields,comment)| Card { fields, comment}));
