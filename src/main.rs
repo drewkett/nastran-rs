@@ -3,27 +3,33 @@
 #![cfg_attr(test,feature(test))]
 #[cfg(test)] extern crate test;
 
-
 #[macro_use] extern crate nom;
 extern crate memmap;
 extern crate ascii;
 #[macro_use] extern crate error_chain;
+extern crate clap;
 
 use memmap::{Mmap, Protection};
+use clap::{Arg, App};
 
 mod op2;
 mod datfile;
 mod errors;
 
 pub fn main() {
-    let filename = "./A320_fr.dat";
-    let f = Mmap::open_path(filename, Protection::Read).unwrap();
-    let sl = unsafe { f.as_slice() };
-    let deck = datfile::parse_buffer(sl).unwrap();
-    for _card in deck.cards {
-        // println!("{}",card)
+    let matches = App::new("Nastran Reader")
+                               .arg(Arg::with_name("DATFILE")
+                               .help(".dat file for reading")
+                               .required(true)
+                               .index(1)).get_matches();
+    if let Some(filename) = matches.value_of("DATFILE") {
+        let f = Mmap::open_path(filename, Protection::Read).unwrap();
+        let sl = unsafe { f.as_slice() };
+        let deck = datfile::parse_buffer(sl).unwrap();
+        for card in deck.cards {
+            println!("{}",card)
+        }
     }
-    // let filename = "../../../Documents/op2/run.op2";
     // let f = Mmap::open_path(filename, Protection::Read).unwrap();
     // let sl = unsafe { f.as_slice() };
 
