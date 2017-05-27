@@ -3,6 +3,7 @@ use std::cmp::min;
 use std::fmt;
 use std::str;
 
+use dtoa;
 use nom;
 use nom::{Slice, digit, IResult, alphanumeric, is_digit, is_alphanumeric, InputIter, is_alphabetic};
 
@@ -64,21 +65,34 @@ pub enum Field<'a> {
 }
 
 fn float_to_8(f: f32) -> String {
-    let a = format!("{:8}",f);
-    if a.len() > 8 {
+    let mut buf = [b' '; 9];
+    if let Ok(n) = dtoa::write(&mut buf[..], f) {
+            if n > 0 && buf[0] == b'0' {
+                unsafe { String::from_utf8_unchecked(buf[1..n].to_vec()) }
+            } else if n > 0 && buf[n-1] == b'0' {
+                unsafe { String::from_utf8_unchecked(buf[..n-1].to_vec()) }
+            } else {
         format!("{:8e}",f)
+            }
     } else {
-        a
+        format!("{:8e}",f)
     }
 }
 
 fn double_to_8(f: f64) -> String {
-    let a = format!("{:8}",f);
-    if a.len() > 8 {
+    let mut buf = [b' '; 9];
+    if let Ok(n) = dtoa::write(&mut buf[..], f) {
+            if n > 0 && buf[0] == b'0' {
+                unsafe { String::from_utf8_unchecked(buf[1..n].to_vec()) }
+            } else if n > 0 && buf[n-1] == b'0' {
+                unsafe { String::from_utf8_unchecked(buf[..n-1].to_vec()) }
+            } else {
         format!("{:8e}",f)
+            }
     } else {
-        a
+        format!("{:8e}",f)
     }
+
 }
 
 impl <'a> fmt::Display for Field<'a> {
@@ -86,8 +100,8 @@ impl <'a> fmt::Display for Field<'a> {
         match self {
             &Field::Blank => write!(f,"        "),
             &Field::Int(i) => write!(f,"{:8}",i),
-            &Field::Float(d) => write!(f,"{}",float_to_8(d)),
-            &Field::Double(d) => write!(f,"{}",double_to_8(d)),
+            &Field::Float(d) => write!(f,"{:>8}",float_to_8(d)),
+            &Field::Double(d) => write!(f,"{:>8}",double_to_8(d)),
             &Field::Continuation(c) => write!(f,"+{:7}",unsafe {str::from_utf8_unchecked(c)}),
             &Field::String(s) => write!(f,"{:8}",unsafe {str::from_utf8_unchecked(s)}),
         }

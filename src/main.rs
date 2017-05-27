@@ -7,6 +7,7 @@
 extern crate memmap;
 extern crate ascii;
 #[macro_use] extern crate error_chain;
+extern crate dtoa;
 extern crate clap;
 
 use memmap::{Mmap, Protection};
