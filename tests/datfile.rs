@@ -32,6 +32,8 @@ fn comma_separated() {
                                      datfile::Field::String(b"POST"),
                                      datfile::Field::Int(1)],
                         comment: Some(b"ABC"),
+                        is_comma: true,
+                        is_double: false,
                     }));
     assert_eq!(it.next(),
                Some(datfile::Card {
@@ -39,6 +41,8 @@ fn comma_separated() {
                                      datfile::Field::String(b"WTMASS"),
                                      datfile::Field::Float(0.00259)],
                         comment: None,
+                        is_comma: true,
+                        is_double: false,
                     }));
     assert_eq!(it.next(),
                Some(datfile::Card {
@@ -46,6 +50,8 @@ fn comma_separated() {
                                      datfile::Field::Int(1),
                                      datfile::Field::Int(2)],
                         comment: None,
+                        is_comma: true,
+                        is_double: false,
                     }));
     assert_eq!(it.next(),
                Some(datfile::Card {
@@ -53,16 +59,22 @@ fn comma_separated() {
                                      datfile::Field::Int(1),
                                      datfile::Field::Int(2)],
                         comment: None,
+                        is_comma: true,
+                        is_double: false,
                     }));
     assert_eq!(it.next(),
                Some(datfile::Card {
                         fields: vec![],
                         comment: None,
+                        is_comma: false,
+                        is_double: false,
                     }));
     assert_eq!(it.next(),
                Some(datfile::Card {
                         fields: vec![],
                         comment: None,
+                        is_comma: false,
+                        is_double: false,
                     }));
     assert_eq!(it.next(),
                Some(datfile::Card {
@@ -79,6 +91,8 @@ fn comma_separated() {
                                      datfile::Field::Int(123456),
                                      datfile::Field::Int(123)],
                         comment: Some(b"456,123456"),
+                        is_comma: true,
+                        is_double: false,
                     }));
     assert_eq!(it.next(),
                Some(datfile::Card {
@@ -88,6 +102,8 @@ fn comma_separated() {
                                      datfile::Field::Float(1e2),
                                      datfile::Field::String(b"ABC")],
                         comment: None,
+                        is_comma: false,
+                        is_double: false,
                     }));
     assert_eq!(it.next(),
                Some(datfile::Card {
@@ -98,6 +114,8 @@ fn comma_separated() {
                                      datfile::Field::Float(3.329),
                                      datfile::Field::Continuation(b" ED00013")],
                         comment: None,
+                        is_comma: false,
+                        is_double: true,
                     }));
     assert_eq!(it.next(),
                Some(datfile::Card {
@@ -106,6 +124,8 @@ fn comma_separated() {
                                      datfile::Field::Int(0),
                                      ],
                         comment: None,
+                        is_comma: false,
+                        is_double: true,
                     }));
     assert_eq!(it.next(),
                Some(datfile::Card {
@@ -121,6 +141,8 @@ fn comma_separated() {
                                      datfile::Field::Continuation(b"")
                                      ],
                         comment: None,
+                        is_comma: false,
+                        is_double: false,
                     }));
     assert_eq!(it.next(),None);
 }
