@@ -63,6 +63,37 @@ pub enum Field<'a> {
     String(&'a [u8]),
 }
 
+fn float_to_8(f: f32) -> String {
+    let a = format!("{:8}",f);
+    if a.len() > 8 {
+        format!("{:8e}",f)
+    } else {
+        a
+    }
+}
+
+fn double_to_8(f: f64) -> String {
+    let a = format!("{:8}",f);
+    if a.len() > 8 {
+        format!("{:8e}",f)
+    } else {
+        a
+    }
+}
+
+impl <'a> fmt::Display for Field<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            &Field::Blank => write!(f,"        "),
+            &Field::Int(i) => write!(f,"{:8}",i),
+            &Field::Float(d) => write!(f,"{}",float_to_8(d)),
+            &Field::Double(d) => write!(f,"{}",double_to_8(d)),
+            &Field::Continuation(c) => write!(f,"+{:7}",unsafe {str::from_utf8_unchecked(c)}),
+            &Field::String(s) => write!(f,"{:8}",unsafe {str::from_utf8_unchecked(s)}),
+        }
+    }
+}
+
 struct FlaggedField<'a> {
     field: Field<'a>,
     flags: CardFlags
@@ -74,22 +105,34 @@ pub struct CardFlags {
     is_comma: bool,
 }
 
-#[derive(Debug,PartialEq)]
+#[derive(PartialEq)]
 pub struct Card <'a> {
     pub fields: Vec<Field<'a>>,
-    pub comment: &'a [u8],
+    pub comment: Option<&'a [u8]>,
 }
 
-impl <'a> fmt::Display for Card<'a> {
+impl <'a> fmt::Debug for Card<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         try!(write!(f, "Card("));
         for field in self.fields.iter() {
             try!(write!(f, "{:?},", field));
         }
-        if self.comment.len() > 0 {
-            try!(write!(f, "Comment='{}'", String::from_utf8_lossy(self.comment)));
+        if let Some(comment) = self.comment {
+            try!(write!(f, "Comment='{}'", unsafe { str::from_utf8_unchecked(comment)}));
         }
         write!(f, ")")
+    }
+}
+
+impl <'a> fmt::Display for Card<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for field in self.fields.iter() {
+            try!(write!(f, "{}", field));
+        }
+        if let Some(comment) = self.comment {
+            try!(write!(f, "${}", unsafe { str::from_utf8_unchecked(comment)}));
+        }
+        write!(f,"")
     }
 }
 
@@ -105,70 +148,6 @@ impl <'a> fmt::Display for Deck<'a> {
             try!(write!(f, "  {},\n", card));
         }
         write!(f, ")")
-    }
-}
-
-struct Line<'a> {
-    buffer: &'a [u8],
-    comment: &'a [u8],
-}
-
-impl<'a> fmt::Display for Line<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f,
-               "Line ('{}',Comment='{}')",
-               String::from_utf8_lossy(self.buffer),
-               String::from_utf8_lossy(self.comment))
-    }
-}
-
-struct Lines<'a> {
-    buffer: &'a [u8],
-}
-
-impl<'a> Lines<'a> {
-    fn new(buffer: &'a [u8]) -> Lines<'a> {
-        return Lines { buffer };
-    }
-}
-
-impl<'a> Iterator for Lines<'a> {
-    type Item = Line<'a>;
-    fn next(&mut self) -> Option<Self::Item> {
-        let length = self.buffer.len();
-        if length == 0 {
-            return None;
-        }
-        let mut i_comment = min(80, length);
-        let mut i_end = length;
-        let mut i_next = length;
-        for i in 0..self.buffer.len() {
-            let c = self.buffer[i];
-            if c == b'$' && i < i_comment {
-                i_comment = i;
-            } else if c == b'\r' || c == b'\n' {
-                i_end = i;
-                if i_comment > i_end {
-                    i_comment = i_end;
-                }
-                i_next = i + 1;
-                for i in i..self.buffer.len() {
-                    let c = self.buffer[i];
-                    if c == b'\r' || c == b'\n' {
-                        i_next = i + 1;
-                    } else {
-                        break;
-                    }
-                }
-                break;
-            }
-        }
-        let line = Line {
-            buffer: &self.buffer[..i_comment],
-            comment: &self.buffer[i_comment..i_end],
-        };
-        self.buffer = &self.buffer[i_next..];
-        return Some(line);
     }
 }
 
@@ -423,37 +402,48 @@ impl<'a> Iterator for ShortCardIterator<'a> {
 
 
 fn split_line(line: &[u8]) -> IResult<&[u8],Vec<Field>> {
+    if line.len() == 0 {
+        return IResult::Done(b"",vec![])
+    }
     let (field, flags, mut remainder) = match read_first_field(line) {
         Ok(r) => r,
-        Err(_) => return IResult::Error(nom::ErrorKind::Custom(122))
+        Err(_) => return IResult::Error(nom::ErrorKind::Custom(123))
     };
     let mut fields = vec![field];
     if flags.is_comma {
-        let it = remainder.split(|&b| b == b',').map(parse_short_field);
-        for f in it {
-            match f {
-                Ok(field) => fields.push(field),
-                Err(_) => return IResult::Error(nom::ErrorKind::Custom(122))
-            }
+        let mut i = 2;
+        for sl in remainder.split(|&b| b == b',') {
+            if i % 10 == 0 || i % 10 == 1 {
+             match short_field_cont(sl) {
+                IResult::Done(_,field) => fields.push(field),
+                _ => return IResult::Error(nom::ErrorKind::Custom(122))
+             }
+           } else {
+             match short_field(sl) {
+                IResult::Done(_,field) => fields.push(field),
+                _ => return IResult::Error(nom::ErrorKind::Custom(122))
+             }
+           }
+           i += 1;
         }
         remainder = b"";
     } else if flags.is_double {
     } else {
         let mut it = ShortCardIterator::new(remainder);
-        let mut i = 0;
+        let mut i = 2;
         while let Some(field_slice) = it.next() {
-            if i > 9 {
+            if i > 10 {
                 break;
                 // return Err(Error::new(ErrorKind::Other,format!("Too many fields found in line '{}'",String::from_utf8_lossy(line))))
-            } else if i == 9 {
+            } else if i == 10 {
                 match parse_short_field_cont(field_slice) {
                     Ok(field) => fields.push(field),
-        Err(_) => return IResult::Error(nom::ErrorKind::Custom(122))
+        Err(_) => return IResult::Error(nom::ErrorKind::Custom(121))
                 }
             } else {
                 match parse_short_field(field_slice) {
                     Ok(field) => fields.push(field),
-        Err(_) => return IResult::Error(nom::ErrorKind::Custom(122))
+        Err(_) => return IResult::Error(nom::ErrorKind::Custom(124))
                 }
             }
             i += 1;
@@ -466,7 +456,10 @@ fn split_line(line: &[u8]) -> IResult<&[u8],Vec<Field>> {
 named!(split_line_nom<Card>,map!(
     tuple!(
         flat_map!(take_m_n_while!(0,80,call!(|c| c != b'$' && c != b'\n')),split_line),
-        take_until_and_consume!("\n")
+        alt!(
+            map!(tag!("\n"),|_| None) | 
+            map!(preceded!(opt!(tag!("$")),take_until_and_consume!("\n")),|c| Some(c))
+        )
     )
 ,|(fields,comment)| Card { fields, comment}));
 
