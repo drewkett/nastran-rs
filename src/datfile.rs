@@ -108,21 +108,18 @@ impl <'a> fmt::Display for Field<'a> {
     }
 }
 
-struct FlaggedField<'a> {
-    field: Field<'a>,
-    flags: CardFlags
-}
-
-#[derive(Debug,PartialEq)]
-pub struct CardFlags {
-    is_double: bool,
-    is_comma: bool,
-}
-
 #[derive(PartialEq)]
 pub struct Card <'a> {
     pub fields: Vec<Field<'a>>,
     pub comment: Option<&'a [u8]>,
+    pub is_double: bool,
+    pub is_comma: bool,
+}
+
+impl <'a> Card <'a> {
+    fn from_first_field(first_field: Field<'a>, is_double: bool) -> Card<'a> {
+        Card { fields: vec![first_field], is_comma: false, comment: None, is_double }
+    }
 }
 
 impl <'a> fmt::Debug for Card<'a> {
@@ -137,6 +134,8 @@ impl <'a> fmt::Debug for Card<'a> {
         write!(f, ")")
     }
 }
+
+
 
 impl <'a> fmt::Display for Card<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -165,18 +164,15 @@ impl <'a> fmt::Display for Deck<'a> {
     }
 }
 
-fn read_first_field(line: &[u8]) -> IResult<&[u8],(Field, CardFlags)> {
-    let mut flags = CardFlags {
-        is_comma: false,
-        is_double: false,
-    };
+fn read_first_field(line: &[u8]) -> IResult<&[u8],Card> {
+    let mut is_comma = false;
     let length = line.len();
     let size = min(length, 8);
     let mut i_end = size;
     let mut i_next = size;
     for i in 0..size {
         if line[i] == b',' {
-            flags.is_comma = true;
+            is_comma = true;
             i_end = i;
             i_next = i + 1;
             break;
@@ -188,19 +184,18 @@ fn read_first_field(line: &[u8]) -> IResult<&[u8],(Field, CardFlags)> {
     }
     if i_end == size && length > 8 {
         if line[8] == b',' {
-            flags.is_comma = true;
+            is_comma = true;
             i_next = 9;
         }
     }
-    let flagged_field = match first_field(&line[..i_end]) {
+    let mut card = match first_field(&line[..i_end]) {
         IResult::Done(_,res) => res,
         IResult::Error(e) => return IResult::Error(e),
         IResult::Incomplete(n) => return IResult::Incomplete(n)
     };
-    let field = flagged_field.field;
-    flags.is_double = flagged_field.flags.is_double;
+    card.is_comma = is_comma;
     let remainder = &line[i_next..];
-    return IResult::Done(remainder,(field,flags))
+    return IResult::Done(remainder,card)
 }
 
 
@@ -351,13 +346,13 @@ named!(long_field<Field>,
             value!(Field::Blank,terminated!(many0!(tag!(" ")),eof!()))
 ));
 
-named!(first_field<FlaggedField>,
+named!(first_field<Card>,
        alt_complete!(
-           map!(pad_space_eof!(field_string),|field| FlaggedField {field, flags: CardFlags { is_double: false, is_comma: false }}) |
-           map!(pad_space_eof!(field_string_double),|field| FlaggedField {field, flags: CardFlags { is_double: true, is_comma: false }}) |
-            map!(terminated!(field_cont_single,eof!()),|field| FlaggedField {field, flags: CardFlags { is_double: false, is_comma: false }}) |
-            map!(terminated!(field_cont_double,eof!()),|field| FlaggedField {field, flags: CardFlags { is_double: true, is_comma: false }}) |
-            value!(FlaggedField {field:Field::Blank, flags: CardFlags{is_double:false,is_comma:false}},terminated!(many0!(tag!(" ")),eof!()))
+           map!(pad_space_eof!(field_string),|field| Card::from_first_field(field,false)) |
+           map!(pad_space_eof!(field_string_double),|field| Card::from_first_field(field,true)) |
+            map!(terminated!(field_cont_single,eof!()),|field| Card::from_first_field(field,false)) |
+            map!(terminated!(field_cont_double,eof!()),|field| Card::from_first_field(field,true)) |
+            value!(Card::from_first_field(Field::Blank,false),terminated!(many0!(tag!(" ")),eof!()))
 ));
 
 struct ShortCardIterator<'a> {
@@ -408,29 +403,28 @@ named!(split_long_with_cont<Vec<Field>>, do_parse!(
 named!(split_long<Vec<Field>>,alt_complete!(split_long_with_cont|many_m_n!(0,3,field_16)));
 
 
-fn split_line(line: &[u8]) -> IResult<&[u8],Vec<Field>> {
+fn split_line(line: &[u8]) -> IResult<&[u8],Card> {
     if line.len() == 0 {
-        return IResult::Done(b"",vec![])
+        return IResult::Done(b"",Card {fields:vec![], is_comma: false, is_double: false, comment: None})
     }
-    let (field, flags, mut remainder) = match read_first_field(line) {
-        IResult::Done(remainder,(field,flags)) => (field,flags,remainder),
+    let (mut remainder, mut card) = match read_first_field(line) {
+        IResult::Done(remainder,card) => (remainder, card),
         IResult::Error(e) => return IResult::Error(e),
         IResult::Incomplete(n) => return IResult::Incomplete(n)
     };
-    let mut fields = vec![field];
-    if flags.is_comma {
+    if card.is_comma {
         let mut i = 2;
         for sl in remainder.split(|&b| b == b',') {
             if i % 10 == 0 || i % 10 == 1 {
              match short_field_cont(sl) {
-                IResult::Done(_,field) => fields.push(field),
+                IResult::Done(_,field) => card.fields.push(field),
                 IResult::Error(e) => return IResult::Error(e),
                 IResult::Incomplete(n) => return IResult::Incomplete(n)
 
              }
            } else {
              match short_field(sl) {
-                IResult::Done(_,field) => fields.push(field),
+                IResult::Done(_,field) => card.fields.push(field),
                 IResult::Error(e) => return IResult::Error(e),
                 IResult::Incomplete(n) => return IResult::Incomplete(n)
              }
@@ -438,9 +432,9 @@ fn split_line(line: &[u8]) -> IResult<&[u8],Vec<Field>> {
            i += 1;
         }
         remainder = b"";
-    } else if flags.is_double {
+    } else if card.is_double {
         match split_long(remainder) {
-            IResult::Done(_,rem_fields) => fields.extend(rem_fields),
+            IResult::Done(_,rem_fields) => card.fields.extend(rem_fields),
             IResult::Error(e) => return IResult::Error(e),
             IResult::Incomplete(n) => return IResult::Incomplete(n)
         }
@@ -450,14 +444,14 @@ fn split_line(line: &[u8]) -> IResult<&[u8],Vec<Field>> {
         while let Some(field_slice) = it.next() {
             if i == 10 {
                 match field_cont(field_slice) {
-                    IResult::Done(_,field) => fields.push(field),
+                    IResult::Done(_,field) => card.fields.push(field),
                     IResult::Error(e) => return IResult::Error(e),
                     IResult::Incomplete(n) => return IResult::Incomplete(n)
                 }
                 break
             } else {
                 match short_field(field_slice) {
-                    IResult::Done(_,field) => fields.push(field),
+                    IResult::Done(_,field) => card.fields.push(field),
                     IResult::Error(e) => return IResult::Error(e),
                     IResult::Incomplete(n) => return IResult::Incomplete(n)
                 }
@@ -471,7 +465,7 @@ fn split_line(line: &[u8]) -> IResult<&[u8],Vec<Field>> {
             IResult::Incomplete(_) => println!("Remainder: '{}'",unsafe { str::from_utf8_unchecked(remainder)}),
         }
     }
-    return IResult::Done(remainder,fields);
+    return IResult::Done(remainder,card);
 }
 
 named!(split_line_nom<Card>,map!(
@@ -482,7 +476,7 @@ named!(split_line_nom<Card>,map!(
             map!(preceded!(opt!(tag!("$")),take_until_and_consume!("\n")),|c| Some(c))
         )
     )
-,|(fields,comment)| Card { fields, comment}));
+,|(card,comment)| Card { comment, .. card}));
 
 named!(split_lines_nom<Deck>,map!(complete!(many0!(split_line_nom)),|cards| Deck { cards }));
 
