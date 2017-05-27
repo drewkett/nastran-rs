@@ -72,7 +72,7 @@ fn float_to_8(f: f32) -> String {
             } else if n > 0 && buf[n-1] == b'0' {
                 unsafe { String::from_utf8_unchecked(buf[..n-1].to_vec()) }
             } else {
-        format!("{:8e}",f)
+                format!("{:8e}",f)
             }
     } else {
         format!("{:8e}",f)
@@ -87,7 +87,7 @@ fn double_to_8(f: f64) -> String {
             } else if n > 0 && buf[n-1] == b'0' {
                 unsafe { String::from_utf8_unchecked(buf[..n-1].to_vec()) }
             } else {
-        format!("{:8e}",f)
+                format!("{:8e}",f)
             }
     } else {
         format!("{:8e}",f)
@@ -165,14 +165,7 @@ impl <'a> fmt::Display for Deck<'a> {
     }
 }
 
-fn parse_first_field(field_slice: &[u8]) -> Result<FlaggedField> {
-    return match first_field(field_slice) {
-        IResult::Done(_,f) => Ok(f),
-        _ => Err(ErrorKind::ParseFailure.into()),
-    };
-}
-
-fn read_first_field(line: &[u8]) -> Result<(Field, CardFlags, &[u8])> {
+fn read_first_field(line: &[u8]) -> IResult<&[u8],(Field, CardFlags)> {
     let mut flags = CardFlags {
         is_comma: false,
         is_double: false,
@@ -199,37 +192,17 @@ fn read_first_field(line: &[u8]) -> Result<(Field, CardFlags, &[u8])> {
             i_next = 9;
         }
     }
-    let flagged_field = match parse_first_field(&line[..i_end]) {
-        Ok(res) => res,
-        Err(e) => return Err(e),
+    let flagged_field = match first_field(&line[..i_end]) {
+        IResult::Done(_,res) => res,
+        IResult::Error(e) => return IResult::Error(e),
+        _ => unreachable!()
     };
     let field = flagged_field.field;
     flags.is_double = flagged_field.flags.is_double;
     let remainder = &line[i_next..];
-    return Ok((field, flags, remainder));
+    return IResult::Done(remainder,(field,flags))
 }
 
-
-fn parse_short_field(field: &[u8]) -> Result<Field> {
-    return match short_field(field) {
-        IResult::Done(_,f) => Ok(f),
-        _ => Err(ErrorKind::ParseFailure.into()),
-    };
-}
-
-fn parse_short_field_cont(field: &[u8]) -> Result<Field> {
-    return match short_field_cont(field) {
-        IResult::Done(_,f) => Ok(f),
-        _ => Err(ErrorKind::ParseFailure.into()),
-    };
-}
-
-fn parse_long_field(field: &[u8]) -> Result<Field> {
-    return match long_field(field) {
-        IResult::Done(_,f) => Ok(f),
-        _ => Err(ErrorKind::ParseFailure.into()),
-    };
-}
 
 fn parse_nastran_float(value: &[u8], exponent: &[u8]) -> f32 {
     let length = value.len() + exponent.len() + 1;
@@ -250,8 +223,10 @@ named!(field_string_double<Field>,map!(
         recognize!( tuple!(char_if!(is_alphabetic),take_m_n_while!(0,7,is_alphanumeric)))
         ,tuple!(many0!(tag!(" ")),tag!("*"))
     ), Field::String));
-named!(field_cont<Field>,map!(preceded!(tag!("+"),recognize!(many0!(alt!(tag!(" ")|alphanumeric)))),Field::Continuation));
+named!(field_cont_single<Field>,map!(preceded!(tag!("+"),recognize!(many0!(alt!(tag!(" ")|alphanumeric)))),Field::Continuation));
 named!(field_cont_double<Field>,map!(preceded!(tag!("*"),recognize!(many0!(alt!(tag!(" ")|alphanumeric)))),Field::Continuation));
+named!(field_cont_anon<Field>,map!(recognize!(many0!(alt!(tag!(" ")|alphanumeric))),Field::Continuation));
+named!(field_cont<Field>,alt!(field_cont_single|field_cont_double|field_cont_anon));
 named!(field_float<Field>,map!(my_float, |f| Field::Float(f)));
 named!(field_double<Field>,map!(my_double, |f| Field::Double(f)));
 
@@ -361,7 +336,8 @@ named!(short_field_cont<Field>,
            pad_space_eof!(field_nastran_float) |
            pad_space_eof!(field_integer) |
            pad_space_eof!(field_string) |
-            terminated!(field_cont,eof!()) |
+            terminated!(field_cont_single,eof!()) |
+            terminated!(field_cont_double,eof!()) |
             value!(Field::Blank,terminated!(many0!(tag!(" ")),eof!()))
 ));
 
@@ -379,7 +355,7 @@ named!(first_field<FlaggedField>,
        alt_complete!(
            map!(pad_space_eof!(field_string),|field| FlaggedField {field, flags: CardFlags { is_double: false, is_comma: false }}) |
            map!(pad_space_eof!(field_string_double),|field| FlaggedField {field, flags: CardFlags { is_double: true, is_comma: false }}) |
-            map!(terminated!(field_cont,eof!()),|field| FlaggedField {field, flags: CardFlags { is_double: false, is_comma: false }}) |
+            map!(terminated!(field_cont_single,eof!()),|field| FlaggedField {field, flags: CardFlags { is_double: false, is_comma: false }}) |
             map!(terminated!(field_cont_double,eof!()),|field| FlaggedField {field, flags: CardFlags { is_double: true, is_comma: false }}) |
             value!(FlaggedField {field:Field::Blank, flags: CardFlags{is_double:false,is_comma:false}},terminated!(many0!(tag!(" ")),eof!()))
 ));
@@ -414,14 +390,32 @@ impl<'a> Iterator for ShortCardIterator<'a> {
     }
 }
 
+named!(field_8<Field>, flat_map!(take_m_n_while!(0,8,move |c| c!= b'\t'),short_field));
+named!(field_8_cont<Field>, flat_map!(take_m_n_while!(0,8,move |c| c!= b'\t'),field_cont));
+named!(field_16<Field>, flat_map!(take_m_n_while!(0,16,move |c| c!= b'\t'),long_field));
+
+named!(split_short<Vec<Field>>,many_m_n!(0,9,field_8));
+named!(split_long_with_cont<Vec<Field>>, do_parse!(
+    fields: many_m_n!(4,4,field_16) >>
+    last_field: opt!(field_8_cont) >>
+    ({ 
+        let mut mfields = fields;
+        if let Some(f) = last_field { mfields.push(f) } ;
+        mfields
+    })
+));
+
+named!(split_long<Vec<Field>>,alt_complete!(split_long_with_cont|many_m_n!(0,3,field_16)));
+
 
 fn split_line(line: &[u8]) -> IResult<&[u8],Vec<Field>> {
     if line.len() == 0 {
         return IResult::Done(b"",vec![])
     }
     let (field, flags, mut remainder) = match read_first_field(line) {
-        Ok(r) => r,
-        Err(_) => return IResult::Error(nom::ErrorKind::Custom(123))
+        IResult::Done(remainder,(field,flags)) => (field,flags,remainder),
+        IResult::Error(e) => return IResult::Error(e),
+        _ => unreachable!()
     };
     let mut fields = vec![field];
     if flags.is_comma {
@@ -430,18 +424,26 @@ fn split_line(line: &[u8]) -> IResult<&[u8],Vec<Field>> {
             if i % 10 == 0 || i % 10 == 1 {
              match short_field_cont(sl) {
                 IResult::Done(_,field) => fields.push(field),
-                _ => return IResult::Error(nom::ErrorKind::Custom(122))
+                IResult::Error(e) => return IResult::Error(e),
+                _ => unreachable!()
+
              }
            } else {
              match short_field(sl) {
                 IResult::Done(_,field) => fields.push(field),
-                _ => return IResult::Error(nom::ErrorKind::Custom(122))
+                IResult::Error(e) => return IResult::Error(e),
+                _ => unreachable!()
              }
            }
            i += 1;
         }
         remainder = b"";
     } else if flags.is_double {
+        match split_long(remainder) {
+            IResult::Done(_,rem_fields) => fields.extend(rem_fields),
+            IResult::Error(e) => return IResult::Error(e),
+            _ => unreachable!()
+        }
     } else {
         let mut it = ShortCardIterator::new(remainder);
         let mut i = 2;
@@ -450,14 +452,17 @@ fn split_line(line: &[u8]) -> IResult<&[u8],Vec<Field>> {
                 break;
                 // return Err(Error::new(ErrorKind::Other,format!("Too many fields found in line '{}'",String::from_utf8_lossy(line))))
             } else if i == 10 {
-                match parse_short_field_cont(field_slice) {
-                    Ok(field) => fields.push(field),
-        Err(_) => return IResult::Error(nom::ErrorKind::Custom(121))
+                match field_cont(field_slice) {
+                    IResult::Done(_,field) => fields.push(field),
+                    IResult::Error(e) => return IResult::Error(e),
+                    _ => unreachable!()
                 }
             } else {
-                match parse_short_field(field_slice) {
-                    Ok(field) => fields.push(field),
-        Err(_) => return IResult::Error(nom::ErrorKind::Custom(124))
+                match short_field(field_slice) {
+                    IResult::Done(_,field) => fields.push(field),
+                    IResult::Error(e) => return IResult::Error(e),
+                    _ => unreachable!()
+
                 }
             }
             i += 1;
@@ -469,7 +474,7 @@ fn split_line(line: &[u8]) -> IResult<&[u8],Vec<Field>> {
 
 named!(split_line_nom<Card>,map!(
     tuple!(
-        flat_map!(take_m_n_while!(0,80,call!(|c| c != b'$' && c != b'\n')),split_line),
+        dbg!(flat_map!(take_m_n_while!(0,80,call!(|c| c != b'$' && c != b'\n')),split_line)),
         alt!(
             map!(tag!("\n"),|_| None) | 
             map!(preceded!(opt!(tag!("$")),take_until_and_consume!("\n")),|c| Some(c))
@@ -510,26 +515,26 @@ mod tests {
 
     #[test]
     fn test_parse() {
-        assert_eq!(Field::Float(1.23),parse_short_field(b" 1.23 ").unwrap_or(Field::Blank));
-        assert_eq!(Field::Float(1.24),parse_short_field(b" 1.24").unwrap_or(Field::Blank));
-        assert_eq!(Field::Float(1.25),parse_short_field(b"1.25").unwrap_or(Field::Blank));
-        assert_eq!(Field::Blank,parse_short_field(b"1252341551").unwrap_or(Field::Blank));
-        assert_eq!(Field::Float(1.26),parse_short_field(b"1.26  ").unwrap_or(Field::Blank));
-        assert_eq!(Field::Float(1.),parse_short_field(b" 1. ").unwrap_or(Field::Blank));
-        assert_eq!(Field::Float(2.),parse_short_field(b" 2.").unwrap_or(Field::Blank));
-        assert_eq!(Field::Float(3.),parse_short_field(b"3.").unwrap_or(Field::Blank));
-        assert_eq!(Field::Float(4.),parse_short_field(b"4. ").unwrap_or(Field::Blank));
-        assert_eq!(Field::Float(1.23e7),parse_short_field(b"1.23e+7").unwrap_or(Field::Blank));
-        assert_eq!(Field::Float(1.24e7),parse_short_field(b"1.24e+7 ").unwrap_or(Field::Blank));
-        assert_eq!(Field::Float(2.0e7),parse_short_field(b"2e+7 ").unwrap_or(Field::Blank));
-        assert_eq!(Field::Float(1.25e7),parse_short_field(b"1.25+7").unwrap_or(Field::Blank));
-        assert_eq!(Field::Float(1.26e7),parse_short_field(b"1.26+7 ").unwrap_or(Field::Blank));
-        assert_eq!(Field::Float(1.0e7),parse_short_field(b"1.+7 ").unwrap_or(Field::Blank));
-        assert_eq!(Field::Int(123456),parse_short_field(b"123456").unwrap_or(Field::Blank));
-        assert_eq!(Field::Continuation(b"A B"),parse_short_field_cont(b"+A B").unwrap_or(Field::Blank));
-        assert_eq!(Field::String(b"HI1"),parse_short_field(b"HI1").unwrap_or(Field::Blank));
-        assert_eq!(Field::Blank,parse_short_field(b"ABCDEFGHIJ").unwrap_or(Field::Blank));
-        assert_eq!(Field::Blank,parse_short_field(b"ABCDEFGHI").unwrap_or(Field::Blank));
-        assert_eq!(Field::String(b"ABCDEFGH"),parse_short_field(b"ABCDEFGH").unwrap_or(Field::Blank));
+        assert_eq!(IResult::Done(&b""[..],Field::Float(1.23)),short_field(b" 1.23 "));
+        assert_eq!(IResult::Done(&b""[..],Field::Float(1.24)),short_field(b" 1.24"));
+        assert_eq!(IResult::Done(&b""[..],Field::Float(1.25)),short_field(b"1.25"));
+        assert_eq!(IResult::Error(nom::ErrorKind::Alt),short_field(b"1252341551"));
+        assert_eq!(IResult::Done(&b""[..],Field::Float(1.26)),short_field(b"1.26  "));
+        assert_eq!(IResult::Done(&b""[..],Field::Float(1.)),short_field(b" 1. "));
+        assert_eq!(IResult::Done(&b""[..],Field::Float(2.)),short_field(b" 2."));
+        assert_eq!(IResult::Done(&b""[..],Field::Float(3.)),short_field(b"3."));
+        assert_eq!(IResult::Done(&b""[..],Field::Float(4.)),short_field(b"4. "));
+        assert_eq!(IResult::Done(&b""[..],Field::Float(1.23e7)),short_field(b"1.23e+7"));
+        assert_eq!(IResult::Done(&b""[..],Field::Float(1.24e7)),short_field(b"1.24e+7 "));
+        assert_eq!(IResult::Done(&b""[..],Field::Float(2.0e7)),short_field(b"2e+7 "));
+        assert_eq!(IResult::Done(&b""[..],Field::Float(1.25e7)),short_field(b"1.25+7"));
+        assert_eq!(IResult::Done(&b""[..],Field::Float(1.26e7)),short_field(b"1.26+7 "));
+        assert_eq!(IResult::Done(&b""[..],Field::Float(1.0e7)),short_field(b"1.+7 "));
+        assert_eq!(IResult::Done(&b""[..],Field::Int(123456)),short_field(b"123456"));
+        assert_eq!(IResult::Done(&b""[..],Field::Continuation(b"A B")),short_field_cont(b"+A B"));
+        assert_eq!(IResult::Done(&b""[..],Field::String(b"HI1")),short_field(b"HI1"));
+        assert_eq!(IResult::Error(nom::ErrorKind::Alt),short_field(b"ABCDEFGHIJ"));
+        assert_eq!(IResult::Error(nom::ErrorKind::Alt),short_field(b"ABCDEFGHI"));
+        assert_eq!(IResult::Done(&b""[..],Field::String(b"ABCDEFGH")),short_field(b"ABCDEFGH"));
     }
 }
