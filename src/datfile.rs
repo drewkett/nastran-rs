@@ -5,7 +5,7 @@ use std::str;
 
 use dtoa;
 use nom;
-use nom::{Slice, digit, IResult, alphanumeric, is_digit, is_alphanumeric, InputIter, is_alphabetic};
+use nom::{Slice, digit, IResult, alphanumeric, is_digit, is_alphanumeric, InputIter, is_alphabetic, space};
 
 use errors::{Result,ErrorKind};
 
@@ -465,8 +465,10 @@ fn split_line(line: &[u8]) -> IResult<&[u8],Vec<Field>> {
             i += 1;
         }
         remainder = it.remainder;
-        if remainder.len() > 0 {
-            println!("Remainder: '{}'",unsafe { str::from_utf8_unchecked(remainder)})
+        match opt!(remainder,complete!(space)) {
+            IResult::Done(_,_) => (),
+            IResult::Error(_) => println!("Remainder: '{}'",unsafe { str::from_utf8_unchecked(remainder)}),
+            IResult::Incomplete(_) => println!("Remainder: '{}'",unsafe { str::from_utf8_unchecked(remainder)}),
         }
     }
     return IResult::Done(remainder,fields);
