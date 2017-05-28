@@ -3,7 +3,7 @@ use std::fmt;
 use std::str;
 
 use dtoa;
-use nom::{IResult};
+use nom::IResult;
 
 use errors::{Result, ErrorKind};
 
@@ -161,6 +161,7 @@ named!(split_lines<Deck>,map!(complete!(many0!(line::split_line)),|cards| Deck {
 pub fn parse_buffer(buffer: &[u8]) -> Result<Deck> {
     match split_lines(buffer) {
         IResult::Done(_, d) => Ok(d),
-        IResult::Error(_) | IResult::Incomplete(_) => Err(ErrorKind::ParseFailure.into()),
+        IResult::Error(_) |
+        IResult::Incomplete(_) => Err(ErrorKind::ParseFailure.into()),
     }
 }

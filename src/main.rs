@@ -3,19 +3,23 @@
 
 #![cfg_attr(test,feature(test))]
 
-#[cfg(test)] extern crate test;
+#[cfg(test)]
+extern crate test;
 
-#[macro_use] extern crate nom;
+#[macro_use]
+extern crate nom;
 extern crate memmap;
 extern crate ascii;
-#[macro_use] extern crate error_chain;
+#[macro_use]
+extern crate error_chain;
 extern crate dtoa;
 extern crate clap;
 
 use memmap::{Mmap, Protection};
 use clap::{Arg, App};
 
-#[macro_use] mod macros;
+#[macro_use]
+mod macros;
 mod op2;
 mod datfile;
 mod errors;

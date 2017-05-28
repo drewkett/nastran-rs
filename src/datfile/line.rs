@@ -1,4 +1,4 @@
-use super::{Card,Field};
+use super::{Card, Field};
 
 use std::cmp::min;
 use nom::{self, IResult, is_space, rest};

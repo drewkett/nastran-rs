@@ -1,7 +1,8 @@
 
 use super::{Field, Card};
 
-use nom::{self,IResult, Slice, InputIter, is_space, is_alphanumeric, is_alphabetic, is_digit, digit};
+use nom::{self, IResult, Slice, InputIter, is_space, is_alphanumeric, is_alphabetic, is_digit,
+          digit};
 
 fn parse_nastran_float(value: &[u8], exponent: &[u8]) -> f32 {
     let length = value.len() + exponent.len() + 1;
@@ -14,8 +15,8 @@ fn parse_nastran_float(value: &[u8], exponent: &[u8]) -> f32 {
         temp.push(c);
     }
     String::from_utf8_lossy(&temp[..])
-               .parse::<f32>()
-               .expect("Failed to parse nastran float")
+        .parse::<f32>()
+        .expect("Failed to parse nastran float")
 }
 
 named!(field_string<Field>,map!(
