@@ -4,6 +4,7 @@ macro_rules! take_m_n_while (
     ($i:expr, $m:expr, $n: expr, $submac:ident!( $($args:tt)* )) => (
         {
             use std::cmp::min;
+            use nom::{InputIter, Slice};
             let input = $i;
             let mn: usize = $m;
             let mx: usize = $n;
