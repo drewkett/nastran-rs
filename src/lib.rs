@@ -2,8 +2,7 @@
 #![allow(unused_comparisons)]
 
 #![cfg_attr(test,feature(test))]
-#[cfg(test)]
-extern crate test;
+#[cfg(test)] extern crate test;
 
 #[macro_use] extern crate nom;
 extern crate memmap;
