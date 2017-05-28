@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+#![allow(unused_comparisons)]
 
 #![cfg_attr(test,feature(test))]
 #[cfg(test)]

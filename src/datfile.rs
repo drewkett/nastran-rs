@@ -98,29 +98,29 @@ fn double_to_8(f: f64) -> String {
 
 impl<'a> fmt::Debug for Field<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            &Field::Blank => write!(f, "Blank"),
-            &Field::Int(i) => write!(f, "Int({})", i),
-            &Field::Float(d) => write!(f, "Float({})", d),
-            &Field::Double(d) => write!(f, "Double({})", d),
-            &Field::Continuation(c) => {
+        match *self {
+            Field::Blank => write!(f, "Blank"),
+            Field::Int(i) => write!(f, "Int({})", i),
+            Field::Float(d) => write!(f, "Float({})", d),
+            Field::Double(d) => write!(f, "Double({})", d),
+            Field::Continuation(c) => {
                 write!(f,
                        "Continuation('{}')",
                        unsafe { str::from_utf8_unchecked(c) })
             }
-            &Field::String(s) => write!(f, "String('{}')", unsafe { str::from_utf8_unchecked(s) }),
+            Field::String(s) => write!(f, "String('{}')", unsafe { str::from_utf8_unchecked(s) }),
         }
     }
 }
 impl<'a> fmt::Display for Field<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            &Field::Blank => write!(f, "        "),
-            &Field::Int(i) => write!(f, "{:8}", i),
-            &Field::Float(d) => write!(f, "{:>8}", float_to_8(d)),
-            &Field::Double(d) => write!(f, "{:>8}", double_to_8(d)),
-            &Field::Continuation(c) => write!(f, "+{:7}", unsafe { str::from_utf8_unchecked(c) }),
-            &Field::String(s) => write!(f, "{:8}", unsafe { str::from_utf8_unchecked(s) }),
+        match *self {
+            Field::Blank => write!(f, "        "),
+            Field::Int(i) => write!(f, "{:8}", i),
+            Field::Float(d) => write!(f, "{:>8}", float_to_8(d)),
+            Field::Double(d) => write!(f, "{:>8}", double_to_8(d)),
+            Field::Continuation(c) => write!(f, "+{:7}", unsafe { str::from_utf8_unchecked(c) }),
+            Field::String(s) => write!(f, "{:8}", unsafe { str::from_utf8_unchecked(s) }),
         }
     }
 }
@@ -149,7 +149,7 @@ impl<'a> Card<'a> {
 impl<'a> fmt::Debug for Card<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         try!(write!(f, "Card("));
-        for field in self.fields.iter() {
+        for field in &self.fields {
             try!(write!(f, "{:?},", field));
         }
         if let Some(comment) = self.comment {
@@ -173,10 +173,9 @@ impl<'a> fmt::Debug for Card<'a> {
 }
 
 
-
 impl<'a> fmt::Display for Card<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for field in self.fields.iter() {
+        for field in &self.fields {
             try!(write!(f, "{}", field));
         }
         if let Some(comment) = self.comment {
@@ -194,7 +193,7 @@ pub struct Deck<'a> {
 impl<'a> fmt::Display for Deck<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         try!(write!(f, "Deck(\n"));
-        for card in self.cards.iter() {
+        for card in &self.cards {
             try!(write!(f, "  {},\n", card));
         }
         write!(f, ")")
@@ -228,7 +227,7 @@ fn read_first_field(line: &[u8]) -> IResult<&[u8], Card> {
     let (_, mut card) = try_parse!(&line[..i_end], first_field);
     card.is_comma = is_comma;
     let remainder = &line[i_next..];
-    return IResult::Done(remainder, card);
+    IResult::Done(remainder, card)
 }
 
 
@@ -242,9 +241,9 @@ fn parse_nastran_float(value: &[u8], exponent: &[u8]) -> f32 {
     for &c in exponent {
         temp.push(c);
     }
-    return String::from_utf8_lossy(&temp[..])
+    String::from_utf8_lossy(&temp[..])
                .parse::<f32>()
-               .expect("Failed to parse nastran float");
+               .expect("Failed to parse nastran float")
 }
 
 named!(field_string<Field>,map!(
@@ -401,7 +400,7 @@ named!(field_8<Field>, flat_map!(take_m_n_while!(0,8,move |c| c!= b'\t'),short_f
 named!(field_8_cont<Field>, flat_map!(take_m_n_while!(0,8,move |c| c!= b'\t'),field_cont));
 named!(field_16<Field>, flat_map!(take_m_n_while!(0,16,move |c| c!= b'\t'),long_field));
 
-fn option_from_slice<'a>(sl: &'a [u8]) -> Option<&'a [u8]> {
+fn option_from_slice(sl: &[u8]) -> Option<&[u8]> {
     if sl.len() > 0 { Some(sl) } else { None }
 }
 
@@ -481,7 +480,7 @@ fn split_line(line: &[u8]) -> IResult<&[u8], Card> {
         card.unparsed = unparsed;
         remainder = new_remainder;
     }
-    return IResult::Done(remainder, card);
+    IResult::Done(remainder, card)
 }
 
 named!(split_line_nom<Card>,map!(
@@ -499,8 +498,7 @@ named!(split_lines_nom<Deck>,map!(complete!(many0!(split_line_nom)),|cards| Deck
 pub fn parse_buffer(buffer: &[u8]) -> Result<Deck> {
     match split_lines_nom(buffer) {
         IResult::Done(_, d) => Ok(d),
-        IResult::Error(_) => Err(ErrorKind::ParseFailure.into()),
-        IResult::Incomplete(_) => Err(ErrorKind::ParseFailure.into()),
+        IResult::Error(_) | IResult::Incomplete(_) => Err(ErrorKind::ParseFailure.into()),
     }
 }
 
