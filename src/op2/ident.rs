@@ -1,8 +1,8 @@
 
 use std::slice::from_raw_parts;
-use std::mem::{size_of,transmute};
+use std::mem::{size_of, transmute};
 
-use nom::{IResult,ErrorKind};
+use nom::{IResult, ErrorKind};
 
 use op2;
 

@@ -32,10 +32,16 @@ pub enum Record<'a> {
 
 named!(read_record<Record>,
     switch!(call!(keyed::read_record_key),
-      keyed::RecordKey { key: (307,3,85), size } => map!(apply!(keyed::read_fixed_size_record,size),Record::EIGR) |
-      keyed::RecordKey { key: (207,2,87), size } => map!(apply!(keyed::read_variable_record,size),Record::EIGC) |
-      keyed::RecordKey { key, size } => map!(apply!(keyed::read_unknown_record,size),|r| Record::Unknown(key,r) )
-    ) 
+      keyed::RecordKey { key: (307,3,85), size } => map!(
+          apply!(keyed::read_fixed_size_record,size),
+          Record::EIGR) |
+      keyed::RecordKey { key: (207,2,87), size } => map!(
+          apply!(keyed::read_variable_record,size),
+          Record::EIGC) |
+      keyed::RecordKey { key, size } => map!(
+          apply!(keyed::read_unknown_record,size),
+          |r| Record::Unknown(key,r) )
+    )
 );
 
 pub fn read_datablock<'a>(input: &'a [u8],

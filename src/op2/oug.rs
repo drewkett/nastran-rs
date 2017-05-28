@@ -54,7 +54,8 @@ pub fn read_datablock<'a>(input: &'a [u8],
                           start: op2::DataBlockStart<'a>)
                           -> IResult<&'a [u8], DataBlock<'a>> {
     let (input, header) = try_parse!(input, op2::read_datablock_header);
-    let (input, record_pairs) = try_parse!(input,
+    let (input, record_pairs) =
+        try_parse!(input,
                                            many0!(pair!(ident::read_ident::<Ident>,
                                                         ident::read_data::<Data>)));
     let (input, _) = try_parse!(input, op2::read_last_table_record);

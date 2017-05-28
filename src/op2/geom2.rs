@@ -58,11 +58,15 @@ pub enum Record<'a> {
 
 named!(read_record<Record>,
     switch!(call!(keyed::read_record_key),
-      keyed::RecordKey { key: (2608,26,60), size } => map!(apply!(keyed::read_fixed_size_record,size),Record::CBUSH) |
-      keyed::RecordKey { key: (301,3,70), size } => map!(apply!(keyed::read_fixed_size_record,size),Record::CDAMP2) |
-      keyed::RecordKey { key: (1501,15,64), size } => map!(apply!(keyed::read_fixed_size_record,size),Record::CONM2) |
-      keyed::RecordKey { key, size } => map!(apply!(keyed::read_unknown_record,size),|r| Record::Unknown(key,r) )
-    ) 
+        keyed::RecordKey { key: (2608,26,60), size } =>
+            map!(apply!(keyed::read_fixed_size_record,size),Record::CBUSH) |
+        keyed::RecordKey { key: (301,3,70), size } =>
+            map!(apply!(keyed::read_fixed_size_record,size),Record::CDAMP2) |
+        keyed::RecordKey { key: (1501,15,64), size } =>
+            map!(apply!(keyed::read_fixed_size_record,size),Record::CONM2) |
+        keyed::RecordKey { key, size } =>
+            map!(apply!(keyed::read_unknown_record,size),|r| Record::Unknown(key,r) )
+    )
 );
 
 pub fn read_datablock<'a>(input: &'a [u8],

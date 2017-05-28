@@ -134,9 +134,7 @@ pub fn read_nastran_string<'a>(input: &'a [u8]) -> IResult<&[u8], &str> {
   )
 }
 
-pub fn read_nastran_string_known_length<'a>(input: &'a [u8],
-                                            length: i32)
-                                            -> IResult<&[u8], &str> {
+pub fn read_nastran_string_known_length<'a>(input: &'a [u8], length: i32) -> IResult<&[u8], &str> {
     do_parse!(input,
   apply!(read_fortran_known_i32,length) >>
   apply!(read_known_i32,length*WORD_SIZE) >>

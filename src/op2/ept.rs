@@ -25,9 +25,11 @@ pub enum Record<'a> {
 
 named!(read_record<Record>,
     switch!(call!(keyed::read_record_key),
-      keyed::RecordKey { key: (1402,14,37), size } => map!(apply!(keyed::read_fixed_size_record,size),Record::PBUSH) |
-      keyed::RecordKey { key, size } => map!(apply!(keyed::read_unknown_record,size),|r| Record::Unknown(key,r) )
-    ) 
+        keyed::RecordKey { key: (1402,14,37), size } =>
+            map!(apply!(keyed::read_fixed_size_record,size),Record::PBUSH) |
+        keyed::RecordKey { key, size } =>
+            map!(apply!(keyed::read_unknown_record,size),|r| Record::Unknown(key,r) )
+    )
 );
 
 

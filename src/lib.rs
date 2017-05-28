@@ -1,12 +1,15 @@
 #![allow(dead_code)]
 
 #![cfg_attr(test,feature(test))]
-#[cfg(test)] extern crate test;
+#[cfg(test)]
+extern crate test;
 
-#[macro_use] extern crate nom;
+#[macro_use]
+extern crate nom;
 extern crate memmap;
 extern crate ascii;
-#[macro_use] extern crate error_chain;
+#[macro_use]
+extern crate error_chain;
 extern crate dtoa;
 
 pub mod op2;

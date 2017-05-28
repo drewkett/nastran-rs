@@ -43,10 +43,13 @@ pub enum Record<'a> {
 
 named!(read_record<Record>,
     switch!(call!(keyed::read_record_key),
-      keyed::RecordKey { key: (4501,45,1), size } => map!(apply!(keyed::read_fixed_size_record,size),Record::GRID) |
-      keyed::RecordKey { key: (2101,21,8), size } => map!(apply!(keyed::read_fixed_size_record,size),Record::CORD2R) |
-      keyed::RecordKey { key, size } => map!(apply!(keyed::read_unknown_record,size),|r| Record::Unknown(key,r) )
-    ) 
+        keyed::RecordKey { key: (4501,45,1), size } =>
+            map!(apply!(keyed::read_fixed_size_record,size),Record::GRID) |
+        keyed::RecordKey { key: (2101,21,8), size } =>
+            map!(apply!(keyed::read_fixed_size_record,size),Record::CORD2R) |
+        keyed::RecordKey { key, size } =>
+            map!(apply!(keyed::read_unknown_record,size),|r| Record::Unknown(key,r) )
+    )
 );
 
 pub fn read_datablock<'a>(input: &'a [u8],

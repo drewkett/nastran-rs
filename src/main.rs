@@ -1,12 +1,15 @@
 #![allow(dead_code)]
 
 #![cfg_attr(test,feature(test))]
-#[cfg(test)] extern crate test;
+#[cfg(test)]
+extern crate test;
 
-#[macro_use] extern crate nom;
+#[macro_use]
+extern crate nom;
 extern crate memmap;
 extern crate ascii;
-#[macro_use] extern crate error_chain;
+#[macro_use]
+extern crate error_chain;
 extern crate dtoa;
 extern crate clap;
 
@@ -19,10 +22,11 @@ mod errors;
 
 pub fn main() {
     let matches = App::new("Nastran Reader")
-                               .arg(Arg::with_name("DATFILE")
-                               .help(".dat file for reading")
-                               .required(true)
-                               .index(1)).get_matches();
+        .arg(Arg::with_name("DATFILE")
+                 .help(".dat file for reading")
+                 .required(true)
+                 .index(1))
+        .get_matches();
     if let Some(filename) = matches.value_of("DATFILE") {
         let f = Mmap::open_path(filename, Protection::Read).unwrap();
         let sl = unsafe { f.as_slice() };

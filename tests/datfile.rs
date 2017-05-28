@@ -12,7 +12,7 @@ ABCDEF,123456,123456,123456,123456,123456,123456,123456,123456,123456,123456,123
 BLAH    123      1.+5   1e2     ABC
 GRID*            1100001               0    3.732130e+02    3.329000e+00 ED00013
 *ED00013    7.408100e+01               0
-                                          0.      0.059  0.      0.059 		1 
+                                          0.      0.059  0.      0.059 		1
 ";
 
 #[test]
@@ -130,8 +130,7 @@ fn comma_separated() {
                Some(datfile::Card {
                         fields: vec![datfile::Field::Continuation(b"ED00013"),
                                      datfile::Field::Float(74.081),
-                                     datfile::Field::Int(0),
-                                     ],
+                                     datfile::Field::Int(0)],
                         comment: None,
                         is_comma: false,
                         is_double: true,
@@ -148,13 +147,11 @@ fn comma_separated() {
                                      datfile::Field::Float(0.059),
                                      datfile::Field::Float(0.0),
                                      datfile::Field::Float(0.059),
-                                     datfile::Field::Continuation(b"")
-                                     ],
+                                     datfile::Field::Continuation(b"")],
                         comment: None,
                         is_comma: false,
                         is_double: false,
-                        unparsed: Some(b"1 "),
+                        unparsed: Some(b"1"),
                     }));
-    assert_eq!(it.next(),None);
+    assert_eq!(it.next(), None);
 }
-
