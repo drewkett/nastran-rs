@@ -181,6 +181,8 @@ named!(pub field_16<Field>, flat_map!(take_m_n_while!(0,16,move |c| c!= b'\t'),l
 mod tests {
     extern crate test;
     use test::Bencher;
+    use std::fmt::Debug;
+    use nom::{ErrorKind, Err};
 
     use super::*;
 
@@ -194,28 +196,39 @@ mod tests {
         b.iter(|| field_float(b"11.22e+7"));
     }
 
+    fn assert_done<T: Debug + PartialEq>(result: T,test:IResult<&[u8],T>) {
+        assert_eq!(IResult::Done(&b""[..],result),test);
+    }
+
+    fn assert_error<T: Debug + PartialEq>(result: Err<&[u8]>,test:IResult<&[u8],T>) {
+        assert_eq!(IResult::Error(result),test);
+    }
+
     #[test]
     fn test_parse() {
-        assert_eq!(IResult::Done(&b""[..],Field::Float(1.23)),short_field(b" 1.23 "));
-        assert_eq!(IResult::Done(&b""[..],Field::Float(1.24)),short_field(b" 1.24"));
-        assert_eq!(IResult::Done(&b""[..],Field::Float(1.25)),short_field(b"1.25"));
-        assert_eq!(IResult::Error(nom::ErrorKind::Alt),short_field(b"1252341551"));
-        assert_eq!(IResult::Done(&b""[..],Field::Float(1.26)),short_field(b"1.26  "));
-        assert_eq!(IResult::Done(&b""[..],Field::Float(1.)),short_field(b" 1. "));
-        assert_eq!(IResult::Done(&b""[..],Field::Float(2.)),short_field(b" 2."));
-        assert_eq!(IResult::Done(&b""[..],Field::Float(3.)),short_field(b"3."));
-        assert_eq!(IResult::Done(&b""[..],Field::Float(4.)),short_field(b"4. "));
-        assert_eq!(IResult::Done(&b""[..],Field::Float(1.23e7)),short_field(b"1.23e+7"));
-        assert_eq!(IResult::Done(&b""[..],Field::Float(1.24e7)),short_field(b"1.24e+7 "));
-        assert_eq!(IResult::Done(&b""[..],Field::Float(2.0e7)),short_field(b"2e+7 "));
-        assert_eq!(IResult::Done(&b""[..],Field::Float(1.25e7)),short_field(b"1.25+7"));
-        assert_eq!(IResult::Done(&b""[..],Field::Float(1.26e7)),short_field(b"1.26+7 "));
-        assert_eq!(IResult::Done(&b""[..],Field::Float(1.0e7)),short_field(b"1.+7 "));
-        assert_eq!(IResult::Done(&b""[..],Field::Int(123456)),short_field(b"123456"));
-        assert_eq!(IResult::Done(&b""[..],Field::Continuation(b"A B")),short_field_cont(b"+A B"));
-        assert_eq!(IResult::Done(&b""[..],Field::String(b"HI1")),short_field(b"HI1"));
-        assert_eq!(IResult::Error(nom::ErrorKind::Alt),short_field(b"ABCDEFGHIJ"));
-        assert_eq!(IResult::Error(nom::ErrorKind::Alt),short_field(b"ABCDEFGHI"));
-        assert_eq!(IResult::Done(&b""[..],Field::String(b"ABCDEFGH")),short_field(b"ABCDEFGH"));
+        assert_done(Field::Float(1.23),short_field(b" 1.23 "));
+        assert_done(Field::Float(1.24),short_field(b" 1.24"));
+        assert_done(Field::Float(1.25),short_field(b"1.25"));
+        let b = b"1252341551";
+        assert_error(Err::Position(ErrorKind::Alt,b),short_field(b));
+        assert_done(Field::Float(1.26),short_field(b"1.26  "));
+        assert_done(Field::Float(1.),short_field(b" 1. "));
+        assert_done(Field::Float(2.),short_field(b" 2."));
+        assert_done(Field::Float(3.),short_field(b"3."));
+        assert_done(Field::Float(4.),short_field(b"4. "));
+        assert_done(Field::Float(1.23e7),short_field(b"1.23e+7"));
+        assert_done(Field::Float(1.24e7),short_field(b"1.24e+7 "));
+        assert_done(Field::Float(2.0e7),short_field(b"2e+7 "));
+        assert_done(Field::Float(1.25e7),short_field(b"1.25+7"));
+        assert_done(Field::Float(1.26e7),short_field(b"1.26+7 "));
+        assert_done(Field::Float(1.0e7),short_field(b"1.+7 "));
+        assert_done(Field::Int(123456),short_field(b"123456"));
+        assert_done(Field::Continuation(b"A B"),short_field_cont(b"+A B"));
+        assert_done(Field::String(b"HI1"),short_field(b"HI1"));
+        let b = b"ABCDEFGHIJ";
+        assert_error(Error::Position(ErrorKind::Alt,b),short_field(b));
+        let b = b"ABCDEFGHI";
+        assert_error(Error::Position(ErrorKind::Alt,b),short_field(b));
+        assert_done(Field::String(b"ABCDEFGH"),short_field(b"ABCDEFGH"));
     }
 }

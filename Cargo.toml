@@ -4,9 +4,12 @@ version = "0.1.0"
 authors = ["Andrew Burkett <burkett.andrew@gmail.com>"]
 
 [dependencies]
-nom = "3.0"
 memmap = "0.5"
 error-chain = "0.10"
 ascii = "0.8"
 clap = "2.24"
 dtoa = "0.4"
+
+[dependencies.nom]
+version = "^3.0"
+features = ["verbose-errors"]
