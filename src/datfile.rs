@@ -205,28 +205,29 @@ fn read_first_field(line: &[u8]) -> IResult<&[u8], Card> {
     let length = line.len();
     let size = min(length, 8);
     let mut i_end = size;
-    let mut i_next = size;
-    for i in 0..size {
-        if line[i] == b',' {
+    let mut consume_next = false;
+    for (i, &c) in line.iter().take(8).enumerate() {
+        if c == b',' {
             is_comma = true;
+            consume_next = true;
             i_end = i;
-            i_next = i + 1;
             break;
-        } else if line[i] == b'\t' {
+        } else if c == b'\t' {
             i_end = i;
-            i_next = i + 1;
+            consume_next = true;
             break;
         }
     }
-    if i_end == size && length > 8 {
-        if line[8] == b',' {
-            is_comma = true;
-            i_next = 9;
-        }
+    if i_end == size && length > 8 && line[8] == b',' {
+        is_comma = true;
+        consume_next = true;
     }
-    let (_, mut card) = try_parse!(&line[..i_end], first_field);
+    let (line, mut remainder) = line.split_at(i_end);
+    if consume_next {
+        remainder = &remainder[1..];
+    }
+    let (_, mut card) = try_parse!(line, first_field);
     card.is_comma = is_comma;
-    let remainder = &line[i_next..];
     IResult::Done(remainder, card)
 }
 
@@ -401,7 +402,7 @@ named!(field_8_cont<Field>, flat_map!(take_m_n_while!(0,8,move |c| c!= b'\t'),fi
 named!(field_16<Field>, flat_map!(take_m_n_while!(0,16,move |c| c!= b'\t'),long_field));
 
 fn option_from_slice(sl: &[u8]) -> Option<&[u8]> {
-    if sl.len() > 0 { Some(sl) } else { None }
+    if !sl.is_empty() { Some(sl) } else { None }
 }
 
 named!(split_short_with_cont<(Vec<Field>,Option<&[u8]>)>, do_parse!(
@@ -445,7 +446,7 @@ named!(split_long<(Vec<Field>,Option<&[u8]>)>,alt_complete!(
 
 
 fn split_line(line: &[u8]) -> IResult<&[u8], Card> {
-    if line.len() == 0 {
+    if line.is_empty() {
         return IResult::Done(b"",
                              Card {
                                  fields: vec![],
