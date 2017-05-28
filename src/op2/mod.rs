@@ -124,7 +124,7 @@ pub fn read_nastran_data(input: &[u8]) -> IResult<&[u8], &[u8]> {
   )
 }
 
-pub fn read_nastran_string<'a>(input: &'a [u8]) -> IResult<&[u8], &str> {
+pub fn read_nastran_string(input: &[u8]) -> IResult<&[u8], &str> {
     do_parse!(input,
   length: read_fortran_i32 >>
   apply!(read_known_i32,length*WORD_SIZE) >>
@@ -134,7 +134,7 @@ pub fn read_nastran_string<'a>(input: &'a [u8]) -> IResult<&[u8], &str> {
   )
 }
 
-pub fn read_nastran_string_known_length<'a>(input: &'a [u8], length: i32) -> IResult<&[u8], &str> {
+pub fn read_nastran_string_known_length(input: &[u8], length: i32) -> IResult<&[u8], &str> {
     do_parse!(input,
   apply!(read_fortran_known_i32,length) >>
   apply!(read_known_i32,length*WORD_SIZE) >>
@@ -158,7 +158,7 @@ pub fn read_nastran_known_key(input: &[u8], v: i32) -> IResult<&[u8], ()> {
 }
 
 pub fn buf_to_struct<T: Sized>(buf: &[u8]) -> &T {
-    unsafe { transmute(buf.as_ptr()) }
+    unsafe { &*(buf.as_ptr() as *const T) }
 }
 
 named!(read_header<FileHeader>,
@@ -231,11 +231,11 @@ named!(pub read_datablock_header,do_parse!(
 ));
 
 
-pub fn read_struct_array<'a, T>(input: &'a [u8], count: usize) -> IResult<&'a [u8], &'a [T]> {
+pub fn read_struct_array<T>(input: &[u8], count: usize) -> IResult<&[u8], &[T]> {
     let length = size_of::<T>() * count;
     let (input, data) = try_parse!(input,take!(length));
     let sl = unsafe { from_raw_parts::<T>(transmute(data.as_ptr()), count) };
-    return IResult::Done(input, sl);
+    IResult::Done(input, sl)
 }
 
 fn read_datablock(input: &[u8]) -> IResult<&[u8], DataBlock> {

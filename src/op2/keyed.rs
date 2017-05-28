@@ -32,7 +32,7 @@ pub fn read_record<T>(input: &[u8], v1: i32, v2: i32, v3: i32) -> IResult<&[u8],
     let (input, data) = try_parse!(input, apply!(op2::read_struct_array::<T>, count as usize));
     let (input, _) = try_parse!(input, apply!(op2::read_known_i32, record_size * 4));
     let (input, _) = try_parse!(input, op2::read_nastran_eor);
-    return IResult::Done(input, data);
+    IResult::Done(input, data)
 }
 
 pub struct RecordKey {
@@ -58,7 +58,7 @@ pub fn read_fixed_size_record<T>(input: &[u8], record_size: i32) -> IResult<&[u8
     let (input, data) = try_parse!(input, apply!(op2::read_struct_array::<T>, count as usize));
     let (input, _) = try_parse!(input, apply!(op2::read_known_i32, record_size * 4));
     let (input, _) = try_parse!(input, op2::read_nastran_eor);
-    return IResult::Done(input, data);
+    IResult::Done(input, data)
 }
 
 pub fn read_variable_record(input: &[u8], record_size: i32) -> IResult<&[u8], &[u8]> {
@@ -66,7 +66,7 @@ pub fn read_variable_record(input: &[u8], record_size: i32) -> IResult<&[u8], &[
     let (input, data) = try_parse!(input, take!(remaining * 4));
     let (input, _) = try_parse!(input, apply!(op2::read_known_i32, record_size * 4));
     let (input, _) = try_parse!(input, op2::read_nastran_eor);
-    return IResult::Done(input, data);
+    IResult::Done(input, data)
 }
 
 pub fn read_unknown_record(input: &[u8], record_size: i32) -> IResult<&[u8], UnknownRecord> {
@@ -74,7 +74,7 @@ pub fn read_unknown_record(input: &[u8], record_size: i32) -> IResult<&[u8], Unk
     let (input, data) = try_parse!(input, take!(remaining * 4));
     let (input, _) = try_parse!(input, apply!(op2::read_known_i32, record_size * 4));
     let (input, _) = try_parse!(input, op2::read_nastran_eor);
-    return IResult::Done(input, data);
+    IResult::Done(input, data)
 }
 
 
