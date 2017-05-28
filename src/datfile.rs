@@ -5,7 +5,7 @@ use std::str;
 
 use dtoa;
 use nom;
-use nom::{Slice, digit, IResult, alphanumeric, is_digit, is_alphanumeric, InputIter,
+use nom::{Slice, digit, IResult, is_digit, is_alphanumeric, InputIter,
           is_alphabetic, is_space, rest};
 
 use errors::{Result, ErrorKind};
@@ -253,13 +253,13 @@ named!(field_string<Field>,map!(
 named!(field_string_double<Field>,map!(
     terminated!(
         recognize!( tuple!(char_if!(is_alphabetic),take_m_n_while!(0,7,is_alphanumeric)))
-        ,tuple!(many0!(tag!(" ")),tag!("*"))
+        ,tuple!(take_while!(is_space),tag!("*"))
     ), Field::String));
 named!(field_cont_single<Field>,map!(
-    preceded!(tag!("+"),recognize!(many0!(alt!(tag!(" ")|alphanumeric)))),
+    preceded!(tag!("+"),take_while!(move |c| c == b' ' || is_alphanumeric(c))),
     Field::Continuation));
 named!(field_cont_double<Field>,map!(
-    preceded!(tag!("*"),recognize!(many0!(alt!(tag!(" ")|alphanumeric)))),
+    preceded!(tag!("*"),take_while!(move |c| c == b' ' || is_alphanumeric(c))),
 Field::Continuation));
 named!(field_cont_anon<Field>,map!(
     take_m_n_while!(0,8,move |c| is_alphanumeric(c) || c == b' '),
@@ -275,15 +275,15 @@ named!(decimal_float_value, recognize!(alt!(
 ));
 
 named!(float_exponent, recognize!(tuple!(
-          alt!(tag!("e") | tag!("E")),
-          opt!(alt!(tag!("+") | tag!("-"))),
+          one_of!("eE"),
+          opt!(one_of!("+-")),
           digit
           )
 ));
 
 named!(double_exponent, recognize!(tuple!(
-          alt!(tag!("d") | tag!("D")),
-          opt!(alt!(tag!("+") | tag!("-"))),
+          one_of!("dD"),
+          opt!(one_of!("+-")),
           digit
           )
 ));
@@ -292,7 +292,7 @@ fn my_float(input: &[u8]) -> IResult<&[u8], f32> {
     flat_map!(input,
     recognize!(
       tuple!(
-        opt!(alt!(tag!("+") | tag!("-"))),
+        opt!(one_of!("+-")),
         alt!(
             terminated!(decimal_float_value,opt!(complete!(float_exponent))) |
             terminated!(digit,float_exponent)
@@ -307,7 +307,7 @@ fn my_double(input: &[u8]) -> IResult<&[u8], f64> {
     flat_map!(input,
     recognize!(
       tuple!(
-        opt!(alt!(tag!("+") | tag!("-"))),
+        opt!(one_of!("+-")),
         alt!(
             terminated!(decimal_float_value,double_exponent) |
             terminated!(digit,double_exponent)
@@ -322,79 +322,83 @@ named!(field_nastran_float<Field>,map!(
     tuple!(
         recognize!(
             tuple!(
-                opt!(alt!(tag!("+") | tag!("-"))),
-alt!(
-          delimited!(digit, tag!("."), opt!(digit))
-          | terminated!(tag!("."), digit)
-        )
-
+            opt!(one_of!("+-")),
+                alt!(
+                    delimited!(digit, tag!("."), opt!(digit))
+                    | terminated!(tag!("."), digit)
+                )
             )
         ),
-        recognize!(tuple!(
-            alt!(tag!("+") | tag!("-")),
-            digit
-        ))
-        ),
-        |(value,exponent)| Field::Float(parse_nastran_float(value,exponent))
-    )
-);
+        recognize!(tuple!(one_of!("+-"),digit))
+    ),
+    |(value,exponent)| Field::Float(parse_nastran_float(value,exponent))
+));
 
-named!(field_integer<Field>,map!(flat_map!(
+named!(field_integer<Field>,map!(
+    flat_map!(
         recognize!(
             alt!(
                 preceded!(tag!("-"),take_m_n_while!(1,7,is_digit))|
                 take_m_n_while!(1,8,is_digit)
             )
         ),
-        parse_to!(i32))
+        parse_to!(i32)
+    )
     ,|i| Field::Int(i))
 );
 
 macro_rules! pad_space_eof(
-  ($i:expr, $submac:ident!( $($args:tt)* )) => (
-    delimited!($i, many0!(tag!(" ")),$submac!($($args)*),tuple!(many0!(tag!(" ")),eof!()))
-  );
-  ($i:expr, $f:expr) => (
-    pad_space_eof!($i, call!($f));
-  );
+    ($i:expr, $submac:ident!( $($args:tt)* )) => (
+        delimited!($i,
+            take_while!(is_space),
+            $submac!($($args)*),
+            tuple!(take_while!(is_space),eof!())
+        )
+    );
+    ($i:expr, $f:expr) => (
+        pad_space_eof!($i, call!($f));
+    );
 );
 
 named!(short_field<Field>,
-       alt_complete!(
-           pad_space_eof!(field_float) |
-           pad_space_eof!(field_nastran_float) |
-           pad_space_eof!(field_integer) |
-           pad_space_eof!(field_string) |
-            value!(Field::Blank,terminated!(many0!(tag!(" ")),eof!()))
+    alt_complete!(
+        pad_space_eof!(field_float) |
+        pad_space_eof!(field_nastran_float) |
+        pad_space_eof!(field_integer) |
+        pad_space_eof!(field_string) |
+        value!(Field::Blank,tuple!(take_while!(is_space),eof!())
+    )
 ));
 
 named!(short_field_cont<Field>,
-       alt_complete!(
-           pad_space_eof!(field_float) |
-           pad_space_eof!(field_nastran_float) |
-           pad_space_eof!(field_integer) |
-           pad_space_eof!(field_string) |
-            terminated!(field_cont_single,eof!()) |
-            terminated!(field_cont_double,eof!()) |
-            value!(Field::Blank,terminated!(many0!(tag!(" ")),eof!()))
-));
+    alt_complete!(
+        pad_space_eof!(field_float) |
+        pad_space_eof!(field_nastran_float) |
+        pad_space_eof!(field_integer) |
+        pad_space_eof!(field_string) |
+        terminated!(field_cont_single,eof!()) |
+        terminated!(field_cont_double,eof!()) |
+        value!(Field::Blank,tuple!(take_while!(is_space),eof!()))
+    )
+);
 
 named!(long_field<Field>,
-       alt_complete!(
-           pad_space_eof!(field_float) |
-           pad_space_eof!(field_double) |
-           pad_space_eof!(field_nastran_float) |
-           pad_space_eof!(field_integer) |
-           pad_space_eof!(field_string) |
-            value!(Field::Blank,terminated!(many0!(tag!(" ")),eof!()))
-));
+    alt_complete!(
+        pad_space_eof!(field_float) |
+        pad_space_eof!(field_double) |
+        pad_space_eof!(field_nastran_float) |
+        pad_space_eof!(field_integer) |
+        pad_space_eof!(field_string) |
+        value!(Field::Blank,tuple!(take_while!(is_space),eof!()))
+    )
+);
 
 named!(first_field<Card>, alt_complete!(
-        map!(pad_space_eof!(field_string),|field| Card::from_first_field(field,false)) |
-        map!(pad_space_eof!(field_string_double),|field| Card::from_first_field(field,true)) |
-        map!(terminated!(field_cont_single,eof!()),|field| Card::from_first_field(field,false)) |
-        map!(terminated!(field_cont_double,eof!()),|field| Card::from_first_field(field,true)) |
-        value!(Card::from_first_field(Field::Blank,false),terminated!(many0!(tag!(" ")),eof!()))
+    map!(pad_space_eof!(field_string),|field| Card::from_first_field(field,false)) |
+    map!(pad_space_eof!(field_string_double),|field| Card::from_first_field(field,true)) |
+    map!(terminated!(field_cont_single,eof!()),|field| Card::from_first_field(field,false)) |
+    map!(terminated!(field_cont_double,eof!()),|field| Card::from_first_field(field,true)) |
+    value!(Card::from_first_field(Field::Blank,false),tuple!(take_while!(is_space),eof!()))
 ));
 
 named!(field_8<Field>, flat_map!(take_m_n_while!(0,8,move |c| c!= b'\t'),short_field));
