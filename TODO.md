@@ -3,5 +3,7 @@
 - Improve datfile test cases
 - Add support for combining continuations
 - Make sure there are good error messages
+- Need tests for op2
+- Need tests for datfile printing
 - Get basic op2 parsing working for practical purposes
   - Probably expose iterator for all data types rather than try to map the data

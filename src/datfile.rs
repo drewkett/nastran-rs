@@ -5,7 +5,7 @@ use std::str;
 
 use dtoa;
 use nom;
-use nom::{Slice, digit, IResult, alphanumeric, is_digit, is_alphanumeric, InputIter, is_alphabetic, space};
+use nom::{Slice, digit, IResult, alphanumeric, is_digit, is_alphanumeric, InputIter, is_alphabetic, is_space, rest};
 
 use errors::{Result,ErrorKind};
 
@@ -54,7 +54,7 @@ macro_rules! char_if (
 
 
 
-#[derive(Debug,PartialEq)]
+#[derive(PartialEq)]
 pub enum Field<'a> {
     Blank,
     Int(i32),
@@ -67,10 +67,10 @@ pub enum Field<'a> {
 fn float_to_8(f: f32) -> String {
     let mut buf = [b' '; 9];
     if let Ok(n) = dtoa::write(&mut buf[..], f) {
-            if n > 0 && buf[0] == b'0' {
-                unsafe { String::from_utf8_unchecked(buf[1..n].to_vec()) }
-            } else if n > 0 && buf[n-1] == b'0' {
+            if n > 0 && buf[n-1] == b'0' {
                 unsafe { String::from_utf8_unchecked(buf[..n-1].to_vec()) }
+            } else if n > 0 && buf[0] == b'0' {
+                unsafe { String::from_utf8_unchecked(buf[1..n].to_vec()) }
             } else {
                 format!("{:8e}",f)
             }
@@ -95,6 +95,18 @@ fn double_to_8(f: f64) -> String {
 
 }
 
+impl <'a> fmt::Debug for Field<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            &Field::Blank => write!(f,"Blank"),
+            &Field::Int(i) => write!(f,"Int({})",i),
+            &Field::Float(d) => write!(f,"Float({})",d),
+            &Field::Double(d) => write!(f,"Double({})",d),
+            &Field::Continuation(c) => write!(f,"Continuation('{}')",unsafe {str::from_utf8_unchecked(c)}),
+            &Field::String(s) => write!(f,"String('{}')",unsafe {str::from_utf8_unchecked(s)}),
+        }
+    }
+}
 impl <'a> fmt::Display for Field<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -114,11 +126,12 @@ pub struct Card <'a> {
     pub comment: Option<&'a [u8]>,
     pub is_double: bool,
     pub is_comma: bool,
+    pub unparsed: Option<&'a [u8]>,
 }
 
 impl <'a> Card <'a> {
     fn from_first_field(first_field: Field<'a>, is_double: bool) -> Card<'a> {
-        Card { fields: vec![first_field], is_comma: false, comment: None, is_double }
+        Card { fields: vec![first_field], is_comma: false, comment: None, unparsed: None, is_double }
     }
 }
 
@@ -129,7 +142,16 @@ impl <'a> fmt::Debug for Card<'a> {
             try!(write!(f, "{:?},", field));
         }
         if let Some(comment) = self.comment {
-            try!(write!(f, "Comment='{}'", unsafe { str::from_utf8_unchecked(comment)}));
+            try!(write!(f, "Comment='{}',", unsafe { str::from_utf8_unchecked(comment)}));
+        }
+        if self.is_comma {
+            try!(write!(f, "comma,"));
+        }
+        if self.is_double {
+            try!(write!(f, "double,"));
+        }
+        if let Some(unparsed) = self.unparsed {
+            try!(write!(f, "Unparsed='{}',", unsafe { str::from_utf8_unchecked(unparsed)}));
         }
         write!(f, ")")
     }
@@ -355,57 +377,58 @@ named!(first_field<Card>,
             value!(Card::from_first_field(Field::Blank,false),terminated!(many0!(tag!(" ")),eof!()))
 ));
 
-struct ShortCardIterator<'a> {
-    remainder: &'a [u8],
-}
-
-impl<'a> ShortCardIterator<'a> {
-    fn new(remainder: &'a [u8]) -> ShortCardIterator {
-        return ShortCardIterator { remainder };
-    }
-}
-
-impl<'a> Iterator for ShortCardIterator<'a> {
-    type Item = &'a [u8];
-    fn next(&mut self) -> Option<Self::Item> {
-        let n = min(8, self.remainder.len());
-        if n == 0 {
-            return None;
-        }
-        for i in 0..n {
-            if self.remainder[i] == b'\t' {
-                let field = &self.remainder[..i];
-                self.remainder = &self.remainder[i + 1..];
-                return Some(field);
-            }
-        }
-        let field = &self.remainder[..n];
-        self.remainder = &self.remainder[n..];
-        return Some(field);
-    }
-}
-
 named!(field_8<Field>, flat_map!(take_m_n_while!(0,8,move |c| c!= b'\t'),short_field));
 named!(field_8_cont<Field>, flat_map!(take_m_n_while!(0,8,move |c| c!= b'\t'),field_cont));
 named!(field_16<Field>, flat_map!(take_m_n_while!(0,16,move |c| c!= b'\t'),long_field));
 
-named!(split_short<Vec<Field>>,many_m_n!(0,9,field_8));
-named!(split_long_with_cont<Vec<Field>>, do_parse!(
-    fields: many_m_n!(4,4,field_16) >>
+fn option_from_slice<'a>(sl :&'a [u8]) -> Option<&'a [u8]> {
+    if sl.len() > 0 {
+        Some(sl)
+    } else {
+        None
+    }
+}
+
+named!(split_short_with_cont<(Vec<Field>,Option<&[u8]>)>, do_parse!(
+    fields: many_m_n!(8,8,field_8) >>
     last_field: opt!(field_8_cont) >>
+    take_while!(is_space) >> 
+    unparsed: map!(rest,option_from_slice) >>
     ({ 
         let mut mfields = fields;
         if let Some(f) = last_field { mfields.push(f) } ;
-        mfields
+        (mfields, unparsed)
+    })
+));
+named!(split_short_partial<(Vec<Field>,Option<&[u8]>)>, do_parse!(
+    fields: many_m_n!(0,7,field_8) >>
+    (fields, None)
+));
+named!(split_short<(Vec<Field>,Option<&[u8]>)>,alt_complete!(split_short_with_cont|split_short_partial));
+
+named!(split_long_with_cont<(Vec<Field>,Option<&[u8]>)>, do_parse!(
+    fields: many_m_n!(4,4,field_16) >>
+    last_field: opt!(field_8_cont) >>
+    take_while!(is_space) >> 
+    unparsed: map!(rest,option_from_slice) >>
+    ({ 
+        let mut mfields = fields;
+        if let Some(f) = last_field { mfields.push(f) } ;
+        (mfields, unparsed)
     })
 ));
 
-named!(split_long<Vec<Field>>,alt_complete!(split_long_with_cont|many_m_n!(0,3,field_16)));
+named!(split_long_partial<(Vec<Field>,Option<&[u8]>)>, do_parse!(
+    fields: many_m_n!(0,3,field_16) >>
+    (fields, None)
+));
+
+named!(split_long<(Vec<Field>,Option<&[u8]>)>,alt_complete!(split_long_with_cont|split_long_partial));
 
 
 fn split_line(line: &[u8]) -> IResult<&[u8],Card> {
     if line.len() == 0 {
-        return IResult::Done(b"",Card {fields:vec![], is_comma: false, is_double: false, comment: None})
+        return IResult::Done(b"",Card {fields:vec![], is_comma: false, is_double: false, comment: None, unparsed: None})
     }
     let (mut remainder, mut card) = match read_first_field(line) {
         IResult::Done(remainder,card) => (remainder, card),
@@ -433,37 +456,17 @@ fn split_line(line: &[u8]) -> IResult<&[u8],Card> {
         }
         remainder = b"";
     } else if card.is_double {
-        match split_long(remainder) {
-            IResult::Done(_,rem_fields) => card.fields.extend(rem_fields),
+        remainder = match split_long(remainder) {
+            IResult::Done(remainder,(fields,unparsed)) => { card.fields.extend(fields); card.unparsed = unparsed; remainder },
             IResult::Error(e) => return IResult::Error(e),
             IResult::Incomplete(n) => return IResult::Incomplete(n)
-        }
+        };
     } else {
-        let mut it = ShortCardIterator::new(remainder);
-        let mut i = 2;
-        while let Some(field_slice) = it.next() {
-            if i == 10 {
-                match field_cont(field_slice) {
-                    IResult::Done(_,field) => card.fields.push(field),
-                    IResult::Error(e) => return IResult::Error(e),
-                    IResult::Incomplete(n) => return IResult::Incomplete(n)
-                }
-                break
-            } else {
-                match short_field(field_slice) {
-                    IResult::Done(_,field) => card.fields.push(field),
-                    IResult::Error(e) => return IResult::Error(e),
-                    IResult::Incomplete(n) => return IResult::Incomplete(n)
-                }
-            }
-            i += 1;
-        }
-        remainder = it.remainder;
-        match opt!(remainder,complete!(space)) {
-            IResult::Done(_,_) => (),
-            IResult::Error(_) => println!("Remainder: '{}'",unsafe { str::from_utf8_unchecked(remainder)}),
-            IResult::Incomplete(_) => println!("Remainder: '{}'",unsafe { str::from_utf8_unchecked(remainder)}),
-        }
+        remainder = match split_short(remainder) {
+            IResult::Done(remainder,(fields,unparsed)) => { card.fields.extend(fields); card.unparsed = unparsed; remainder },
+            IResult::Error(e) => return IResult::Error(e),
+            IResult::Incomplete(n) => return IResult::Incomplete(n)
+        };
     }
     return IResult::Done(remainder,card);
 }
