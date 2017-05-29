@@ -3,5 +3,5 @@
 extern crate nastran;
 
 fuzz_target!(|data: &[u8]| {
-    nastran::op2::parse_buffer(data)
+    nastran::op2::parse_buffer(data);
 });

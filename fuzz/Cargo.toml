@@ -24,7 +24,3 @@ path = "fuzzers/datfile.rs"
 [[bin]]
 name = "op2"
 path = "fuzzers/op2.rs"
-
-[[bin]]
-name = "nastran_float"
-path = "fuzzers/nastran_float.rs"
