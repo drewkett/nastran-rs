@@ -200,7 +200,7 @@ mod tests {
         assert_eq!(IResult::Done(&b""[..],result),test);
     }
 
-    fn assert_error<T: Debug + PartialEq>(result: Err<&[u8]>,test:IResult<&[u8],T>) {
+    fn assert_error<T: Debug + PartialEq>(result: Err<u32>,test:IResult<&[u8],T>) {
         assert_eq!(IResult::Error(result),test);
     }
 
@@ -209,8 +209,7 @@ mod tests {
         assert_done(Field::Float(1.23),short_field(b" 1.23 "));
         assert_done(Field::Float(1.24),short_field(b" 1.24"));
         assert_done(Field::Float(1.25),short_field(b"1.25"));
-        let b = b"1252341551";
-        assert_error(Err::Position(ErrorKind::Alt,b),short_field(b));
+        assert_error(error_code!(ErrorKind::Alt),short_field(b"1252341551"));
         assert_done(Field::Float(1.26),short_field(b"1.26  "));
         assert_done(Field::Float(1.),short_field(b" 1. "));
         assert_done(Field::Float(2.),short_field(b" 2."));
@@ -225,10 +224,8 @@ mod tests {
         assert_done(Field::Int(123456),short_field(b"123456"));
         assert_done(Field::Continuation(b"A B"),short_field_cont(b"+A B"));
         assert_done(Field::String(b"HI1"),short_field(b"HI1"));
-        let b = b"ABCDEFGHIJ";
-        assert_error(Error::Position(ErrorKind::Alt,b),short_field(b));
-        let b = b"ABCDEFGHI";
-        assert_error(Error::Position(ErrorKind::Alt,b),short_field(b));
+        assert_error(error_code!(ErrorKind::Alt),short_field(b"ABCDEFGHIJ"));
+        assert_error(error_code!(ErrorKind::Alt),short_field(b"ABCDEFGHI"));
         assert_done(Field::String(b"ABCDEFGH"),short_field(b"ABCDEFGH"));
     }
 }

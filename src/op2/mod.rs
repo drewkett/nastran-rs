@@ -3,7 +3,7 @@ use std::slice::from_raw_parts;
 use std::marker::Sized;
 
 use nom::{IResult, le_i32};
-use errors::{Result,ErrorKind};
+use errors::Result;
 
 mod geom1;
 mod geom2;
@@ -262,9 +262,5 @@ named!(pub parse_op2<OP2>,do_parse!(
 
 
 pub fn read_op2(buffer: &[u8]) -> Result<OP2> {
-    match parse_op2(buffer) {
-        IResult::Done(_, d) => Ok(d),
-        IResult::Error(e) => Err(e.into()),
-        IResult::Incomplete(_) => Err(ErrorKind::ParseFailure.into()),
-    }
+    whole_file!(buffer,parse_op2)
 }

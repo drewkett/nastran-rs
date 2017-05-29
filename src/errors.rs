@@ -2,7 +2,10 @@
 use nom;
 
 error_chain!{
-    errors { ParseFailure }
+    errors {
+        ParseFailure {}
+        NotPossible(t: &'static str)
+    }
 }
 
 impl From<nom::ErrorKind> for Error {

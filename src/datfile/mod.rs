@@ -3,9 +3,8 @@ use std::fmt;
 use std::str;
 
 use dtoa;
-use nom::IResult;
 
-use errors::{Result, ErrorKind};
+use errors::Result;
 
 mod field;
 mod line;
@@ -156,12 +155,8 @@ impl<'a> fmt::Display for Deck<'a> {
 }
 
 
-named!(split_lines<Deck>,map!(complete!(many0!(line::split_line)),|cards| Deck { cards }));
+named!(split_lines<Deck>,map!(many0!(line::split_line),|cards| Deck { cards }));
 
 pub fn parse_buffer(buffer: &[u8]) -> Result<Deck> {
-    match split_lines(buffer) {
-        IResult::Done(_, d) => Ok(d),
-        IResult::Error(e) => Err(e.into()),
-        IResult::Incomplete(_) => Err(ErrorKind::ParseFailure.into()),
-    }
+    whole_file!(buffer,split_lines)
 }
