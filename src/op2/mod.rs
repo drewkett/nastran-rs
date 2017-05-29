@@ -3,6 +3,7 @@ use std::slice::from_raw_parts;
 use std::marker::Sized;
 
 use nom::{IResult, le_i32};
+use errors::{Result,ErrorKind};
 
 mod geom1;
 mod geom2;
@@ -251,10 +252,19 @@ fn read_datablock(input: &[u8]) -> IResult<&[u8], DataBlock> {
     }
 }
 
-named!(pub read_op2<OP2>,do_parse!(
+named!(pub parse_op2<OP2>,do_parse!(
   header: read_header >>
   blocks: many0!(read_datablock) >>
   read_nastran_eof >>
   eof!() >>
   (OP2 {header:header,blocks:blocks})
 ));
+
+
+pub fn read_op2(buffer: &[u8]) -> Result<OP2> {
+    match parse_op2(buffer) {
+        IResult::Done(_, d) => Ok(d),
+        IResult::Error(e) => Err(e.into()),
+        IResult::Incomplete(_) => Err(ErrorKind::ParseFailure.into()),
+    }
+}

@@ -12,4 +12,3 @@ dtoa = "0.4"
 
 [dependencies.nom]
 version = "^3.0"
-features = ["verbose-errors"]

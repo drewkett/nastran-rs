@@ -2,7 +2,7 @@
 use std::slice::from_raw_parts;
 use std::mem::{size_of, transmute};
 
-use nom::{IResult, ErrorKind, Err};
+use nom::{IResult, ErrorKind};
 
 use op2;
 
@@ -28,7 +28,7 @@ pub fn read_data<T>(input: &[u8]) -> IResult<&[u8], &[T]> {
     let (input, data) = try_parse!(input,op2::read_nastran_data);
     let (input, _) = try_parse!(input,op2::read_nastran_eor);
     if data.len() % size_of::<T>() != 0 {
-        return IResult::Error(Err::Code(ErrorKind::Custom(21)));
+        return IResult::Error(ErrorKind::Custom(21));
     }
     let count = data.len() / size_of::<T>();
     let sl = unsafe { from_raw_parts::<T>(transmute(data.as_ptr()), count) };

@@ -37,8 +37,8 @@ named!(field_cont_anon<Field>,map!(
     take_m_n_while!(0,8,move |c| is_alphanumeric(c) || c == b' '),
     Field::Continuation));
 named!(field_cont<Field>,alt_complete!(field_cont_single|field_cont_double|field_cont_anon));
-named!(field_float<Field>,map!(my_float, |f| Field::Float(f)));
-named!(field_double<Field>,map!(my_double, |f| Field::Double(f)));
+named!(field_float<Field>,map!(my_float, Field::Float));
+named!(field_double<Field>,map!(my_double, Field::Double));
 
 named!(decimal_float_value, recognize!(alt!(
           delimited!(digit, tag!("."), opt!(complete!(digit)))
