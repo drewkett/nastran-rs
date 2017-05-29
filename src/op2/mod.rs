@@ -261,6 +261,6 @@ named!(pub parse_op2<OP2>,do_parse!(
 ));
 
 
-pub fn read_op2(buffer: &[u8]) -> Result<OP2> {
+pub fn parse_buffer(buffer: &[u8]) -> Result<OP2> {
     whole_file!(buffer,parse_op2)
 }
