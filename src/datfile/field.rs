@@ -90,7 +90,7 @@ fn my_double(input: &[u8]) -> IResult<&[u8], f64> {
   )
 }
 
-named!(field_nastran_float<Field>,map!(
+named!(pub field_nastran_float<Field>,map!(
     tuple!(
         recognize!(
             tuple!(

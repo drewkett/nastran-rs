@@ -1,0 +1,30 @@
+
+[package]
+name = "nastran-fuzz"
+version = "0.0.1"
+authors = ["Automatically generated"]
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies.nastran]
+path = ".."
+[dependencies.libfuzzer-sys]
+git = "https://github.com/rust-fuzz/libfuzzer-sys.git"
+
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "datfile"
+path = "fuzzers/datfile.rs"
+
+[[bin]]
+name = "op2"
+path = "fuzzers/op2.rs"
+
+[[bin]]
+name = "nastran_float"
+path = "fuzzers/nastran_float.rs"
