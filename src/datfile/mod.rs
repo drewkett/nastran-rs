@@ -16,7 +16,9 @@ pub enum Field<'a> {
     Float(f32),
     Double(f64),
     Continuation(&'a [u8]),
+    DoubleContinuation(&'a [u8]),
     String(&'a [u8]),
+    DoubleString(&'a [u8]),
 }
 
 fn float_to_8(f: f32) -> String {
@@ -63,6 +65,16 @@ impl<'a> fmt::Debug for Field<'a> {
                        unsafe { str::from_utf8_unchecked(c) })
             }
             Field::String(s) => write!(f, "String('{}')", unsafe { str::from_utf8_unchecked(s) }),
+            Field::DoubleContinuation(s) => {
+                write!(f,
+                       "DoubleContinuation('{}')",
+                       unsafe { str::from_utf8_unchecked(s) })
+            }
+            Field::DoubleString(s) => {
+                write!(f,
+                       "DoubleString('{}')",
+                       unsafe { str::from_utf8_unchecked(s) })
+            }
         }
     }
 }
@@ -75,6 +87,10 @@ impl<'a> fmt::Display for Field<'a> {
             Field::Double(d) => write!(f, "{:>8}", double_to_8(d)),
             Field::Continuation(c) => write!(f, "+{:7}", unsafe { str::from_utf8_unchecked(c) }),
             Field::String(s) => write!(f, "{:8}", unsafe { str::from_utf8_unchecked(s) }),
+            Field::DoubleContinuation(c) => {
+                write!(f, "*{:7}", unsafe { str::from_utf8_unchecked(c) })
+            }
+            Field::DoubleString(s) => write!(f, "{}*", unsafe { str::from_utf8_unchecked(s) }),
         }
     }
 }

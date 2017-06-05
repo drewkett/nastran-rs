@@ -1,7 +1,10 @@
 
+use std::str;
+
 use super::{Field, Card};
 
 use nom::{self, IResult, Slice, InputIter, is_space, is_alphanumeric, is_alphabetic, is_digit, digit};
+use errors;
 
 fn parse_nastran_float(value: &[u8], exponent: &[u8]) -> f32 {
     let length = value.len() + exponent.len() + 1;
@@ -174,6 +177,182 @@ named!(pub field_8<Field>, flat_map!(take_m_n_while!(0,8,move |c| c!= b'\t'),sho
 named!(pub field_8_cont<Field>, flat_map!(take_m_n_while!(0,8,move |c| c!= b'\t'),field_cont));
 named!(pub field_16<Field>, flat_map!(take_m_n_while!(0,16,move |c| c!= b'\t'),long_field));
 
+#[inline]
+fn count_spaces(buffer: &[u8]) -> usize {
+    return buffer.iter().take_while(|&&c| c == b' ').count();
+}
+
+#[inline]
+fn trim_spaces(buffer: &[u8]) -> &[u8] {
+    let n = buffer.len();
+    let i = buffer.iter().take_while(|&&c| c == b' ').count();
+    let j = buffer.iter()
+        .skip(i)
+        .rev()
+        .take_while(|&&c| c == b' ')
+        .count();
+    &buffer[i..n - j]
+}
+
+#[inline]
+fn is_plus_minus(c: u8) -> bool {
+    c == b'+' || c == b'-'
+}
+
+#[inline]
+fn is_alpha(c: u8) -> bool {
+    (c >= b'a' && c <= b'z') || (c >= b'A' && c <= b'Z')
+}
+
+#[inline]
+fn is_numeric(c: u8) -> bool {
+    c >= b'0' && c <= b'9'
+}
+
+#[inline]
+fn count_digits(buffer: &[u8]) -> usize {
+    buffer.iter().take_while(|&&c| is_numeric(c)).count()
+}
+
+#[inline]
+fn count_alphanumeric(buffer: &[u8]) -> usize {
+    buffer.iter().take_while(|&&c| is_numeric(c) || is_alpha(c)).count()
+}
+
+fn print_slice(s: &str, buffer: &[u8]) {
+    let b = unsafe { str::from_utf8_unchecked(buffer) };
+    println!("{} {}",s,b)
+}
+
+fn maybe_string(buffer: &[u8]) -> errors::Result<Field> {
+    let n = buffer.len();
+    if n == 0 {
+        return Err(errors::ErrorKind::ParseFailure.into());
+    } else if n > 8 {
+        return Err(errors::ErrorKind::ParseFailure.into());
+    }
+    if !is_alpha(buffer[0]) {
+        return Err(errors::ErrorKind::ParseFailure.into());
+    }
+    let mut i = 1;
+    i += count_alphanumeric(&buffer[i..]);
+    if i != n {
+        return Err(errors::ErrorKind::ParseFailure.into());
+    }
+    Ok(Field::String(buffer))
+}
+
+fn maybe_number(buffer: &[u8]) -> errors::Result<Field> {
+    let n = buffer.len();
+    let mut i = 0;
+    if is_plus_minus(buffer[i]) {
+        i += 1
+    }
+    if i == n {
+        return Err(errors::ErrorKind::ParseFailure.into());
+    }
+    let mut try_read_exponent = false;
+    if is_numeric(buffer[i]) {
+        i += count_digits(&buffer[i..]);
+        if i == n {
+            if i <= 8 {
+                let s = unsafe { str::from_utf8_unchecked(buffer) };
+                return s.parse().map(|v| Field::Int(v)).map_err(|e| e.into());
+            } else {
+                return Err(errors::ErrorKind::ParseFailure.into());
+            }
+        } else if buffer[i] == b'.' {
+            i += 1;
+            i += count_digits(&buffer[i..]);
+            if i == n {
+                let s = unsafe { str::from_utf8_unchecked(buffer) };
+                return s.parse().map(|v| Field::Float(v)).map_err(|e| e.into());
+            }
+        }
+        try_read_exponent = true;
+    } else if buffer[i] == b'.' {
+        i += 1;
+        let n_digits = count_digits(&buffer[i..]);
+        if n_digits == 0 {
+            return Err(errors::ErrorKind::ParseFailure.into());
+        }
+        i += n_digits;
+        try_read_exponent = true;
+        if i == n {
+            let s = unsafe { str::from_utf8_unchecked(buffer) };
+            return s.parse().map(|v| Field::Float(v)).map_err(|e| e.into());
+        }
+    }
+    if try_read_exponent {
+        if buffer[i] == b'e' || buffer[i] == b'E' {
+            i += 1;
+            if i == n {
+                return Err(errors::ErrorKind::ParseFailure.into());
+            }
+            if is_plus_minus(buffer[i]) {
+                i += 1;
+                if i == n {
+                    return Err(errors::ErrorKind::ParseFailure.into());
+                }
+            }
+            let n_digits = count_digits(&buffer[i..]);
+            if n_digits == 0 || i + n_digits != n {
+                return Err(errors::ErrorKind::ParseFailure.into());
+            }
+            let s = unsafe { str::from_utf8_unchecked(buffer) };
+            return s.parse().map(|v| Field::Float(v)).map_err(|e| e.into());
+        } else if buffer[i] == b'+' || buffer[i] == b'-' {
+            let j = i;
+            i += 1;
+            if i == n {
+                return Err(errors::ErrorKind::ParseFailure.into());
+            }
+            let n_digits = count_digits(&buffer[i..]);
+            if n_digits == 0 || i + n_digits != n {
+                return Err(errors::ErrorKind::ParseFailure.into());
+            }
+            let mut temp = vec![b' '; n + 1];
+            temp[..j].copy_from_slice(&buffer[..j]);
+            temp[j] = b'e';
+            temp[j + 1..].copy_from_slice(&buffer[j..]);
+            let s = unsafe { String::from_utf8_unchecked(temp) };
+            return s.parse().map(|v| Field::Float(v)).map_err(|e| e.into());
+        }
+    }
+    return Err(errors::ErrorKind::ParseFailure.into());
+}
+
+fn maybe_field(buffer: &[u8]) -> errors::Result<Field> {
+    let n = buffer.len();
+    if n == 0 {
+        return Ok(Field::Blank);
+    }
+    if buffer[0] == b'+' {
+        if n > 1 && (is_numeric(buffer[1]) || buffer[1] == b'.') {
+            return maybe_number(trim_spaces(buffer));
+        } else if n < 8 {
+            return Ok(Field::Continuation(&buffer[1..]));
+        } else {
+            return Err(errors::ErrorKind::ParseFailure.into());
+        }
+    } else if buffer[0] == b'*' {
+        if n < 8 {
+            return Ok(Field::DoubleContinuation(&buffer[1..]));
+        } else {
+            return Err(errors::ErrorKind::ParseFailure.into());
+        }
+    }
+    let buffer = trim_spaces(buffer);
+    if buffer.len() == 0 {
+        return Ok(Field::Blank);
+    }
+    match buffer[0] {
+        b'a'...b'z' | b'A'...b'Z' => return maybe_string(buffer),
+        b'+' | b'-' | b'0'...b'9' | b'.' => return maybe_number(buffer),
+        _ => return Err(errors::ErrorKind::ParseFailure.into()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     extern crate test;
@@ -193,6 +372,16 @@ mod tests {
         b.iter(|| field_float(b"11.22e+7"));
     }
 
+    #[bench]
+    fn bench_field_float2(b: &mut Bencher) {
+        b.iter(|| field_float(b"11.22"));
+    }
+
+    #[bench]
+    fn bench_maybe_field_float(b: &mut Bencher) {
+        b.iter(|| maybe_field(b"11.22"));
+    }
+
     fn assert_done<T: Debug + PartialEq>(result: T, test: IResult<&[u8], T>) {
         assert_eq!(IResult::Done(&b""[..],result),test);
     }
@@ -201,8 +390,30 @@ mod tests {
         assert_eq!(IResult::Error(result),test);
     }
 
+    fn success_maybe_field(test: &str, result: Field) {
+        match maybe_field(test.as_bytes()) {
+            Ok(r) => assert_eq!(r, result),
+            Err(_) => panic!("Expected Ok for '{}'",test),
+        }
+    }
+
     #[test]
     fn test_parse() {
+        success_maybe_field("+A B", Field::Continuation(b"A B"));
+        success_maybe_field("HI1", Field::String(b"HI1"));
+        success_maybe_field("ABCDEFGH", Field::String(b"ABCDEFGH"));
+        success_maybe_field(" 2.23 ", Field::Float(2.23));
+        success_maybe_field("+2.24 ", Field::Float(2.24));
+        success_maybe_field(" 2.25e7 ", Field::Float(2.25e7));
+        success_maybe_field(" 2.26e+7 ", Field::Float(2.26e7));
+        success_maybe_field(" 2.27e-7 ", Field::Float(2.27e-7));
+        success_maybe_field(" .28 ", Field::Float(0.28));
+        success_maybe_field(" .29e+7 ", Field::Float(0.29e7));
+        success_maybe_field(" 30e+7 ", Field::Float(3e8));
+        success_maybe_field(" 3.1+7 ", Field::Float(3.1e7));
+        success_maybe_field(" 3.+7 ", Field::Float(3.0e7));
+        success_maybe_field(" .2+7 ", Field::Float(0.2e7));
+        success_maybe_field(" .2-7 ", Field::Float(0.2e-7));
         assert_done(Field::Float(1.23), short_field(b" 1.23 "));
         assert_done(Field::Float(1.24), short_field(b" 1.24"));
         assert_done(Field::Float(1.25), short_field(b"1.25"));
