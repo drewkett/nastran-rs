@@ -7,16 +7,14 @@ use nom::{self, IResult, Slice, InputIter, is_space, is_alphanumeric, is_alphabe
 use errors;
 
 fn parse_nastran_float(value: &[u8], exponent: &[u8]) -> f32 {
-    let length = value.len() + exponent.len() + 1;
-    let mut temp = Vec::with_capacity(length);
-    for &c in value {
-        temp.push(c);
-    }
-    temp.push(b'e');
-    for &c in exponent {
-        temp.push(c);
-    }
-    String::from_utf8_lossy(&temp[..]).parse::<f32>().expect("Failed to parse nastran float")
+    let j = value.len();
+    let n = j + exponent.len() + 1;
+    let mut temp = [b' '; 80];
+    temp[..j].copy_from_slice(value);
+    temp[j] = b'e';
+    temp[j + 1..n].copy_from_slice(exponent);
+    let s = unsafe { str::from_utf8_unchecked(&temp[..n]) };
+    s.parse::<f32>().expect("Failed to parse nastran float")
 }
 
 named!(field_string<Field>,map!(
