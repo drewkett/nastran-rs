@@ -236,10 +236,18 @@ fn maybe_string(buffer: &[u8]) -> errors::Result<Field> {
     }
     let mut i = 1;
     i += count_alphanumeric(&buffer[i..]);
-    if i != n {
-        return Err(errors::ErrorKind::ParseFailure.into());
+    let j = i;
+    i += count_spaces(&buffer[i..]);
+    if i == n {
+        return Ok(Field::String(buffer));
     }
-    Ok(Field::String(buffer))
+    if buffer[i] == b'*' {
+        i += 1;
+        if i == n {
+            return Ok(Field::DoubleString(&buffer[..j]));
+        }
+    }
+    return Err(errors::ErrorKind::ParseFailure.into());
 }
 
 fn maybe_number(buffer: &[u8]) -> errors::Result<Field> {
@@ -311,11 +319,11 @@ fn maybe_number(buffer: &[u8]) -> errors::Result<Field> {
             if n_digits == 0 || i + n_digits != n {
                 return Err(errors::ErrorKind::ParseFailure.into());
             }
-            let mut temp = vec![b' '; n + 1];
+            let mut temp = [b' '; 80];
             temp[..j].copy_from_slice(&buffer[..j]);
             temp[j] = b'e';
-            temp[j + 1..].copy_from_slice(&buffer[j..]);
-            let s = unsafe { String::from_utf8_unchecked(temp) };
+            temp[j + 1..n + 1].copy_from_slice(&buffer[j..]);
+            let s = unsafe { str::from_utf8_unchecked(&temp[..n + 1]) };
             return s.parse().map(|v| Field::Float(v)).map_err(|e| e.into());
         }
     }
@@ -373,13 +381,13 @@ mod tests {
     }
 
     #[bench]
-    fn bench_field_float2(b: &mut Bencher) {
-        b.iter(|| field_float(b"11.22"));
+    fn bench_maybe_field_nastran_float(b: &mut Bencher) {
+        b.iter(|| maybe_field(b"11.22+7"));
     }
 
     #[bench]
     fn bench_maybe_field_float(b: &mut Bencher) {
-        b.iter(|| maybe_field(b"11.22"));
+        b.iter(|| maybe_field(b"11.22e+7"));
     }
 
     fn assert_done<T: Debug + PartialEq>(result: T, test: IResult<&[u8], T>) {
@@ -400,6 +408,7 @@ mod tests {
     #[test]
     fn test_parse() {
         success_maybe_field("+A B", Field::Continuation(b"A B"));
+        success_maybe_field("+", Field::Continuation(b""));
         success_maybe_field("HI1", Field::String(b"HI1"));
         success_maybe_field("ABCDEFGH", Field::String(b"ABCDEFGH"));
         success_maybe_field(" 2.23 ", Field::Float(2.23));
@@ -414,6 +423,9 @@ mod tests {
         success_maybe_field(" 3.+7 ", Field::Float(3.0e7));
         success_maybe_field(" .2+7 ", Field::Float(0.2e7));
         success_maybe_field(" .2-7 ", Field::Float(0.2e-7));
+        success_maybe_field("HI2*", Field::DoubleString(b"HI2"));
+        success_maybe_field("HI3 *", Field::DoubleString(b"HI3"));
+        success_maybe_field("* HI4", Field::DoubleContinuation(b" HI4"));
         assert_done(Field::Float(1.23), short_field(b" 1.23 "));
         assert_done(Field::Float(1.24), short_field(b" 1.24"));
         assert_done(Field::Float(1.25), short_field(b"1.25"));
