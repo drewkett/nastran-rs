@@ -1,8 +1,7 @@
 
 use super::{Field, Card};
 
-use nom::{self, IResult, Slice, InputIter, is_space, is_alphanumeric, is_alphabetic, is_digit,
-          digit};
+use nom::{self, IResult, Slice, InputIter, is_space, is_alphanumeric, is_alphabetic, is_digit, digit};
 
 fn parse_nastran_float(value: &[u8], exponent: &[u8]) -> f32 {
     let length = value.len() + exponent.len() + 1;
@@ -14,9 +13,7 @@ fn parse_nastran_float(value: &[u8], exponent: &[u8]) -> f32 {
     for &c in exponent {
         temp.push(c);
     }
-    String::from_utf8_lossy(&temp[..])
-        .parse::<f32>()
-        .expect("Failed to parse nastran float")
+    String::from_utf8_lossy(&temp[..]).parse::<f32>().expect("Failed to parse nastran float")
 }
 
 named!(field_string<Field>,map!(
@@ -196,36 +193,36 @@ mod tests {
         b.iter(|| field_float(b"11.22e+7"));
     }
 
-    fn assert_done<T: Debug + PartialEq>(result: T,test:IResult<&[u8],T>) {
+    fn assert_done<T: Debug + PartialEq>(result: T, test: IResult<&[u8], T>) {
         assert_eq!(IResult::Done(&b""[..],result),test);
     }
 
-    fn assert_error<T: Debug + PartialEq>(result: Err<u32>,test:IResult<&[u8],T>) {
+    fn assert_error<T: Debug + PartialEq>(result: Err<u32>, test: IResult<&[u8], T>) {
         assert_eq!(IResult::Error(result),test);
     }
 
     #[test]
     fn test_parse() {
-        assert_done(Field::Float(1.23),short_field(b" 1.23 "));
-        assert_done(Field::Float(1.24),short_field(b" 1.24"));
-        assert_done(Field::Float(1.25),short_field(b"1.25"));
-        assert_error(error_code!(ErrorKind::Alt),short_field(b"1252341551"));
-        assert_done(Field::Float(1.26),short_field(b"1.26  "));
-        assert_done(Field::Float(1.),short_field(b" 1. "));
-        assert_done(Field::Float(2.),short_field(b" 2."));
-        assert_done(Field::Float(3.),short_field(b"3."));
-        assert_done(Field::Float(4.),short_field(b"4. "));
-        assert_done(Field::Float(1.23e7),short_field(b"1.23e+7"));
-        assert_done(Field::Float(1.24e7),short_field(b"1.24e+7 "));
-        assert_done(Field::Float(2.0e7),short_field(b"2e+7 "));
-        assert_done(Field::Float(1.25e7),short_field(b"1.25+7"));
-        assert_done(Field::Float(1.26e7),short_field(b"1.26+7 "));
-        assert_done(Field::Float(1.0e7),short_field(b"1.+7 "));
-        assert_done(Field::Int(123456),short_field(b"123456"));
-        assert_done(Field::Continuation(b"A B"),short_field_cont(b"+A B"));
-        assert_done(Field::String(b"HI1"),short_field(b"HI1"));
-        assert_error(error_code!(ErrorKind::Alt),short_field(b"ABCDEFGHIJ"));
-        assert_error(error_code!(ErrorKind::Alt),short_field(b"ABCDEFGHI"));
-        assert_done(Field::String(b"ABCDEFGH"),short_field(b"ABCDEFGH"));
+        assert_done(Field::Float(1.23), short_field(b" 1.23 "));
+        assert_done(Field::Float(1.24), short_field(b" 1.24"));
+        assert_done(Field::Float(1.25), short_field(b"1.25"));
+        assert_error(error_code!(ErrorKind::Alt), short_field(b"1252341551"));
+        assert_done(Field::Float(1.26), short_field(b"1.26  "));
+        assert_done(Field::Float(1.), short_field(b" 1. "));
+        assert_done(Field::Float(2.), short_field(b" 2."));
+        assert_done(Field::Float(3.), short_field(b"3."));
+        assert_done(Field::Float(4.), short_field(b"4. "));
+        assert_done(Field::Float(1.23e7), short_field(b"1.23e+7"));
+        assert_done(Field::Float(1.24e7), short_field(b"1.24e+7 "));
+        assert_done(Field::Float(2.0e7), short_field(b"2e+7 "));
+        assert_done(Field::Float(1.25e7), short_field(b"1.25+7"));
+        assert_done(Field::Float(1.26e7), short_field(b"1.26+7 "));
+        assert_done(Field::Float(1.0e7), short_field(b"1.+7 "));
+        assert_done(Field::Int(123456), short_field(b"123456"));
+        assert_done(Field::Continuation(b"A B"), short_field_cont(b"+A B"));
+        assert_done(Field::String(b"HI1"), short_field(b"HI1"));
+        assert_error(error_code!(ErrorKind::Alt), short_field(b"ABCDEFGHIJ"));
+        assert_error(error_code!(ErrorKind::Alt), short_field(b"ABCDEFGHI"));
+        assert_done(Field::String(b"ABCDEFGH"), short_field(b"ABCDEFGH"));
     }
 }
