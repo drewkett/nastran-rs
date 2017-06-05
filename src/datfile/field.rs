@@ -186,6 +186,9 @@ fn count_spaces(buffer: &[u8]) -> usize {
 fn trim_spaces(buffer: &[u8]) -> &[u8] {
     let n = buffer.len();
     let i = buffer.iter().take_while(|&&c| c == b' ').count();
+    if i == n {
+        return b"";
+    }
     let j = buffer.iter()
         .skip(i)
         .rev()
@@ -227,27 +230,30 @@ fn print_slice(s: &str, buffer: &[u8]) {
 fn maybe_string(buffer: &[u8]) -> errors::Result<Field> {
     let n = buffer.len();
     if n == 0 {
-        return Err(errors::ErrorKind::ParseFailure.into());
-    } else if n > 8 {
-        return Err(errors::ErrorKind::ParseFailure.into());
+        return Err(errors::ErrorKind::UnexpectedFieldEnd.into());
     }
     if !is_alpha(buffer[0]) {
-        return Err(errors::ErrorKind::ParseFailure.into());
+        return Err(errors::ErrorKind::UnexpectedCharInField.into());
     }
     let mut i = 1;
     i += count_alphanumeric(&buffer[i..]);
+    if i > 8 {
+        return Err(errors::ErrorKind::UnexpectedCharInField.into());
+    }
+    // j is the index designating the end of the string
     let j = i;
     i += count_spaces(&buffer[i..]);
     if i == n {
-        return Ok(Field::String(buffer));
+        return Ok(Field::String(&buffer[..j]));
     }
-    if buffer[i] == b'*' {
+    // '*' can only exist in a first field so field length must be <= 8
+    if i < 8 && buffer[i] == b'*' {
         i += 1;
         if i == n {
             return Ok(Field::DoubleString(&buffer[..j]));
         }
     }
-    return Err(errors::ErrorKind::ParseFailure.into());
+    return Err(errors::ErrorKind::UnexpectedCharInField.into());
 }
 
 fn maybe_number(buffer: &[u8]) -> errors::Result<Field> {
@@ -257,7 +263,7 @@ fn maybe_number(buffer: &[u8]) -> errors::Result<Field> {
         i += 1
     }
     if i == n {
-        return Err(errors::ErrorKind::ParseFailure.into());
+        return Err(errors::ErrorKind::UnexpectedFieldEnd.into());
     }
     let mut try_read_exponent = false;
     if is_numeric(buffer[i]) {
@@ -267,7 +273,7 @@ fn maybe_number(buffer: &[u8]) -> errors::Result<Field> {
                 let s = unsafe { str::from_utf8_unchecked(buffer) };
                 return s.parse().map(|v| Field::Int(v)).map_err(|e| e.into());
             } else {
-                return Err(errors::ErrorKind::ParseFailure.into());
+                return Err(errors::ErrorKind::UnexpectedCharInField.into());
             }
         } else if buffer[i] == b'.' {
             i += 1;
@@ -282,7 +288,7 @@ fn maybe_number(buffer: &[u8]) -> errors::Result<Field> {
         i += 1;
         let n_digits = count_digits(&buffer[i..]);
         if n_digits == 0 {
-            return Err(errors::ErrorKind::ParseFailure.into());
+            return Err(errors::ErrorKind::UnexpectedCharInField.into());
         }
         i += n_digits;
         try_read_exponent = true;
@@ -295,29 +301,30 @@ fn maybe_number(buffer: &[u8]) -> errors::Result<Field> {
         if buffer[i] == b'e' || buffer[i] == b'E' {
             i += 1;
             if i == n {
-                return Err(errors::ErrorKind::ParseFailure.into());
+                return Err(errors::ErrorKind::UnexpectedFieldEnd.into());
             }
             if is_plus_minus(buffer[i]) {
                 i += 1;
                 if i == n {
-                    return Err(errors::ErrorKind::ParseFailure.into());
+                    return Err(errors::ErrorKind::UnexpectedFieldEnd.into());
                 }
             }
             let n_digits = count_digits(&buffer[i..]);
             if n_digits == 0 || i + n_digits != n {
-                return Err(errors::ErrorKind::ParseFailure.into());
+                return Err(errors::ErrorKind::UnexpectedCharInField.into());
             }
             let s = unsafe { str::from_utf8_unchecked(buffer) };
             return s.parse().map(|v| Field::Float(v)).map_err(|e| e.into());
         } else if buffer[i] == b'+' || buffer[i] == b'-' {
+            //j is the index that separates the value from the exponent
             let j = i;
             i += 1;
             if i == n {
-                return Err(errors::ErrorKind::ParseFailure.into());
+                return Err(errors::ErrorKind::UnexpectedFieldEnd.into());
             }
             let n_digits = count_digits(&buffer[i..]);
             if n_digits == 0 || i + n_digits != n {
-                return Err(errors::ErrorKind::ParseFailure.into());
+                return Err(errors::ErrorKind::UnexpectedCharInField.into());
             }
             let mut temp = [b' '; 80];
             temp[..j].copy_from_slice(&buffer[..j]);
@@ -327,7 +334,7 @@ fn maybe_number(buffer: &[u8]) -> errors::Result<Field> {
             return s.parse().map(|v| Field::Float(v)).map_err(|e| e.into());
         }
     }
-    return Err(errors::ErrorKind::ParseFailure.into());
+    return Err(errors::ErrorKind::UnexpectedCharInField.into());
 }
 
 fn maybe_field(buffer: &[u8]) -> errors::Result<Field> {
@@ -341,13 +348,13 @@ fn maybe_field(buffer: &[u8]) -> errors::Result<Field> {
         } else if n < 8 {
             return Ok(Field::Continuation(&buffer[1..]));
         } else {
-            return Err(errors::ErrorKind::ParseFailure.into());
+            return Err(errors::ErrorKind::UnexpectedCharInField.into());
         }
     } else if buffer[0] == b'*' {
         if n < 8 {
             return Ok(Field::DoubleContinuation(&buffer[1..]));
         } else {
-            return Err(errors::ErrorKind::ParseFailure.into());
+            return Err(errors::ErrorKind::UnexpectedCharInField.into());
         }
     }
     let buffer = trim_spaces(buffer);
@@ -357,7 +364,7 @@ fn maybe_field(buffer: &[u8]) -> errors::Result<Field> {
     match buffer[0] {
         b'a'...b'z' | b'A'...b'Z' => return maybe_string(buffer),
         b'+' | b'-' | b'0'...b'9' | b'.' => return maybe_number(buffer),
-        _ => return Err(errors::ErrorKind::ParseFailure.into()),
+        _ => return Err(errors::ErrorKind::UnexpectedCharInField.into()),
     }
 }
 
@@ -406,7 +413,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse() {
+    fn test_maybe_field() {
         success_maybe_field("+A B", Field::Continuation(b"A B"));
         success_maybe_field("+", Field::Continuation(b""));
         success_maybe_field("HI1", Field::String(b"HI1"));
@@ -426,6 +433,12 @@ mod tests {
         success_maybe_field("HI2*", Field::DoubleString(b"HI2"));
         success_maybe_field("HI3 *", Field::DoubleString(b"HI3"));
         success_maybe_field("* HI4", Field::DoubleContinuation(b" HI4"));
+        success_maybe_field("", Field::Blank);
+        success_maybe_field("  ", Field::Blank);
+    }
+
+    #[test]
+    fn test_parse() {
         assert_done(Field::Float(1.23), short_field(b" 1.23 "));
         assert_done(Field::Float(1.24), short_field(b" 1.24"));
         assert_done(Field::Float(1.25), short_field(b"1.25"));

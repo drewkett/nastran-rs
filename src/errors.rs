@@ -4,7 +4,9 @@ use std::num;
 
 error_chain!{
     errors {
-        ParseFailure {}
+        ParseFailure
+        UnexpectedFieldEnd
+        UnexpectedCharInField
         NotPossible(t: &'static str)
     }
     foreign_links {
