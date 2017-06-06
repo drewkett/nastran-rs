@@ -163,7 +163,52 @@ fn maybe_number(buffer: &[u8]) -> Result<Field> {
     return Err(ErrorKind::UnexpectedCharInField.into());
 }
 
-pub fn maybe_field(buffer: &[u8]) -> Result<Field> {
+pub fn maybe_first_field(buffer: &[u8]) -> Result<Field> {
+    let n = buffer.len();
+    if n == 0 {
+        return Ok(Field::Blank);
+    }
+    if buffer[0] == b'+' {
+        let buffer = trim_spaces(buffer);
+        let n = buffer.len();
+        if n <= 8 {
+            return Ok(Field::Continuation(&buffer[1..]));
+        } else {
+            return Err(ErrorKind::UnexpectedCharInField.into());
+        }
+    } else if buffer[0] == b'*' {
+        let buffer = trim_spaces(buffer);
+        let n = buffer.len();
+        if n <= 8 {
+            return Ok(Field::DoubleContinuation(&buffer[1..]));
+        } else {
+            return Err(ErrorKind::UnexpectedCharInField.into());
+        }
+    }
+    let buffer = trim_spaces(buffer);
+    if buffer.len() == 0 {
+        return Ok(Field::Blank);
+    }
+    match buffer[0] {
+        b'a'...b'z' | b'A'...b'Z' => return maybe_string(buffer),
+        _ => return Err(ErrorKind::UnexpectedCharInField.into()),
+    }
+}
+
+pub fn maybe_last_field(buffer: &[u8]) -> Result<Field> {
+    let n = buffer.len();
+    if n == 0 {
+        return Ok(Field::Blank);
+    }
+    match buffer[0] {
+        b'+' | b'*' | b' ' => (),
+        _ => return Err(ErrorKind::UnexpectedCharInField.into()),
+    }
+    let buffer = trim_spaces(&buffer[1..]);
+    Ok(Field::Continuation(buffer))
+}
+
+pub fn maybe_any_field(buffer: &[u8]) -> Result<Field> {
     let n = buffer.len();
     if n == 0 {
         return Ok(Field::Blank);
@@ -186,6 +231,22 @@ pub fn maybe_field(buffer: &[u8]) -> Result<Field> {
         } else {
             return Err(ErrorKind::UnexpectedCharInField.into());
         }
+    }
+    let buffer = trim_spaces(buffer);
+    if buffer.len() == 0 {
+        return Ok(Field::Blank);
+    }
+    match buffer[0] {
+        b'a'...b'z' | b'A'...b'Z' => return maybe_string(buffer),
+        b'+' | b'-' | b'0'...b'9' | b'.' => return maybe_number(buffer),
+        _ => return Err(ErrorKind::UnexpectedCharInField.into()),
+    }
+}
+
+pub fn maybe_field(buffer: &[u8]) -> Result<Field> {
+    let n = buffer.len();
+    if n == 0 {
+        return Ok(Field::Blank);
     }
     let buffer = trim_spaces(buffer);
     if buffer.len() == 0 {
