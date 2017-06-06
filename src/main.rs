@@ -31,13 +31,30 @@ pub fn main() {
                  .help(".dat file for reading")
                  .required(true)
                  .index(1))
+        .arg(Arg::with_name("echo")
+                               .long("echo")
+                               .help("Output cards"))
+        .arg(Arg::with_name("new")
+                               .long("new")
+                               .help("Use new parser"))
         .get_matches();
     if let Some(filename) = matches.value_of("DATFILE") {
         let f = Mmap::open_path(filename, Protection::Read).unwrap();
         let sl = unsafe { f.as_slice() };
-        let deck = datfile::parse_buffer(sl).unwrap();
-        for card in deck.cards {
-            //println!("{}",card)
+        if matches.is_present("new") {
+            let deck = datfile2::parse_buffer(sl).unwrap();
+            if matches.is_present("echo") {
+                for card in deck.cards {
+                    println!("{}",card)
+                }
+            }
+        } else {
+            let deck = datfile::parse_buffer(sl).unwrap();
+            if matches.is_present("echo") {
+                for card in deck.cards {
+                    println!("{}",card)
+                }
+            }
         }
     }
     // let f = Mmap::open_path(filename, Protection::Read).unwrap();
