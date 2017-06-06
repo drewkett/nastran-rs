@@ -66,29 +66,23 @@ impl<'a> fmt::Display for Field<'a> {
 
 #[derive(PartialEq)]
 pub struct Card<'a> {
+    pub first: Field<'a>,
     pub fields: Vec<Field<'a>>,
+    pub continuation: Option<Field<'a>>,
     pub comment: Option<&'a [u8]>,
     pub is_double: bool,
     pub is_comma: bool,
     pub unparsed: Option<&'a [u8]>,
 }
 
-impl<'a> Card<'a> {
-    fn from_first_field(first_field: Field<'a>, is_double: bool) -> Card<'a> {
-        Card {
-            fields: vec![first_field],
-            is_comma: false,
-            comment: None,
-            unparsed: None,
-            is_double,
-        }
-    }
-}
-
 impl<'a> fmt::Debug for Card<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         try!(write!(f, "Card("));
+        try!(write!(f, "{:?},", self.first));
         for field in &self.fields {
+            try!(write!(f, "{:?},", field));
+        }
+        if let Some(ref field) = self.continuation {
             try!(write!(f, "{:?},", field));
         }
         if let Some(comment) = self.comment {
@@ -114,11 +108,20 @@ impl<'a> fmt::Debug for Card<'a> {
 
 impl<'a> fmt::Display for Card<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for field in &self.fields {
-            try!(write!(f, "{}", field));
+        if self.first != Field::Blank || self.fields.len() > 0 {
+            try!(write!(f, "{}", self.first));
+            for field in &self.fields {
+                try!(write!(f, "{}", field));
+            }
+            if let Some(ref field) = self.continuation {
+                try!(write!(f, "{}", field));
+            }
         }
         if let Some(comment) = self.comment {
-            try!(write!(f, "${}", unsafe { str::from_utf8_unchecked(comment) }));
+            if comment.len() > 0 && comment[0] != b'$' {
+                try!(write!(f, "$"));
+            }
+            try!(write!(f, "{}", unsafe { str::from_utf8_unchecked(comment) }));
         }
         write!(f, "")
     }
@@ -169,26 +172,82 @@ fn double_to_8(f: f64) -> String {
     }
 }
 
-pub fn parse_line(buffer: &[u8]) -> Result<Card> {
+fn split_line(buffer: &[u8]) -> (&[u8],&[u8]) {
     let mut i_comment = cmp::min(80, buffer.len());
     if let Some(i) = buffer.iter().position(|&c| c == b'$') {
         if i < i_comment {
             i_comment = i
         }
     }
-    let content = &buffer[..i_comment];
-    let comment = &buffer[i_comment..];
-    Ok(Card {
-        fields: vec![],
-        comment: Some(comment),
-        is_double: false,
-        is_comma: false,
-        unparsed: None,
+    buffer.split_at(i_comment)
+}
+
+fn option_from_slice(sl: &[u8]) -> Option<&[u8]> {
+    if !sl.is_empty() { Some(sl) } else { None }
+}
+
+struct FirstField <'a> {
+    field: Field<'a> ,
+    is_comma: bool,
+    remainder: &'a [u8]
+}
+
+fn read_first_field(line: &[u8]) -> Result<FirstField> {
+    let mut is_comma = false;
+    let mut consume_next = false;
+    let length = line.len();
+    let size = cmp::min(length, 8);
+    let mut i_end = size;
+    for (i, &c) in line.iter().take(8).enumerate() {
+        if c == b',' {
+            is_comma = true;
+            consume_next = true;
+            i_end = i;
+            break;
+        } else if c == b'\t' {
+            i_end = i;
+            consume_next = true;
+            break;
+        }
+    }
+    if i_end == size && length > 8 && line[8] == b',' {
+        is_comma = true;
+        consume_next = true;
+    }
+    let (field_buffer, mut remainder) = line.split_at(i_end);
+    if consume_next {
+        remainder = &remainder[1..];
+    }
+    let field = field::maybe_field(field_buffer)?;
+    Ok(FirstField{
+        field,
+        is_comma,
+        remainder
     })
 }
 
+pub fn parse_line(buffer: &[u8]) -> Result<Card> {
+    let (content, comment) = split_line(buffer);
+    let first_field = read_first_field(content)?;
+    let is_double = match first_field.field {
+        Field::DoubleContinuation(_) | Field::DoubleString(_) => true,
+        _ => false
+    };
+    
+    Ok(Card {
+        first: first_field.field,
+        fields: vec![],
+        continuation: None,
+        comment: option_from_slice(comment),
+        is_double,
+        is_comma: first_field.is_comma,
+        unparsed: Some(first_field.remainder),
+    })
+}
+
+
 pub fn parse_buffer(input_buffer: &[u8]) -> Result<Deck> {
-    let mut line_num = 0;
+    let mut line_num = 1;
     let mut cards = vec![];
     let mut buffer = input_buffer;
     loop {
@@ -200,10 +259,12 @@ pub fn parse_buffer(input_buffer: &[u8]) -> Result<Deck> {
             if j > 0 && line[j - 1] == b'\r' {
                 line = &buffer[..j - 1]
             }
-            cards.push(parse_line(line)?);
+            let card = parse_line(line).chain_err(|| format!("Error parsing line {}",line_num))?;
+            cards.push(card);
             buffer = &buffer[j + 1..];
         } else {
-            cards.push(parse_line(buffer)?);
+            let card = parse_line(buffer).chain_err(|| format!("Error parsing line {}",line_num))?;
+            cards.push(card);
             break;
         }
         line_num += 1;
