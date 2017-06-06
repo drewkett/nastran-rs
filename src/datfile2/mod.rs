@@ -228,20 +228,28 @@ fn read_first_field(line: &[u8]) -> Result<FirstField> {
 
 pub fn parse_line(buffer: &[u8]) -> Result<Card> {
     let (content, comment) = split_line(buffer);
-    let first_field = read_first_field(content)?;
-    let is_double = match first_field.field {
+    let FirstField { field, is_comma, mut remainder } = read_first_field(content)?;
+    let is_double = match field {
         Field::DoubleContinuation(_) | Field::DoubleString(_) => true,
         _ => false
     };
+    let mut fields = vec![];
+    if is_comma {
+        let mut i = 2;
+        for sl in remainder.split(|&b| b == b',') {
+            fields.push(field::maybe_field(sl)?)
+        }
+        remainder = b"";
+    }
     
     Ok(Card {
-        first: first_field.field,
-        fields: vec![],
+        first: field,
+        fields: fields,
         continuation: None,
         comment: option_from_slice(comment),
         is_double,
-        is_comma: first_field.is_comma,
-        unparsed: Some(first_field.remainder),
+        is_comma,
+        unparsed: Some(remainder),
     })
 }
 
