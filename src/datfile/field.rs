@@ -1,5 +1,6 @@
 
 use std::str;
+
 use errors::*;
 use super::Field;
 
@@ -141,6 +142,28 @@ fn maybe_number(buffer: &[u8]) -> Result<Field> {
             }
             let s = unsafe { str::from_utf8_unchecked(buffer) };
             return s.parse().map(|v| Field::Float(v)).map_err(|e| e.into());
+        } else if buffer[i] == b'd' || buffer[i] == b'D' {
+            // j is the idnex of 'd' or 'D'. Needed for later replacing the value
+            let j = i;
+            i += 1;
+            if i == n {
+                return Err(ErrorKind::UnexpectedFieldEnd.into());
+            }
+            if is_plus_minus(buffer[i]) {
+                i += 1;
+                if i == n {
+                    return Err(ErrorKind::UnexpectedFieldEnd.into());
+                }
+            }
+            let n_digits = count_digits(&buffer[i..]);
+            if n_digits == 0 || i + n_digits != n {
+                return Err(ErrorKind::UnexpectedCharInField.into());
+            }
+            let mut temp = [b' '; 80];
+            temp[..n].copy_from_slice(buffer);
+            temp[j] = b'e';
+            let s = unsafe { str::from_utf8_unchecked(&temp[..n]) };
+            return s.parse().map(|v| Field::Double(v)).map_err(|e| e.into());
         } else if buffer[i] == b'+' || buffer[i] == b'-' {
             //j is the index that separates the value from the exponent
             let j = i;
