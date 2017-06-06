@@ -264,7 +264,7 @@ pub fn parse_line(buffer: &[u8]) -> Result<Card> {
         }
         remainder = b"";
     } else if is_double {
-        for i in 0..4 {
+        for _ in 0..4 {
             if let Some(pair) = get_long_slice(remainder) {
                 let sl = pair.0;
                 remainder = pair.1;
@@ -281,7 +281,7 @@ pub fn parse_line(buffer: &[u8]) -> Result<Card> {
             }
         }
     } else {
-        for i in 0..8 {
+        for _ in 0..8 {
             if let Some(pair) = get_short_slice(remainder) {
                 let sl = pair.0;
                 remainder = pair.1;
@@ -306,7 +306,7 @@ pub fn parse_line(buffer: &[u8]) -> Result<Card> {
            comment: option_from_slice(comment),
            is_double,
            is_comma,
-           unparsed: Some(remainder),
+           unparsed: option_from_slice(remainder),
        })
 }
 

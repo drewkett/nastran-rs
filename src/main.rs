@@ -45,7 +45,7 @@ pub fn main() {
                 if let Some(output_filename) = matches.value_of("OUTPUT") {
                     if let Ok(mut f) = File::create(output_filename) {
                         for card in deck.cards {
-                            write!(f,"{}\n",card);
+                            write!(f,"{}\n",card).unwrap()
                         }
                     } else {
                         println!("Couldn't open file '{}' for writing",output_filename)
@@ -62,7 +62,7 @@ pub fn main() {
                 if let Some(output_filename) = matches.value_of("OUTPUT") {
                     if let Ok(mut f) = File::create(output_filename) {
                         for card in deck.cards {
-                            write!(f,"{}\n",card);
+                            write!(f,"{}\n",card).unwrap()
                         }
                     } else {
                         println!("Couldn't open file '{}' for writing",output_filename)

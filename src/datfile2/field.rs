@@ -1,7 +1,7 @@
 
 use std::str;
 use errors::*;
-use super::{Field, Card};
+use super::Field;
 
 #[inline]
 fn count_spaces(buffer: &[u8]) -> usize {
@@ -263,8 +263,6 @@ pub fn maybe_field(buffer: &[u8]) -> Result<Field> {
 mod tests {
     extern crate test;
     use test::Bencher;
-    use std::fmt::Debug;
-    use nom::{ErrorKind, Err};
 
     use super::*;
 
@@ -281,15 +279,22 @@ mod tests {
     fn success_maybe_field(test: &str, result: Field) {
         match maybe_field(test.as_bytes()) {
             Ok(r) => assert_eq!(r, result),
-            Err(_) => panic!("Expected Ok for '{}'", test),
+            Err(e) => panic!("Expected Ok for '{}' got '{}'", test, e),
+        }
+    }
+
+    fn success_maybe_first_field(test: &str, result: Field) {
+        match maybe_first_field(test.as_bytes()) {
+            Ok(r) => assert_eq!(r, result),
+            Err(e) => panic!("Expected Ok for '{}' got '{}'", test, e),
         }
     }
 
     #[test]
     fn test_maybe_field() {
-        success_maybe_field("+A B", Field::Continuation(b"A B"));
-        success_maybe_field("+", Field::Continuation(b""));
-        success_maybe_field("+       ", Field::Continuation(b""));
+        success_maybe_first_field("+A B", Field::Continuation(b"A B"));
+        success_maybe_first_field("+", Field::Continuation(b""));
+        success_maybe_first_field("+       ", Field::Continuation(b""));
         success_maybe_field("HI1", Field::String(b"HI1"));
         success_maybe_field("ABCDEFGH", Field::String(b"ABCDEFGH"));
         success_maybe_field(" 2.23 ", Field::Float(2.23));
@@ -304,9 +309,9 @@ mod tests {
         success_maybe_field(" 3.+7 ", Field::Float(3.0e7));
         success_maybe_field(" .2+7 ", Field::Float(0.2e7));
         success_maybe_field(" .2-7 ", Field::Float(0.2e-7));
-        success_maybe_field("HI2*", Field::DoubleString(b"HI2"));
-        success_maybe_field("HI3 *", Field::DoubleString(b"HI3"));
-        success_maybe_field("* HI4", Field::DoubleContinuation(b" HI4"));
+        success_maybe_first_field("HI2*", Field::DoubleString(b"HI2"));
+        success_maybe_first_field("HI3 *", Field::DoubleString(b"HI3"));
+        success_maybe_first_field("* HI4", Field::DoubleContinuation(b" HI4"));
         success_maybe_field("", Field::Blank);
         success_maybe_field("  ", Field::Blank);
     }
