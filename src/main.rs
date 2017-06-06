@@ -22,6 +22,7 @@ use clap::{Arg, App};
 mod macros;
 mod op2;
 mod datfile;
+mod datfile2;
 mod errors;
 
 pub fn main() {
@@ -36,7 +37,7 @@ pub fn main() {
         let sl = unsafe { f.as_slice() };
         let deck = datfile::parse_buffer(sl).unwrap();
         for card in deck.cards {
-            println!("{}",card)
+            //println!("{}",card)
         }
     }
     // let f = Mmap::open_path(filename, Protection::Read).unwrap();

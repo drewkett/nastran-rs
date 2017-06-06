@@ -14,3 +14,4 @@ extern crate dtoa;
 pub mod op2;
 pub mod datfile;
 pub mod errors;
+pub mod datfile2;
