@@ -169,15 +169,19 @@ pub fn maybe_field(buffer: &[u8]) -> Result<Field> {
         return Ok(Field::Blank);
     }
     if buffer[0] == b'+' {
+        let buffer = trim_spaces(buffer);
+        let n = buffer.len();
         if n > 1 && (is_numeric(buffer[1]) || buffer[1] == b'.') {
-            return maybe_number(trim_spaces(buffer));
-        } else if n < 8 {
+            return maybe_number(buffer);
+        } else if n <= 8 {
             return Ok(Field::Continuation(&buffer[1..]));
         } else {
             return Err(ErrorKind::UnexpectedCharInField.into());
         }
     } else if buffer[0] == b'*' {
-        if n < 8 {
+        let buffer = trim_spaces(buffer);
+        let n = buffer.len();
+        if n <= 8 {
             return Ok(Field::DoubleContinuation(&buffer[1..]));
         } else {
             return Err(ErrorKind::UnexpectedCharInField.into());
@@ -224,6 +228,7 @@ mod tests {
     fn test_maybe_field() {
         success_maybe_field("+A B", Field::Continuation(b"A B"));
         success_maybe_field("+", Field::Continuation(b""));
+        success_maybe_field("+       ", Field::Continuation(b""));
         success_maybe_field("HI1", Field::String(b"HI1"));
         success_maybe_field("ABCDEFGH", Field::String(b"ABCDEFGH"));
         success_maybe_field(" 2.23 ", Field::Float(2.23));
