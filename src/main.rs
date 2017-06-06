@@ -25,7 +25,6 @@ use clap::{Arg, App};
 mod macros;
 mod op2;
 mod datfile;
-mod datfile2;
 mod errors;
 
 pub fn main() {
@@ -33,44 +32,24 @@ pub fn main() {
         .arg(Arg::with_name("DATFILE").help(".dat file for reading").required(true).index(1))
         .arg(Arg::with_name("OUTPUT").help("output to file").short("o").takes_value(true))
         .arg(Arg::with_name("echo").long("echo").help("Output cards"))
-        .arg(Arg::with_name("new").long("new").help("Use new parser"))
         .get_matches();
     if let Some(filename) = matches.value_of("DATFILE") {
         let f = Mmap::open_path(filename, Protection::Read).unwrap();
         let sl = unsafe { f.as_slice() };
         let echo = matches.is_present("echo") || matches.is_present("OUTPUT");
-        if matches.is_present("new") {
-            let deck = datfile2::parse_buffer(sl).unwrap();
-            if echo {
-                if let Some(output_filename) = matches.value_of("OUTPUT") {
-                    if let Ok(mut f) = File::create(output_filename) {
-                        for card in deck.cards {
-                            write!(f,"{}\n",card).unwrap()
-                        }
-                    } else {
-                        println!("Couldn't open file '{}' for writing",output_filename)
+        let deck = datfile::parse_buffer(sl).unwrap();
+        if echo {
+            if let Some(output_filename) = matches.value_of("OUTPUT") {
+                if let Ok(mut f) = File::create(output_filename) {
+                    for card in deck.cards {
+                        write!(f,"{}\n",card).unwrap()
                     }
                 } else {
-                    for card in deck.cards {
-                        println!("{}",card)
-                    }
+                    println!("Couldn't open file '{}' for writing",output_filename)
                 }
-            }
-        } else {
-            let deck = datfile::parse_buffer(sl).unwrap();
-            if echo {
-                if let Some(output_filename) = matches.value_of("OUTPUT") {
-                    if let Ok(mut f) = File::create(output_filename) {
-                        for card in deck.cards {
-                            write!(f,"{}\n",card).unwrap()
-                        }
-                    } else {
-                        println!("Couldn't open file '{}' for writing",output_filename)
-                    }
-                } else {
-                    for card in deck.cards {
-                        println!("{}",card)
-                    }
+            } else {
+                for card in deck.cards {
+                    println!("{}",card)
                 }
             }
         }
