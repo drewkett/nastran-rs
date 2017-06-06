@@ -324,11 +324,11 @@ pub fn parse_buffer(input_buffer: &[u8]) -> Result<Deck> {
             if j > 0 && line[j - 1] == b'\r' {
                 line = &buffer[..j - 1]
             }
-            let card = parse_line(line).chain_err(|| format!("Error parsing line {}",line_num))?;
+            let card = parse_line(line).chain_err(|| format!("Error parsing line {}", line_num))?;
             cards.push(card);
             buffer = &buffer[j + 1..];
         } else {
-            let card = parse_line(buffer).chain_err(|| format!("Error parsing line {}",line_num))?;
+            let card = parse_line(buffer).chain_err(|| format!("Error parsing line {}", line_num))?;
             cards.push(card);
             break;
         }
