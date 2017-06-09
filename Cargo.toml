@@ -12,3 +12,11 @@ dtoa = "0.4"
 
 [dependencies.nom]
 version = "^3.0"
+
+[dependencies.cpython]
+version = "0.1"
+features = ["extension-module"]
+
+[lib]
+name = "nastranrs"
+crate-type = ["cdylib"]
