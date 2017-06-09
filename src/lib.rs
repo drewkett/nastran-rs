@@ -8,17 +8,17 @@ extern crate cpython;
 mod datfile;
 mod errors;
 
-use std::slice;
-
 use datfile::{maybe_field, Field};
 use cpython::{Python, PyResult, PyObject, ToPyObject, PythonObject, PyErr};
-use cpython::exc::Exception;
+use cpython::exc::BaseException;
 
 py_module_initializer!(nastranrs, initnastranrs, PyInit_nastranrs, |py, m| {
     try!(m.add(py, "__doc__", "This module is implemented in Rust."));
     try!(m.add(py, "parse_field", py_fn!(py, parse_field(field: String))));
     Ok(())
 });
+
+py_exception!(nastranrs, ParseFieldError, BaseException);
 
 fn parse_field(py: Python, field: String) -> PyResult<PyObject> {
     match maybe_field(field.as_bytes()) {
@@ -27,11 +27,8 @@ fn parse_field(py: Python, field: String) -> PyResult<PyObject> {
         Ok(Field::Double(v)) => Ok(v.to_py_object(py).into_object()),
         Ok(_) => Ok(py.None()),
         Err(_) => {
-            Err(PyErr::new::<Exception, PyObject>(py,
-                                                  "Error Parsing Field"
-                                                      .to_string()
-                                                      .to_py_object(py)
-                                                      .into_object()))
+            let msg = format!("Couldn't parse field '{}'", field);
+            Err(PyErr::new::<ParseFieldError, String>(py, msg))
         }
     }
 }
