@@ -11,13 +11,12 @@ mod errors;
 use std::slice;
 
 use datfile::{maybe_field, Field};
-use cpython::{Python, PyResult, PyObject, ToPyObject, PythonObject};
+use cpython::{Python, PyResult, PyObject, ToPyObject, PythonObject, PyErr};
+use cpython::exc::Exception;
 
 py_module_initializer!(nastranrs, initnastranrs, PyInit_nastranrs, |py, m| {
     try!(m.add(py, "__doc__", "This module is implemented in Rust."));
-    try!(m.add(py,
-               "parse_field",
-               py_fn!(py, parse_field(field: String))));
+    try!(m.add(py, "parse_field", py_fn!(py, parse_field(field: String))));
     Ok(())
 });
 
@@ -27,6 +26,12 @@ fn parse_field(py: Python, field: String) -> PyResult<PyObject> {
         Ok(Field::Float(v)) => Ok(v.to_py_object(py).into_object()),
         Ok(Field::Double(v)) => Ok(v.to_py_object(py).into_object()),
         Ok(_) => Ok(py.None()),
-        Err(_) => Ok(py.None()),
+        Err(_) => {
+            Err(PyErr::new::<Exception, PyObject>(py,
+                                                  "Error Parsing Field"
+                                                      .to_string()
+                                                      .to_py_object(py)
+                                                      .into_object()))
+        }
     }
 }
