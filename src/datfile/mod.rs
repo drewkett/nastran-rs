@@ -8,7 +8,7 @@ use std::cmp;
 use dtoa;
 
 use errors::*;
-pub use self::field::maybe_field;
+pub use self::field::{maybe_field, maybe_any_field};
 
 #[derive(PartialEq)]
 pub enum Field<'a> {
