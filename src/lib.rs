@@ -5,8 +5,8 @@ extern crate nom;
 #[macro_use]
 extern crate cpython;
 
-mod datfile;
-mod errors;
+pub mod datfile;
+pub mod errors;
 
 use datfile::{maybe_any_field, Field};
 use cpython::{Python, PyResult, PyObject, ToPyObject, PythonObject, PyErr};
@@ -20,7 +20,7 @@ py_module_initializer!(nastranrs, initnastranrs, PyInit_nastranrs, |py, m| {
 
 py_exception!(nastranrs, ParseFieldError, BaseException);
 
-fn parse_field(py: Python, field: String) -> PyResult<PyObject> {
+pub fn parse_field(py: Python, field: String) -> PyResult<PyObject> {
     match maybe_any_field(field.as_bytes()) {
         Ok(Field::Int(i)) => Ok(i.to_py_object(py).into_object()),
         Ok(Field::Float(v)) => Ok(v.to_py_object(py).into_object()),
