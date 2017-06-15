@@ -11,7 +11,8 @@ pub struct DataBlock<'a> {
     pub records: Vec<&'a [u8]>,
 }
 
-named!(read_table_record,do_parse!(
+named!(read_table_record,
+       do_parse!(
   apply!(op2::read_nastran_known_i32,0) >>
   data : call!(op2::read_nastran_data) >>
   call!(op2::read_nastran_eor) >>
