@@ -4,3 +4,4 @@ target
 *.bk
 /temp
 /samples
+.git-rewrite
