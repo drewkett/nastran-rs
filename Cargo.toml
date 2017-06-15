@@ -15,8 +15,17 @@ version = "^3.0"
 
 [dependencies.cpython]
 version = "0.1"
-features = ["extension-module"]
+features = ["extension-module","python3-sys"]
 
 [lib]
-name = "nastranrs"
+name = "nastran"
+
+[[example]]
+name = "nastranrs-cp35"
+required-features = ["cpython/python-3-5"]
+crate-type = ["cdylib"]
+
+[[example]]
+name = "nastranrs-cp36"
+required-features = ["cpython/python-3-6"]
 crate-type = ["cdylib"]
