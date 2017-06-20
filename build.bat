@@ -1,9 +1,9 @@
 
 activate.bat py35 && ^
-cargo build --release --example nastranrs-cp35 --features="cpython/python-3-5" &&^
+cargo build --release --manifest-path lib-cp35\Cargo.toml &&^
 activate.bat py36 && ^
-cargo build --release --example nastranrs-cp36 --features="cpython/python-3-6" &&^
+cargo build --release --manifest-path lib-cp36\Cargo.toml &&^
 deactivate.bat && ^
-copy target\release\examples\nastranrs-cp35.dll nastranrs.cp35-win_amd64.pyd &&^
-copy target\release\examples\nastranrs-cp36.dll nastranrs.cp36-win_amd64.pyd
+copy lib-cp35\target\release\libnastran_cp35.dll nastranrs.cp35-win_amd64.pyd &&^
+copy lib-cp36\target\release\libnastran_cp36.dll nastranrs.cp36-win_amd64.pyd
 

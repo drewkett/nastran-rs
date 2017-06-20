@@ -5,3 +5,4 @@ target
 /temp
 /samples
 .git-rewrite
+*.pyd
