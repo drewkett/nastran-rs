@@ -353,8 +353,7 @@ pub fn read_comments(input_buffer: &[u8]) -> &[u8] {
 
 pub fn read_header(input_buffer: &[u8]) -> (Option<&[u8]>, &[u8]) {
     let mut header = None;
-    let mut buffer = input_buffer;
-    buffer = read_comments(input_buffer);
+    let mut buffer = read_comments(input_buffer);
     if !buffer.is_empty() {
         let is_header = match buffer[0] {
             b'I' => buffer.len() > 4 && &buffer[..4] == b"INIT",
@@ -381,6 +380,9 @@ pub fn read_header(input_buffer: &[u8]) -> (Option<&[u8]>, &[u8]) {
                 header = Some(input_buffer);
                 buffer = b"";
             }
+        } else {
+            // If no header is found. Comments are treated as cards and not apart of the header
+            buffer = input_buffer;
         }
     }
     (header, buffer)
