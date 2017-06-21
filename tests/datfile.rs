@@ -196,6 +196,8 @@ fn comma_separated() {
 }
 
 const HEADER: &'static [u8] = b"\
+$ABC
+
 NASTRAN
 BEGIN BULK
 ABC,1
@@ -216,8 +218,8 @@ fn header() {
     assert_eq!(
         res,
         datfile::Deck {
-            header: Some(b"NASTRAN\n"),
-            trailing: Some(b"BCD,2\n"),
+            header: Some(b"$ABC\n\nNASTRAN\n"),
+            unparsed: Some(b"BCD,2\n"),
             cards: vec![
                 datfile::Card {
                     first: datfile::Field::String(b"ABC"),

@@ -327,28 +327,48 @@ pub fn parse_line(buffer: &[u8]) -> Result<Card> {
     })
 }
 
-
-pub fn parse_buffer(input_buffer: &[u8]) -> Result<Deck> {
-    let mut line_num = 1;
-    let mut cards = vec![];
+pub fn read_comments(input_buffer: &[u8]) -> &[u8] {
     let mut buffer = input_buffer;
+    while let Some(j) = buffer.iter().position(|&c| c == b'\n') {
+        let mut line_iter = buffer.iter().take(j);
+        let mut is_comment_or_blank = true;
+        while let Some(&c) = line_iter.next() {
+            match c {
+                b' ' => (),
+                b'$' => break,
+                _ => {
+                    is_comment_or_blank = false;
+                    break;
+                }
+            }
+        }
+        if !is_comment_or_blank {
+            return buffer;
+        } else {
+            buffer = &buffer[j + 1..]
+        }
+    }
+    return buffer;
+}
+
+pub fn read_header(input_buffer: &[u8]) -> (Option<&[u8]>, &[u8]) {
     let mut header = None;
-    let mut unparsed = None;
+    let mut buffer = input_buffer;
+    buffer = read_comments(input_buffer);
     if !buffer.is_empty() {
-        // Check to see if there is a header. TODO Need to check for comments
-        let orig_buffer = buffer.clone();
         let is_header = match buffer[0] {
             b'I' => buffer.len() > 4 && &buffer[..4] == b"INIT",
             b'N' => buffer.len() > 7 && &buffer[..7] == b"NASTRAN",
-            _ => false,
+            _ => (false),
         };
         if is_header {
             let mut header_end = None;
+            // Loop through lines, looking for BEGIN [BULK]
             while let Some(j) = buffer.iter().position(|&c| c == b'\n') {
                 let line = &buffer[..j];
                 if !line.is_empty() {
                     if line.len() > 5 && &line[..5] == b"BEGIN" {
-                        header_end = Some(orig_buffer.len() - buffer.len());
+                        header_end = Some(input_buffer.len() - buffer.len());
                         buffer = &buffer[j + 1..];
                         break;
                     }
@@ -356,13 +376,22 @@ pub fn parse_buffer(input_buffer: &[u8]) -> Result<Deck> {
                 buffer = &buffer[j + 1..]
             }
             if let Some(j) = header_end {
-                header = Some(&orig_buffer[..j]);
+                header = Some(&input_buffer[..j]);
             } else {
-                header = Some(orig_buffer);
+                header = Some(input_buffer);
                 buffer = b"";
             }
         }
     }
+    (header, buffer)
+}
+
+
+pub fn parse_buffer(input_buffer: &[u8]) -> Result<Deck> {
+    let mut line_num = 1;
+    let mut cards = vec![];
+    let mut unparsed = None;
+    let (header, mut buffer) = read_header(input_buffer);
     loop {
         if buffer.is_empty() {
             break;
