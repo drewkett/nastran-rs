@@ -6,7 +6,7 @@ use super::Field;
 
 #[inline]
 fn count_spaces(buffer: &[u8]) -> usize {
-    return buffer.iter().take_while(|&&c| c == b' ').count();
+    buffer.iter().take_while(|&&c| c == b' ').count()
 }
 
 #[inline]
@@ -49,10 +49,10 @@ fn count_alphanumeric(buffer: &[u8]) -> usize {
     buffer.iter().take_while(|&&c| is_numeric(c) || is_alpha(c)).count()
 }
 
-fn print_slice(s: &str, buffer: &[u8]) {
-    let b = unsafe { str::from_utf8_unchecked(buffer) };
-    println!("{} {}", s, b)
-}
+//fn print_slice(s: &str, buffer: &[u8]) {
+    //let b = unsafe { str::from_utf8_unchecked(buffer) };
+    //println!("{} {}", s, b)
+//}
 
 fn maybe_string(buffer: &[u8]) -> Result<Field> {
     let n = buffer.len();
@@ -80,7 +80,7 @@ fn maybe_string(buffer: &[u8]) -> Result<Field> {
             return Ok(Field::DoubleString(&buffer[..j]));
         }
     }
-    return Err(ErrorKind::UnexpectedCharInField.into());
+    Err(ErrorKind::UnexpectedCharInField.into())
 }
 
 fn maybe_number(buffer: &[u8]) -> Result<Field> {
@@ -98,7 +98,7 @@ fn maybe_number(buffer: &[u8]) -> Result<Field> {
         if i == n {
             if i <= 8 {
                 let s = unsafe { str::from_utf8_unchecked(buffer) };
-                return s.parse().map(|v| Field::Int(v)).map_err(|e| e.into());
+                return s.parse().map(Field::Int).map_err(|e| e.into());
             } else {
                 return Err(ErrorKind::UnexpectedCharInField.into());
             }
@@ -107,7 +107,7 @@ fn maybe_number(buffer: &[u8]) -> Result<Field> {
             i += count_digits(&buffer[i..]);
             if i == n {
                 let s = unsafe { str::from_utf8_unchecked(buffer) };
-                return s.parse().map(|v| Field::Float(v)).map_err(|e| e.into());
+                return s.parse().map(Field::Float).map_err(|e| e.into());
             }
         }
         try_read_exponent = true;
@@ -121,7 +121,7 @@ fn maybe_number(buffer: &[u8]) -> Result<Field> {
         try_read_exponent = true;
         if i == n {
             let s = unsafe { str::from_utf8_unchecked(buffer) };
-            return s.parse().map(|v| Field::Float(v)).map_err(|e| e.into());
+            return s.parse().map(Field::Float).map_err(|e| e.into());
         }
     }
     if try_read_exponent {
@@ -141,7 +141,7 @@ fn maybe_number(buffer: &[u8]) -> Result<Field> {
                 return Err(ErrorKind::UnexpectedCharInField.into());
             }
             let s = unsafe { str::from_utf8_unchecked(buffer) };
-            return s.parse().map(|v| Field::Float(v)).map_err(|e| e.into());
+            return s.parse().map(Field::Float).map_err(|e| e.into());
         } else if buffer[i] == b'd' || buffer[i] == b'D' {
             // j is the idnex of 'd' or 'D'. Needed for later replacing the value
             let j = i;
@@ -163,7 +163,7 @@ fn maybe_number(buffer: &[u8]) -> Result<Field> {
             temp[..n].copy_from_slice(buffer);
             temp[j] = b'e';
             let s = unsafe { str::from_utf8_unchecked(&temp[..n]) };
-            return s.parse().map(|v| Field::Double(v)).map_err(|e| e.into());
+            return s.parse().map(Field::Double).map_err(|e| e.into());
         } else if buffer[i] == b'+' || buffer[i] == b'-' {
             //j is the index that separates the value from the exponent
             let j = i;
@@ -180,10 +180,10 @@ fn maybe_number(buffer: &[u8]) -> Result<Field> {
             temp[j] = b'e';
             temp[j + 1..n + 1].copy_from_slice(&buffer[j..]);
             let s = unsafe { str::from_utf8_unchecked(&temp[..n + 1]) };
-            return s.parse().map(|v| Field::Float(v)).map_err(|e| e.into());
+            return s.parse().map(Field::Float).map_err(|e| e.into());
         }
     }
-    return Err(ErrorKind::UnexpectedCharInField.into());
+    Err(ErrorKind::UnexpectedCharInField.into())
 }
 
 pub fn maybe_first_field(buffer: &[u8]) -> Result<Field> {
@@ -209,12 +209,12 @@ pub fn maybe_first_field(buffer: &[u8]) -> Result<Field> {
         }
     }
     let buffer = trim_spaces(buffer);
-    if buffer.len() == 0 {
+    if buffer.is_empty() {
         return Ok(Field::Blank);
     }
     match buffer[0] {
-        b'a'...b'z' | b'A'...b'Z' => return maybe_string(buffer),
-        _ => return Err(ErrorKind::UnexpectedCharInField.into()),
+        b'a'...b'z' | b'A'...b'Z' => maybe_string(buffer),
+        _ => Err(ErrorKind::UnexpectedCharInField.into()),
     }
 }
 
@@ -256,13 +256,13 @@ pub fn maybe_any_field(buffer: &[u8]) -> Result<Field> {
         }
     }
     let buffer = trim_spaces(buffer);
-    if buffer.len() == 0 {
+    if buffer.is_empty() {
         return Ok(Field::Blank);
     }
     match buffer[0] {
-        b'a'...b'z' | b'A'...b'Z' => return maybe_string(buffer),
-        b'+' | b'-' | b'0'...b'9' | b'.' => return maybe_number(buffer),
-        _ => return Err(ErrorKind::UnexpectedCharInField.into()),
+        b'a'...b'z' | b'A'...b'Z' => maybe_string(buffer),
+        b'+' | b'-' | b'0'...b'9' | b'.' => maybe_number(buffer),
+        _ => Err(ErrorKind::UnexpectedCharInField.into()),
     }
 }
 
@@ -272,13 +272,13 @@ pub fn maybe_field(buffer: &[u8]) -> Result<Field> {
         return Ok(Field::Blank);
     }
     let buffer = trim_spaces(buffer);
-    if buffer.len() == 0 {
+    if buffer.is_empty() {
         return Ok(Field::Blank);
     }
     match buffer[0] {
-        b'a'...b'z' | b'A'...b'Z' => return maybe_string(buffer),
-        b'+' | b'-' | b'0'...b'9' | b'.' => return maybe_number(buffer),
-        _ => return Err(ErrorKind::UnexpectedCharInField.into()),
+        b'a'...b'z' | b'A'...b'Z' => maybe_string(buffer),
+        b'+' | b'-' | b'0'...b'9' | b'.' => maybe_number(buffer),
+        _ => Err(ErrorKind::UnexpectedCharInField.into()),
     }
 }
 

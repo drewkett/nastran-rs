@@ -109,7 +109,7 @@ impl<'a> fmt::Debug for Card<'a> {
 
 impl<'a> fmt::Display for Card<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if self.first != Field::Blank || self.fields.len() > 0 {
+        if self.first != Field::Blank || !self.fields.is_empty() {
             try!(write!(f, "{}", self.first));
             for field in &self.fields {
                 try!(write!(f, "{}", field));
@@ -119,7 +119,7 @@ impl<'a> fmt::Display for Card<'a> {
             }
         }
         if let Some(comment) = self.comment {
-            if comment.len() > 0 && comment[0] != b'$' {
+            if !comment.is_empty() && comment[0] != b'$' {
                 try!(write!(f, "$"));
             }
             try!(write!(f, "{}", unsafe { str::from_utf8_unchecked(comment) }));
@@ -218,7 +218,7 @@ fn read_first_field(line: &[u8]) -> Result<FirstField> {
 }
 
 fn get_short_slice(buffer: &[u8]) -> Option<(&[u8], &[u8])> {
-    if buffer.len() == 0 {
+    if buffer.is_empty() {
         return None;
     }
     let n = cmp::min(buffer.len(), 8);
@@ -231,7 +231,7 @@ fn get_short_slice(buffer: &[u8]) -> Option<(&[u8], &[u8])> {
 }
 
 fn get_long_slice(buffer: &[u8]) -> Option<(&[u8], &[u8])> {
-    if buffer.len() == 0 {
+    if buffer.is_empty() {
         return None;
     }
     let n = cmp::min(buffer.len(), 16);
@@ -274,7 +274,7 @@ pub fn parse_line(buffer: &[u8]) -> Result<Card> {
                 break;
             }
         }
-        if remainder.len() > 0 {
+        if !remainder.is_empty() {
             if let Some(pair) = get_short_slice(remainder) {
                 let sl = pair.0;
                 remainder = pair.1;
@@ -291,7 +291,7 @@ pub fn parse_line(buffer: &[u8]) -> Result<Card> {
                 break;
             }
         }
-        if remainder.len() > 0 {
+        if !remainder.is_empty() {
             if let Some(pair) = get_short_slice(remainder) {
                 let sl = pair.0;
                 remainder = pair.1;
@@ -317,7 +317,7 @@ pub fn parse_buffer(input_buffer: &[u8]) -> Result<Deck> {
     let mut cards = vec![];
     let mut buffer = input_buffer;
     loop {
-        if buffer.len() == 0 {
+        if buffer.is_empty() {
             break;
         }
         if let Some(j) = buffer.iter().position(|&c| c == b'\n') {
