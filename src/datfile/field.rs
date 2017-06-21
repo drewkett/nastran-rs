@@ -16,7 +16,8 @@ fn trim_spaces(buffer: &[u8]) -> &[u8] {
     if i == n {
         return b"";
     }
-    let j = buffer.iter()
+    let j = buffer
+        .iter()
         .skip(i)
         .rev()
         .take_while(|&&c| c == b' ')
@@ -46,12 +47,15 @@ fn count_digits(buffer: &[u8]) -> usize {
 
 #[inline]
 fn count_alphanumeric(buffer: &[u8]) -> usize {
-    buffer.iter().take_while(|&&c| is_numeric(c) || is_alpha(c)).count()
+    buffer
+        .iter()
+        .take_while(|&&c| is_numeric(c) || is_alpha(c))
+        .count()
 }
 
 //fn print_slice(s: &str, buffer: &[u8]) {
-    //let b = unsafe { str::from_utf8_unchecked(buffer) };
-    //println!("{} {}", s, b)
+//let b = unsafe { str::from_utf8_unchecked(buffer) };
+//println!("{} {}", s, b)
 //}
 
 fn maybe_string(buffer: &[u8]) -> Result<Field> {

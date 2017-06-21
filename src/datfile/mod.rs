@@ -30,20 +30,24 @@ impl<'a> fmt::Debug for Field<'a> {
             Field::Float(d) => write!(f, "Float({})", d),
             Field::Double(d) => write!(f, "Double({})", d),
             Field::Continuation(c) => {
-                write!(f,
-                       "Continuation('{}')",
-                       unsafe { str::from_utf8_unchecked(c) })
+                write!(
+                    f,
+                    "Continuation('{}')",
+                    unsafe { str::from_utf8_unchecked(c) }
+                )
             }
             Field::String(s) => write!(f, "String('{}')", unsafe { str::from_utf8_unchecked(s) }),
             Field::DoubleContinuation(s) => {
-                write!(f,
-                       "DoubleContinuation('{}')",
-                       unsafe { str::from_utf8_unchecked(s) })
+                write!(f, "DoubleContinuation('{}')", unsafe {
+                    str::from_utf8_unchecked(s)
+                })
             }
             Field::DoubleString(s) => {
-                write!(f,
-                       "DoubleString('{}')",
-                       unsafe { str::from_utf8_unchecked(s) })
+                write!(
+                    f,
+                    "DoubleString('{}')",
+                    unsafe { str::from_utf8_unchecked(s) }
+                )
             }
         }
     }
@@ -87,9 +91,11 @@ impl<'a> fmt::Debug for Card<'a> {
             try!(write!(f, "{:?},", field));
         }
         if let Some(comment) = self.comment {
-            try!(write!(f,
-                        "Comment='{}',",
-                        unsafe { str::from_utf8_unchecked(comment) }));
+            try!(write!(
+                f,
+                "Comment='{}',",
+                unsafe { str::from_utf8_unchecked(comment) }
+            ));
         }
         if self.is_comma {
             try!(write!(f, "comma,"));
@@ -98,9 +104,9 @@ impl<'a> fmt::Debug for Card<'a> {
             try!(write!(f, "double,"));
         }
         if let Some(unparsed) = self.unparsed {
-            try!(write!(f,
-                        "Unparsed='{}',",
-                        unsafe { str::from_utf8_unchecked(unparsed) }));
+            try!(write!(f, "Unparsed='{}',", unsafe {
+                str::from_utf8_unchecked(unparsed)
+            }));
         }
         write!(f, ")")
     }
@@ -122,15 +128,21 @@ impl<'a> fmt::Display for Card<'a> {
             if !comment.is_empty() && comment[0] != b'$' {
                 try!(write!(f, "$"));
             }
-            try!(write!(f, "{}", unsafe { str::from_utf8_unchecked(comment) }));
+            try!(write!(
+                f,
+                "{}",
+                unsafe { str::from_utf8_unchecked(comment) }
+            ));
         }
         write!(f, "")
     }
 }
 
-#[derive(Debug,PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct Deck<'a> {
     pub cards: Vec<Card<'a>>,
+    pub header: Option<&'a [u8]>,
+    pub unparsed: Option<&'a [u8]>,
 }
 
 impl<'a> fmt::Display for Deck<'a> {
@@ -211,10 +223,10 @@ fn read_first_field(line: &[u8]) -> Result<FirstField> {
     }
     let field = field::maybe_first_field(field_buffer)?;
     Ok(FirstField {
-           field,
-           is_comma,
-           remainder,
-       })
+        field,
+        is_comma,
+        remainder,
+    })
 }
 
 fn get_short_slice(buffer: &[u8]) -> Option<(&[u8], &[u8])> {
@@ -245,7 +257,11 @@ fn get_long_slice(buffer: &[u8]) -> Option<(&[u8], &[u8])> {
 
 pub fn parse_line(buffer: &[u8]) -> Result<Card> {
     let (content, comment) = split_line(buffer);
-    let FirstField { field, is_comma, mut remainder } = read_first_field(content)?;
+    let FirstField {
+        field,
+        is_comma,
+        mut remainder,
+    } = read_first_field(content)?;
     let is_double = match field {
         Field::DoubleContinuation(_) |
         Field::DoubleString(_) => true,
@@ -301,14 +317,14 @@ pub fn parse_line(buffer: &[u8]) -> Result<Card> {
     }
 
     Ok(Card {
-           first: field,
-           fields,
-           continuation,
-           comment: option_from_slice(comment),
-           is_double,
-           is_comma,
-           unparsed: option_from_slice(remainder),
-       })
+        first: field,
+        fields,
+        continuation,
+        comment: option_from_slice(comment),
+        is_double,
+        is_comma,
+        unparsed: option_from_slice(remainder),
+    })
 }
 
 
@@ -316,6 +332,37 @@ pub fn parse_buffer(input_buffer: &[u8]) -> Result<Deck> {
     let mut line_num = 1;
     let mut cards = vec![];
     let mut buffer = input_buffer;
+    let mut header = None;
+    let mut unparsed = None;
+    if !buffer.is_empty() {
+        // Check to see if there is a header. TODO Need to check for comments
+        let orig_buffer = buffer.clone();
+        let is_header = match buffer[0] {
+            b'I' => buffer.len() > 4 && &buffer[..4] == b"INIT",
+            b'N' => buffer.len() > 7 && &buffer[..7] == b"NASTRAN",
+            _ => false,
+        };
+        if is_header {
+            let mut header_end = None;
+            while let Some(j) = buffer.iter().position(|&c| c == b'\n') {
+                let line = &buffer[..j];
+                if !line.is_empty() {
+                    if line.len() > 5 && &line[..5] == b"BEGIN" {
+                        header_end = Some(orig_buffer.len() - buffer.len());
+                        buffer = &buffer[j + 1..];
+                        break;
+                    }
+                }
+                buffer = &buffer[j + 1..]
+            }
+            if let Some(j) = header_end {
+                header = Some(&orig_buffer[..j]);
+            } else {
+                header = Some(orig_buffer);
+                buffer = b"";
+            }
+        }
+    }
     loop {
         if buffer.is_empty() {
             break;
@@ -325,15 +372,29 @@ pub fn parse_buffer(input_buffer: &[u8]) -> Result<Deck> {
             if j > 0 && line[j - 1] == b'\r' {
                 line = &buffer[..j - 1]
             }
-            let card = parse_line(line).chain_err(|| format!("Error parsing line {}", line_num))?;
-            cards.push(card);
-            buffer = &buffer[j + 1..];
+            let card = parse_line(line).chain_err(|| {
+                format!("Error parsing line {}", line_num)
+            })?;
+            // Check for ENDDATA. If found, drop the card and set remaining buffer to unparsed
+            if card.first == Field::String(b"ENDDATA") {
+                unparsed = Some(&buffer[j + 1..]);
+                break;
+            } else {
+                cards.push(card);
+                buffer = &buffer[j + 1..];
+            }
         } else {
-            let card = parse_line(buffer).chain_err(|| format!("Error parsing line {}", line_num))?;
+            let card = parse_line(buffer).chain_err(|| {
+                format!("Error parsing line {}", line_num)
+            })?;
             cards.push(card);
             break;
         }
         line_num += 1;
     }
-    Ok(Deck { cards })
+    Ok(Deck {
+        cards,
+        header,
+        unparsed,
+    })
 }
