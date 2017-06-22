@@ -215,22 +215,17 @@ fn header() {
             return;
         }
     };
-    assert_eq!(
-        res,
-        datfile::Deck {
-            header: Some(b"$ABC\n\nNASTRAN\n"),
-            unparsed: Some(b"BCD,2\n"),
-            cards: vec![
-                datfile::Card {
-                    first: datfile::Field::String(b"ABC"),
-                    fields: vec![datfile::Field::Int(1)],
-                    continuation: None,
-                    comment: None,
-                    is_comma: true,
-                    is_double: false,
-                    unparsed: None,
-                },
-            ],
-        }
-    )
+    let mut deck = datfile::Deck::new();
+    deck.set_header(b"$ABC\n\nNASTRAN\n");
+    deck.set_unparsed(b"BCD,2\n");
+    deck.add_card(datfile::Card {
+        first: datfile::Field::String(b"ABC"),
+        fields: vec![datfile::Field::Int(1)],
+        continuation: None,
+        comment: None,
+        is_comma: true,
+        is_double: false,
+        unparsed: None,
+    });
+    assert_eq!(res,deck);
 }

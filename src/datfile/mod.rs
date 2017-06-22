@@ -4,6 +4,7 @@ mod field;
 use std::fmt;
 use std::str;
 use std::cmp;
+use std::collections::HashMap;
 
 use dtoa;
 
@@ -143,6 +144,8 @@ pub struct Deck<'a> {
     pub cards: Vec<Card<'a>>,
     pub header: Option<&'a [u8]>,
     pub unparsed: Option<&'a [u8]>,
+
+    continuations: HashMap<&'a [u8], &'a Card<'a>>,
 }
 
 impl<'a> fmt::Display for Deck<'a> {
@@ -152,6 +155,26 @@ impl<'a> fmt::Display for Deck<'a> {
             try!(write!(f, "  {},\n", card));
         }
         write!(f, ")")
+    }
+}
+
+impl<'a> Deck<'a> {
+    pub fn new() -> Deck<'a> {
+        Deck {
+            cards: vec![],
+            header: None,
+            unparsed: None,
+            continuations: HashMap::new(),
+        }
+    }
+    pub fn add_card(&mut self, card: Card<'a>) {
+        self.cards.push(card)
+    }
+    pub fn set_header(&mut self, header: &'a [u8]) {
+        self.header = Some(header);
+    }
+    pub fn set_unparsed(&mut self, unparsed: &'a [u8]) {
+        self.unparsed = Some(unparsed);
     }
 }
 
@@ -381,7 +404,7 @@ pub fn read_header(input_buffer: &[u8]) -> (Option<&[u8]>, &[u8]) {
                 buffer = b"";
             }
         } else {
-            // If no header is found. Comments are treated as cards and not apart of the header
+            // If no header is found. Comments are treated as cards and not as a part of the header
             buffer = input_buffer;
         }
     }
@@ -390,10 +413,12 @@ pub fn read_header(input_buffer: &[u8]) -> (Option<&[u8]>, &[u8]) {
 
 
 pub fn parse_buffer(input_buffer: &[u8]) -> Result<Deck> {
+    let mut deck = Deck::new();
     let mut line_num = 1;
-    let mut cards = vec![];
-    let mut unparsed = None;
     let (header, mut buffer) = read_header(input_buffer);
+    if let Some(h) = header {
+        deck.set_header(h);
+    }
     loop {
         if buffer.is_empty() {
             break;
@@ -408,24 +433,20 @@ pub fn parse_buffer(input_buffer: &[u8]) -> Result<Deck> {
             })?;
             // Check for ENDDATA. If found, drop the card and set remaining buffer to unparsed
             if card.first == Field::String(b"ENDDATA") {
-                unparsed = Some(&buffer[j + 1..]);
+                deck.set_unparsed(&buffer[j + 1..]);
                 break;
             } else {
-                cards.push(card);
+                deck.add_card(card);
                 buffer = &buffer[j + 1..];
             }
         } else {
             let card = parse_line(buffer).chain_err(|| {
                 format!("Error parsing line {}", line_num)
             })?;
-            cards.push(card);
+            deck.add_card(card);
             break;
         }
         line_num += 1;
     }
-    Ok(Deck {
-        cards,
-        header,
-        unparsed,
-    })
+    Ok(deck)
 }
