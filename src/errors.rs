@@ -1,17 +1,18 @@
 
 use nom;
-use std::num;
 
 error_chain!{
     errors {
         ParseFailure
         UnexpectedFieldEnd
         UnexpectedCharInField
+        UnmatchedContinuation
         NotPossible(t: &'static str)
     }
     foreign_links {
-        ParseIntError(num::ParseIntError);
-        ParseFloatError(num::ParseFloatError);
+        UTF8ConversionError(::std::str::Utf8Error);
+        ParseIntError(::std::num::ParseIntError);
+        ParseFloatError(::std::num::ParseFloatError);
     }
 }
 

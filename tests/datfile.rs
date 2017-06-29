@@ -29,8 +29,8 @@ fn comma_separated() {
     assert_eq!(
         it.next(),
         Some(datfile::Card {
-            first: datfile::Field::String(b"PARAM"),
-            fields: vec![datfile::Field::String(b"POST"), datfile::Field::Int(1)],
+            first: datfile::Field::String("PARAM"),
+            fields: vec![datfile::Field::String("POST"), datfile::Field::Int(1)],
             continuation: None,
             comment: Some(b"$ABC"),
             is_comma: true,
@@ -41,9 +41,9 @@ fn comma_separated() {
     assert_eq!(
         it.next(),
         Some(datfile::Card {
-            first: datfile::Field::String(b"PARAM"),
+            first: datfile::Field::String("PARAM"),
             fields: vec![
-                datfile::Field::String(b"WTMASS"),
+                datfile::Field::String("WTMASS"),
                 datfile::Field::Float(0.00259),
             ],
             continuation: None,
@@ -56,7 +56,7 @@ fn comma_separated() {
     assert_eq!(
         it.next(),
         Some(datfile::Card {
-            first: datfile::Field::Continuation(b""),
+            first: datfile::Field::Continuation(""),
             fields: vec![datfile::Field::Int(1), datfile::Field::Int(2)],
             continuation: None,
             comment: None,
@@ -68,7 +68,7 @@ fn comma_separated() {
     assert_eq!(
         it.next(),
         Some(datfile::Card {
-            first: datfile::Field::Continuation(b"a"),
+            first: datfile::Field::Continuation("a"),
             fields: vec![datfile::Field::Int(1), datfile::Field::Int(2)],
             continuation: None,
             comment: None,
@@ -104,7 +104,7 @@ fn comma_separated() {
     assert_eq!(
         it.next(),
         Some(datfile::Card {
-            first: datfile::Field::String(b"ABCDEF"),
+            first: datfile::Field::String("ABCDEF"),
             fields: vec![
                 datfile::Field::Int(123456),
                 datfile::Field::Int(123456),
@@ -128,12 +128,12 @@ fn comma_separated() {
     assert_eq!(
         it.next(),
         Some(datfile::Card {
-            first: datfile::Field::String(b"BLAH"),
+            first: datfile::Field::String("BLAH"),
             fields: vec![
                 datfile::Field::Int(123),
                 datfile::Field::Float(1e5),
                 datfile::Field::Float(1e2),
-                datfile::Field::String(b"ABC"),
+                datfile::Field::String("ABC"),
             ],
             continuation: None,
             comment: None,
@@ -145,14 +145,14 @@ fn comma_separated() {
     assert_eq!(
         it.next(),
         Some(datfile::Card {
-            first: datfile::Field::DoubleString(b"GRID"),
+            first: datfile::Field::DoubleString("GRID"),
             fields: vec![
                 datfile::Field::Int(1100001),
                 datfile::Field::Int(0),
                 datfile::Field::Float(373.213),
                 datfile::Field::Float(3.329),
             ],
-            continuation: Some(datfile::Field::Continuation(b"ED00013")),
+            continuation: Some(b"ED00013"),
             comment: None,
             is_comma: false,
             is_double: true,
@@ -162,7 +162,7 @@ fn comma_separated() {
     assert_eq!(
         it.next(),
         Some(datfile::Card {
-            first: datfile::Field::DoubleContinuation(b"ED00013"),
+            first: datfile::Field::DoubleContinuation("ED00013"),
             fields: vec![datfile::Field::Float(74.081), datfile::Field::Int(0)],
             continuation: None,
             comment: None,
@@ -185,7 +185,7 @@ fn comma_separated() {
                 datfile::Field::Float(0.0),
                 datfile::Field::Float(0.059),
             ],
-            continuation: Some(datfile::Field::Blank),
+            continuation: Some(b""),
             comment: None,
             is_comma: false,
             is_double: false,
@@ -219,7 +219,7 @@ fn header() {
     deck.set_header(b"$ABC\n\nNASTRAN\n");
     deck.set_unparsed(b"BCD,2\n");
     deck.add_card(datfile::Card {
-        first: datfile::Field::String(b"ABC"),
+        first: datfile::Field::String("ABC"),
         fields: vec![datfile::Field::Int(1)],
         continuation: None,
         comment: None,

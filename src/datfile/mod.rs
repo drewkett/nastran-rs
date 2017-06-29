@@ -11,16 +11,17 @@ use dtoa;
 use errors::*;
 pub use self::field::{maybe_field, maybe_any_field};
 
-#[derive(PartialEq)]
+//TODO Need to make sure right number of fields are being output for card
+#[derive(PartialEq, Clone)]
 pub enum Field<'a> {
     Blank,
     Int(i32),
     Float(f32),
     Double(f64),
-    Continuation(&'a [u8]),
-    DoubleContinuation(&'a [u8]),
-    String(&'a [u8]),
-    DoubleString(&'a [u8]),
+    Continuation(&'a str),
+    DoubleContinuation(&'a str),
+    String(&'a str),
+    DoubleString(&'a str),
 }
 
 impl<'a> fmt::Debug for Field<'a> {
@@ -30,26 +31,10 @@ impl<'a> fmt::Debug for Field<'a> {
             Field::Int(i) => write!(f, "Int({})", i),
             Field::Float(d) => write!(f, "Float({})", d),
             Field::Double(d) => write!(f, "Double({})", d),
-            Field::Continuation(c) => {
-                write!(
-                    f,
-                    "Continuation('{}')",
-                    unsafe { str::from_utf8_unchecked(c) }
-                )
-            }
-            Field::String(s) => write!(f, "String('{}')", unsafe { str::from_utf8_unchecked(s) }),
-            Field::DoubleContinuation(s) => {
-                write!(f, "DoubleContinuation('{}')", unsafe {
-                    str::from_utf8_unchecked(s)
-                })
-            }
-            Field::DoubleString(s) => {
-                write!(
-                    f,
-                    "DoubleString('{}')",
-                    unsafe { str::from_utf8_unchecked(s) }
-                )
-            }
+            Field::Continuation(c) => write!(f, "Continuation('{}')", c),
+            Field::String(s) => write!(f, "String('{}')", s),
+            Field::DoubleContinuation(s) => write!(f, "DoubleContinuation('{}')", s),
+            Field::DoubleString(s) => write!(f, "DoubleString('{}')", s),
         }
     }
 }
@@ -60,25 +45,33 @@ impl<'a> fmt::Display for Field<'a> {
             Field::Int(i) => write!(f, "{:8}", i),
             Field::Float(d) => write!(f, "{:>8}", float_to_8(d)),
             Field::Double(d) => write!(f, "{:>8}", double_to_8(d)),
-            Field::Continuation(c) => write!(f, "+{:7}", unsafe { str::from_utf8_unchecked(c) }),
-            Field::String(s) => write!(f, "{:8}", unsafe { str::from_utf8_unchecked(s) }),
-            Field::DoubleContinuation(c) => {
-                write!(f, "*{:7}", unsafe { str::from_utf8_unchecked(c) })
-            }
-            Field::DoubleString(s) => write!(f, "{:7}*", unsafe { str::from_utf8_unchecked(s) }),
+            Field::Continuation(c) => write!(f, "+{:7}", c),
+            Field::String(s) => write!(f, "{:8}", s),
+            Field::DoubleContinuation(c) => write!(f, "*{:7}", c),
+            Field::DoubleString(s) => write!(f, "{:7}*", s),
         }
     }
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 pub struct Card<'a> {
     pub first: Field<'a>,
     pub fields: Vec<Field<'a>>,
-    pub continuation: Option<Field<'a>>,
+    pub continuation: Option<&'a str>,
     pub comment: Option<&'a [u8]>,
     pub is_double: bool,
     pub is_comma: bool,
     pub unparsed: Option<&'a [u8]>,
+}
+
+impl<'a> Card<'a> {
+    fn merge(&mut self, card: Card<'a>) {
+        // TODO Unsure if I should check for continuation match
+        self.fields.extend_from_slice(card.fields.as_slice());
+        self.is_double |= card.is_double;
+        self.continuation = card.continuation;
+        // TODO Not sure what to do with comments. Probably need a better data structure
+    }
 }
 
 impl<'a> fmt::Debug for Card<'a> {
@@ -144,8 +137,6 @@ pub struct Deck<'a> {
     pub cards: Vec<Card<'a>>,
     pub header: Option<&'a [u8]>,
     pub unparsed: Option<&'a [u8]>,
-
-    continuations: HashMap<&'a [u8], &'a Card<'a>>,
 }
 
 impl<'a> fmt::Display for Deck<'a> {
@@ -157,24 +148,79 @@ impl<'a> fmt::Display for Deck<'a> {
         write!(f, ")")
     }
 }
-
 impl<'a> Deck<'a> {
     pub fn new() -> Deck<'a> {
-        Deck {
-            cards: vec![],
-            header: None,
-            unparsed: None,
-            continuations: HashMap::new(),
-        }
+            Deck {
+                cards: vec![],
+                header: None,
+                unparsed: None,
+            }
     }
-    pub fn add_card(&mut self, card: Card<'a>) {
-        self.cards.push(card)
-    }
+
     pub fn set_header(&mut self, header: &'a [u8]) {
         self.header = Some(header);
     }
     pub fn set_unparsed(&mut self, unparsed: &'a [u8]) {
         self.unparsed = Some(unparsed);
+    }
+
+    pub fn add_card(&mut self, card: Card<'a>) -> Result<()> {
+        self.cards.push(card);
+        Ok(())
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct WorkingDeck<'a> {
+    deck: Deck<'a>,
+    continuations: HashMap<&'a str, Card<'a>>,
+}
+
+impl<'a> WorkingDeck<'a> {
+    pub fn new() -> WorkingDeck<'a> {
+        WorkingDeck {
+            deck: Deck {
+                cards: vec![],
+                header: None,
+                unparsed: None,
+            },
+            continuations: HashMap::new(),
+        }
+    }
+
+    pub fn to_deck(self) -> Deck<'a> {
+        self.deck
+    }
+
+    pub fn add_card(&mut self, card: Card<'a>) -> Result<()> {
+        let ref mut continuations = self.continuations;
+        match card.first {
+            Field::Continuation(c) |
+            Field::DoubleContinuation(c) => {
+                if let Some(existing) = continuations.get_mut(c) {
+                    existing.merge(card)
+                }
+            }
+            Field::String(c) |
+            Field::DoubleString(c) => {
+                self.deck.cards.push(card);
+                //let card_ref = self.deck.cards.last().unwrap();
+                //if let Some(cont) = card.continuation {
+                //self.continuations.insert(cont,card_ref);
+                //} else {
+                //self.continuations.insert(b"",card_ref);
+                //}
+            }
+            Field::Blank => (),
+            _ => unreachable!(),
+        };
+        Ok(())
+    }
+    pub fn set_header(&mut self, header: &'a [u8]) {
+        self.deck.set_header(header);
+    }
+    pub fn set_unparsed(&mut self, unparsed: &'a [u8]) {
+        self.deck.set_unparsed(unparsed);
     }
 }
 
@@ -317,7 +363,7 @@ pub fn parse_line(buffer: &[u8]) -> Result<Card> {
             if let Some(pair) = get_short_slice(remainder) {
                 let sl = pair.0;
                 remainder = pair.1;
-                continuation = Some(field::maybe_last_field(sl)?);
+                continuation = Some(field::trailing_continuation(sl)?);
             }
         }
     } else {
@@ -334,7 +380,7 @@ pub fn parse_line(buffer: &[u8]) -> Result<Card> {
             if let Some(pair) = get_short_slice(remainder) {
                 let sl = pair.0;
                 remainder = pair.1;
-                continuation = Some(field::maybe_last_field(sl)?);
+                continuation = Some(field::trailing_continuation(sl)?);
             }
         }
     }
@@ -432,7 +478,7 @@ pub fn parse_buffer(input_buffer: &[u8]) -> Result<Deck> {
                 format!("Error parsing line {}", line_num)
             })?;
             // Check for ENDDATA. If found, drop the card and set remaining buffer to unparsed
-            if card.first == Field::String(b"ENDDATA") {
+            if card.first == Field::String("ENDDATA") {
                 deck.set_unparsed(&buffer[j + 1..]);
                 break;
             } else {
