@@ -5,8 +5,6 @@ const DATFILE: &'static [u8] = b"\
 PARAM,POST , 1 $ABC
 PARAM, WTMASS,0.00259
 +,1,2
-
-
 ABCDEF,123456,123456,123456,123456,123456,123456,123456,123456,123456,123456,123456,123456
 BLAH    123      1.+5   1e2     ABC
 GRID*            1100001               0    3.732130e+02    3.329000e+00 ED00013
@@ -29,8 +27,17 @@ fn comma_separated() {
         it.next(),
         Some(datfile::Card {
             first: datfile::Field::String("PARAM"),
-            fields: vec![datfile::Field::String("POST"), datfile::Field::Int(1)],
-            continuation: None,
+            fields: vec![
+                datfile::Field::String("POST"),
+                datfile::Field::Int(1),
+                datfile::Field::Blank,
+                datfile::Field::Blank,
+                datfile::Field::Blank,
+                datfile::Field::Blank,
+                datfile::Field::Blank,
+                datfile::Field::Blank,
+            ],
+            continuation: "",
             comment: Some(b"$ABC"),
             is_comma: true,
             is_double: false,
@@ -59,33 +66,9 @@ fn comma_separated() {
                 datfile::Field::Blank,
                 datfile::Field::Blank,
             ],
-            continuation: None,
+            continuation: "",
             comment: None,
             is_comma: true,
-            is_double: false,
-            unparsed: None,
-        })
-    );
-    assert_eq!(
-        it.next(),
-        Some(datfile::Card {
-            first: datfile::Field::Blank, // Not sure about this
-            fields: vec![],
-            continuation: None,
-            comment: None,
-            is_comma: false,
-            is_double: false,
-            unparsed: None,
-        })
-    );
-    assert_eq!(
-        it.next(),
-        Some(datfile::Card {
-            first: datfile::Field::Blank, // Not sure about this
-            fields: vec![],
-            continuation: None,
-            comment: None,
-            is_comma: false,
             is_double: false,
             unparsed: None,
         })
@@ -106,8 +89,13 @@ fn comma_separated() {
                 datfile::Field::Int(123456),
                 datfile::Field::Int(123456),
                 datfile::Field::Int(123),
+                datfile::Field::Blank,
+                datfile::Field::Blank,
+                datfile::Field::Blank,
+                datfile::Field::Blank,
+                datfile::Field::Blank,
             ],
-            continuation: None,
+            continuation: "",
             comment: Some(b"456,123456"),
             is_comma: true,
             is_double: false,
@@ -123,8 +111,12 @@ fn comma_separated() {
                 datfile::Field::Float(1e5),
                 datfile::Field::Float(1e2),
                 datfile::Field::String("ABC"),
+                datfile::Field::Blank,
+                datfile::Field::Blank,
+                datfile::Field::Blank,
+                datfile::Field::Blank,
             ],
-            continuation: None,
+            continuation: "",
             comment: None,
             is_comma: false,
             is_double: false,
@@ -140,31 +132,10 @@ fn comma_separated() {
                 datfile::Field::Int(0),
                 datfile::Field::Float(373.213),
                 datfile::Field::Float(3.329),
-            ],
-            continuation: Some("ED00013"),
-            comment: None,
-            is_comma: false,
-            is_double: true,
-            unparsed: None,
-        })
-    );
-    assert_eq!(
-        it.next(),
-        Some(datfile::Card {
-            first: datfile::Field::DoubleContinuation("ED00013"),
-            fields: vec![datfile::Field::Float(74.081), datfile::Field::Int(0)],
-            continuation: None,
-            comment: None,
-            is_comma: false,
-            is_double: true,
-            unparsed: None,
-        })
-    );
-    assert_eq!(
-        it.next(),
-        Some(datfile::Card {
-            first: datfile::Field::Blank, // Should be continuation first?
-            fields: vec![
+                datfile::Field::Float(74.081),
+                datfile::Field::Int(0),
+                datfile::Field::Blank,
+                datfile::Field::Blank,
                 datfile::Field::Blank,
                 datfile::Field::Blank,
                 datfile::Field::Blank,
@@ -174,11 +145,11 @@ fn comma_separated() {
                 datfile::Field::Float(0.0),
                 datfile::Field::Float(0.059),
             ],
-            continuation: Some(""),
+            continuation: "",
             comment: None,
             is_comma: false,
-            is_double: false,
-            unparsed: Some(b"1"),
+            is_double: true,
+            unparsed: None,
         })
     );
     assert_eq!(it.next(), None);
@@ -209,12 +180,21 @@ fn header() {
     deck.set_unparsed(b"BCD,2\n");
     deck.add_card(datfile::Card {
         first: datfile::Field::String("ABC"),
-        fields: vec![datfile::Field::Int(1)],
-        continuation: None,
+        fields: vec![
+            datfile::Field::Int(1),
+            datfile::Field::Blank,
+            datfile::Field::Blank,
+            datfile::Field::Blank,
+            datfile::Field::Blank,
+            datfile::Field::Blank,
+            datfile::Field::Blank,
+            datfile::Field::Blank,
+        ],
+        continuation: "",
         comment: None,
         is_comma: true,
         is_double: false,
         unparsed: None,
     });
-    assert_eq!(res,deck);
+    assert_eq!(res, deck);
 }

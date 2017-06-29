@@ -59,7 +59,7 @@ impl<'a> fmt::Display for Field<'a> {
 pub struct Card<'a> {
     pub first: Field<'a>,
     pub fields: Vec<Field<'a>>,
-    pub continuation: Option<&'a str>,
+    pub continuation: &'a str,
     pub comment: Option<&'a [u8]>,
     pub is_double: bool,
     pub is_comma: bool,
@@ -83,8 +83,8 @@ impl<'a> fmt::Debug for Card<'a> {
         for field in &self.fields {
             try!(write!(f, "{:?},", field));
         }
-        if let Some(ref field) = self.continuation {
-            try!(write!(f, "{:?},", field));
+        if self.continuation != "" {
+            try!(write!(f, "+{:?}", self.continuation));
         }
         if let Some(comment) = self.comment {
             try!(write!(
@@ -116,9 +116,7 @@ impl<'a> fmt::Display for Card<'a> {
             for field in &self.fields {
                 try!(write!(f, "{}", field));
             }
-            if let Some(ref field) = self.continuation {
-                try!(write!(f, "{}", field));
-            }
+            try!(write!(f, "+{}", self.continuation));
         }
         if let Some(comment) = self.comment {
             if !comment.is_empty() && comment[0] != b'$' {
@@ -200,30 +198,28 @@ impl<'a> WorkingDeck<'a> {
         match card.first {
             Field::Continuation(c) |
             Field::DoubleContinuation(c) => {
-                let index = self.continuations.get(c).ok_or(
+                let index = self.continuations.remove(c).ok_or(
                     ErrorKind::UnmatchedContinuation(
                         c.to_owned(),
                     ),
                 )?;
-                let mut existing = self.deck.cards.index_mut(*index);
+                let mut existing = self.deck.cards.index_mut(index);
+                self.continuations.insert(card.continuation, index);
                 existing.merge(card);
             }
             Field::String(_) |
             Field::DoubleString(_) => {
-                if let Some(cont) = card.continuation {
-                    self.continuations.insert(cont, self.deck.cards.len());
-                } else {
-                    self.continuations.insert("", self.deck.cards.len());
-                }
+                self.continuations.insert(card.continuation, self.deck.cards.len());
                 self.deck.cards.push(card);
             }
             Field::Blank => {
-                let index = self.continuations.get("").ok_or(
+                let index = self.continuations.remove("").ok_or(
                     ErrorKind::UnmatchedContinuation(
                         "".to_owned(),
                     ),
                 )?;
-                let mut existing = self.deck.cards.index_mut(*index);
+                let mut existing = self.deck.cards.index_mut(index);
+                self.continuations.insert(card.continuation, index);
                 existing.merge(card);
             }
             _ => unreachable!(),
@@ -351,7 +347,7 @@ pub fn parse_line(buffer: &[u8]) -> Result<Card> {
         _ => false,
     };
     let mut fields = vec![];
-    let mut continuation = None;
+    let mut continuation = "";
     if is_comma {
         let mut i = 2;
         let mut field_count = 0;
@@ -363,12 +359,12 @@ pub fn parse_line(buffer: &[u8]) -> Result<Card> {
                     Field::Continuation(_) |
                     Field::DoubleContinuation(_) => {
                         // TODO Need to handle continuations in comma separated
-                        return Err(ErrorKind::UnexpectedContinuation.into())
+                        return Err(ErrorKind::UnexpectedContinuation.into());
                     }
                     _ => fields.push(f),
 
                 }
-                field_count = 0;
+                field_count = 1;
             } else {
                 fields.push(field::maybe_field(sl)?);
                 field_count += 1;
@@ -376,7 +372,8 @@ pub fn parse_line(buffer: &[u8]) -> Result<Card> {
             i += 1;
         }
         while field_count < 8 {
-            fields.push(Field::Blank)
+            fields.push(Field::Blank);
+            field_count += 1;
         }
         remainder = b"";
     } else if is_double {
@@ -386,14 +383,14 @@ pub fn parse_line(buffer: &[u8]) -> Result<Card> {
                 remainder = pair.1;
                 fields.push(field::maybe_field(sl)?)
             } else {
-                fields.push(field::Blank)
+                fields.push(Field::Blank);
             }
         }
         if !remainder.is_empty() {
             if let Some(pair) = get_short_slice(remainder) {
                 let sl = pair.0;
                 remainder = pair.1;
-                continuation = Some(field::trailing_continuation(sl)?);
+                continuation = field::trailing_continuation(sl)?;
             }
         }
     } else {
@@ -403,14 +400,14 @@ pub fn parse_line(buffer: &[u8]) -> Result<Card> {
                 remainder = pair.1;
                 fields.push(field::maybe_field(sl)?)
             } else {
-                fields.push(field::Blank)
+                fields.push(Field::Blank);
             }
         }
         if !remainder.is_empty() {
             if let Some(pair) = get_short_slice(remainder) {
                 let sl = pair.0;
                 remainder = pair.1;
-                continuation = Some(field::trailing_continuation(sl)?);
+                continuation = field::trailing_continuation(sl)?;
             }
         }
     }
