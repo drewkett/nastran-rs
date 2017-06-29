@@ -12,6 +12,15 @@ use dtoa;
 use errors::*;
 pub use self::field::{maybe_field, maybe_any_field};
 
+pub trait BufferUtil {
+    fn to_string_lossy(self) -> String;
+}
+
+impl <'a> BufferUtil for &'a [u8] {
+    fn to_string_lossy(self) -> String {
+        String::from_utf8_lossy(self).into_owned()
+    }
+}
 
 //TODO Need to make sure right number of fields are being output for card
 #[derive(PartialEq, Clone)]
@@ -198,26 +207,21 @@ impl<'a> WorkingDeck<'a> {
         match card.first {
             Field::Continuation(c) |
             Field::DoubleContinuation(c) => {
-                let index = self.continuations.remove(c).ok_or(
-                    ErrorKind::UnmatchedContinuation(
-                        c.to_owned(),
-                    ),
-                )?;
+                let index = self.continuations.remove(c).ok_or(Error::UnmatchedContinuation(c.to_owned()))?;
                 let mut existing = self.deck.cards.index_mut(index);
                 self.continuations.insert(card.continuation, index);
                 existing.merge(card);
             }
             Field::String(_) |
             Field::DoubleString(_) => {
-                self.continuations.insert(card.continuation, self.deck.cards.len());
+                self.continuations.insert(
+                    card.continuation,
+                    self.deck.cards.len(),
+                );
                 self.deck.cards.push(card);
             }
             Field::Blank => {
-                let index = self.continuations.remove("").ok_or(
-                    ErrorKind::UnmatchedContinuation(
-                        "".to_owned(),
-                    ),
-                )?;
+                let index = self.continuations.remove("").ok_or(Error::UnmatchedContinuation("".to_owned()))?;
                 let mut existing = self.deck.cards.index_mut(index);
                 self.continuations.insert(card.continuation, index);
                 existing.merge(card);
@@ -349,17 +353,15 @@ pub fn parse_line(buffer: &[u8]) -> Result<Card> {
     let mut fields = vec![];
     let mut continuation = "";
     if is_comma {
-        let mut i = 2;
         let mut field_count = 0;
-        let mut check_cont = false;
         for sl in remainder.split(|&b| b == b',') {
             if field_count == 8 {
                 let f = field::maybe_any_field(sl)?;
                 match f {
-                    Field::Continuation(_) |
-                    Field::DoubleContinuation(_) => {
+                    Field::Continuation(c) |
+                    Field::DoubleContinuation(c) => {
                         // TODO Need to handle continuations in comma separated
-                        return Err(ErrorKind::UnexpectedContinuation.into());
+                        return Err(Error::UnexpectedContinuation(c.to_owned()));
                     }
                     _ => fields.push(f),
 
@@ -369,7 +371,6 @@ pub fn parse_line(buffer: &[u8]) -> Result<Card> {
                 fields.push(field::maybe_field(sl)?);
                 field_count += 1;
             }
-            i += 1;
         }
         while field_count < 8 {
             fields.push(Field::Blank);
@@ -501,9 +502,7 @@ pub fn parse_buffer(input_buffer: &[u8]) -> Result<Deck> {
             if j > 0 && line[j - 1] == b'\r' {
                 line = &buffer[..j - 1]
             }
-            let card = parse_line(line).chain_err(|| {
-                format!("Error parsing line {}", line_num)
-            })?;
+            let card = parse_line(line).map_err(|e| Error::LineError(line_num,Box::new(e)))?;
             // Check for ENDDATA. If found, drop the card and set remaining buffer to unparsed
             if card.first == Field::String("ENDDATA") {
                 deck.set_unparsed(&buffer[j + 1..]);
@@ -513,9 +512,7 @@ pub fn parse_buffer(input_buffer: &[u8]) -> Result<Deck> {
                 buffer = &buffer[j + 1..];
             }
         } else {
-            let card = parse_line(buffer).chain_err(|| {
-                format!("Error parsing line {}", line_num)
-            })?;
+            let card = parse_line(buffer).map_err(|e| Error::LineError(line_num,Box::new(e)))?;
             deck.add_card(card)?;
             break;
         }
