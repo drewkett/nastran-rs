@@ -6,7 +6,8 @@ error_chain!{
         ParseFailure
         UnexpectedFieldEnd
         UnexpectedCharInField
-        UnmatchedContinuation
+        UnexpectedContinuation
+        UnmatchedContinuation(t: String)
         NotPossible(t: &'static str)
     }
     foreign_links {

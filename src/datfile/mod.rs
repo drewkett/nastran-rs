@@ -5,11 +5,13 @@ use std::fmt;
 use std::str;
 use std::cmp;
 use std::collections::HashMap;
+use std::ops::IndexMut;
 
 use dtoa;
 
 use errors::*;
 pub use self::field::{maybe_field, maybe_any_field};
+
 
 //TODO Need to make sure right number of fields are being output for card
 #[derive(PartialEq, Clone)]
@@ -150,11 +152,11 @@ impl<'a> fmt::Display for Deck<'a> {
 }
 impl<'a> Deck<'a> {
     pub fn new() -> Deck<'a> {
-            Deck {
-                cards: vec![],
-                header: None,
-                unparsed: None,
-            }
+        Deck {
+            cards: vec![],
+            header: None,
+            unparsed: None,
+        }
     }
 
     pub fn set_header(&mut self, header: &'a [u8]) {
@@ -170,10 +172,16 @@ impl<'a> Deck<'a> {
     }
 }
 
+impl<'a> From<WorkingDeck<'a>> for Deck<'a> {
+    fn from(working_deck: WorkingDeck<'a>) -> Self {
+        working_deck.deck
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub struct WorkingDeck<'a> {
     deck: Deck<'a>,
-    continuations: HashMap<&'a str, Card<'a>>,
+    continuations: HashMap<&'a str, usize>,
 }
 
 impl<'a> WorkingDeck<'a> {
@@ -188,30 +196,36 @@ impl<'a> WorkingDeck<'a> {
         }
     }
 
-    pub fn to_deck(self) -> Deck<'a> {
-        self.deck
-    }
-
     pub fn add_card(&mut self, card: Card<'a>) -> Result<()> {
-        let ref mut continuations = self.continuations;
         match card.first {
             Field::Continuation(c) |
             Field::DoubleContinuation(c) => {
-                if let Some(existing) = continuations.get_mut(c) {
-                    existing.merge(card)
+                let index = self.continuations.get(c).ok_or(
+                    ErrorKind::UnmatchedContinuation(
+                        c.to_owned(),
+                    ),
+                )?;
+                let mut existing = self.deck.cards.index_mut(*index);
+                existing.merge(card);
+            }
+            Field::String(_) |
+            Field::DoubleString(_) => {
+                if let Some(cont) = card.continuation {
+                    self.continuations.insert(cont, self.deck.cards.len());
+                } else {
+                    self.continuations.insert("", self.deck.cards.len());
                 }
-            }
-            Field::String(c) |
-            Field::DoubleString(c) => {
                 self.deck.cards.push(card);
-                //let card_ref = self.deck.cards.last().unwrap();
-                //if let Some(cont) = card.continuation {
-                //self.continuations.insert(cont,card_ref);
-                //} else {
-                //self.continuations.insert(b"",card_ref);
-                //}
             }
-            Field::Blank => (),
+            Field::Blank => {
+                let index = self.continuations.get("").ok_or(
+                    ErrorKind::UnmatchedContinuation(
+                        "".to_owned(),
+                    ),
+                )?;
+                let mut existing = self.deck.cards.index_mut(*index);
+                existing.merge(card);
+            }
             _ => unreachable!(),
         };
         Ok(())
@@ -340,13 +354,29 @@ pub fn parse_line(buffer: &[u8]) -> Result<Card> {
     let mut continuation = None;
     if is_comma {
         let mut i = 2;
+        let mut field_count = 0;
+        let mut check_cont = false;
         for sl in remainder.split(|&b| b == b',') {
-            if i % 10 == 0 || i % 10 == 1 {
-                fields.push(field::maybe_any_field(sl)?);
+            if field_count == 8 {
+                let f = field::maybe_any_field(sl)?;
+                match f {
+                    Field::Continuation(_) |
+                    Field::DoubleContinuation(_) => {
+                        // TODO Need to handle continuations in comma separated
+                        return Err(ErrorKind::UnexpectedContinuation.into())
+                    }
+                    _ => fields.push(f),
+
+                }
+                field_count = 0;
             } else {
                 fields.push(field::maybe_field(sl)?);
+                field_count += 1;
             }
             i += 1;
+        }
+        while field_count < 8 {
+            fields.push(Field::Blank)
         }
         remainder = b"";
     } else if is_double {
@@ -356,7 +386,7 @@ pub fn parse_line(buffer: &[u8]) -> Result<Card> {
                 remainder = pair.1;
                 fields.push(field::maybe_field(sl)?)
             } else {
-                break;
+                fields.push(field::Blank)
             }
         }
         if !remainder.is_empty() {
@@ -373,7 +403,7 @@ pub fn parse_line(buffer: &[u8]) -> Result<Card> {
                 remainder = pair.1;
                 fields.push(field::maybe_field(sl)?)
             } else {
-                break;
+                fields.push(field::Blank)
             }
         }
         if !remainder.is_empty() {
@@ -459,7 +489,7 @@ pub fn read_header(input_buffer: &[u8]) -> (Option<&[u8]>, &[u8]) {
 
 
 pub fn parse_buffer(input_buffer: &[u8]) -> Result<Deck> {
-    let mut deck = Deck::new();
+    let mut deck = WorkingDeck::new();
     let mut line_num = 1;
     let (header, mut buffer) = read_header(input_buffer);
     if let Some(h) = header {
@@ -482,17 +512,17 @@ pub fn parse_buffer(input_buffer: &[u8]) -> Result<Deck> {
                 deck.set_unparsed(&buffer[j + 1..]);
                 break;
             } else {
-                deck.add_card(card);
+                deck.add_card(card)?;
                 buffer = &buffer[j + 1..];
             }
         } else {
             let card = parse_line(buffer).chain_err(|| {
                 format!("Error parsing line {}", line_num)
             })?;
-            deck.add_card(card);
+            deck.add_card(card)?;
             break;
         }
         line_num += 1;
     }
-    Ok(deck)
+    Ok(deck.into())
 }

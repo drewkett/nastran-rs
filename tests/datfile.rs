@@ -5,7 +5,6 @@ const DATFILE: &'static [u8] = b"\
 PARAM,POST , 1 $ABC
 PARAM, WTMASS,0.00259
 +,1,2
-+a,1,2
 
 
 ABCDEF,123456,123456,123456,123456,123456,123456,123456,123456,123456,123456,123456,123456
@@ -45,31 +44,21 @@ fn comma_separated() {
             fields: vec![
                 datfile::Field::String("WTMASS"),
                 datfile::Field::Float(0.00259),
+                datfile::Field::Blank,
+                datfile::Field::Blank,
+                datfile::Field::Blank,
+                datfile::Field::Blank,
+                datfile::Field::Blank,
+                datfile::Field::Blank,
+                datfile::Field::Int(1),
+                datfile::Field::Int(2),
+                datfile::Field::Blank,
+                datfile::Field::Blank,
+                datfile::Field::Blank,
+                datfile::Field::Blank,
+                datfile::Field::Blank,
+                datfile::Field::Blank,
             ],
-            continuation: None,
-            comment: None,
-            is_comma: true,
-            is_double: false,
-            unparsed: None,
-        })
-    );
-    assert_eq!(
-        it.next(),
-        Some(datfile::Card {
-            first: datfile::Field::Continuation(""),
-            fields: vec![datfile::Field::Int(1), datfile::Field::Int(2)],
-            continuation: None,
-            comment: None,
-            is_comma: true,
-            is_double: false,
-            unparsed: None,
-        })
-    );
-    assert_eq!(
-        it.next(),
-        Some(datfile::Card {
-            first: datfile::Field::Continuation("a"),
-            fields: vec![datfile::Field::Int(1), datfile::Field::Int(2)],
             continuation: None,
             comment: None,
             is_comma: true,
@@ -152,7 +141,7 @@ fn comma_separated() {
                 datfile::Field::Float(373.213),
                 datfile::Field::Float(3.329),
             ],
-            continuation: Some(b"ED00013"),
+            continuation: Some("ED00013"),
             comment: None,
             is_comma: false,
             is_double: true,
@@ -185,7 +174,7 @@ fn comma_separated() {
                 datfile::Field::Float(0.0),
                 datfile::Field::Float(0.059),
             ],
-            continuation: Some(b""),
+            continuation: Some(""),
             comment: None,
             is_comma: false,
             is_double: false,
