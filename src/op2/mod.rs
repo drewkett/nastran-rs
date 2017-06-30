@@ -78,9 +78,10 @@ named!(pub read_fortran_i32<i32>,
   ));
 
 fn read_fortran_known_i32(input: &[u8], v: i32) -> IResult<&[u8], ()> {
-    do_parse!(input,
-              apply!(read_known_i32, 4) >> apply!(read_known_i32, v) >>
-              apply!(read_known_i32, 4) >> ())
+    do_parse!(
+        input,
+        apply!(read_known_i32, 4) >> apply!(read_known_i32, v) >> apply!(read_known_i32, 4) >> ()
+    )
 }
 
 named!(pub read_nastran_i32<i32>,
@@ -92,17 +93,21 @@ named!(pub read_nastran_i32<i32>,
 );
 
 pub fn read_nastran_known_i32(input: &[u8], v: i32) -> IResult<&[u8], ()> {
-    do_parse!(input,
-              apply!(read_fortran_known_i32, 1) >> apply!(read_fortran_known_i32, v) >> ())
+    do_parse!(
+        input,
+        apply!(read_fortran_known_i32, 1) >> apply!(read_fortran_known_i32, v) >> ()
+    )
 }
 
 const WORD_SIZE: i32 = 4;
 
 pub fn read_nastran_tag<'a>(input: &'a [u8], v: &[u8]) -> IResult<&'a [u8], ()> {
     let l: i32 = v.len() as i32;
-    do_parse!(input,
-              apply!(read_fortran_known_i32, l / WORD_SIZE) >>
-              apply!(read_known_i32, l) >> tag!(v) >> apply!(read_known_i32, l) >> ())
+    do_parse!(
+        input,
+        apply!(read_fortran_known_i32, l / WORD_SIZE) >> apply!(read_known_i32, l) >> tag!(v) >>
+            apply!(read_known_i32, l) >> ()
+    )
 }
 
 pub fn read_nastran_data_known_length(input: &[u8], v: i32) -> IResult<&[u8], &[u8]> {
@@ -153,9 +158,10 @@ named!(pub read_nastran_key<i32>, do_parse!(
 ));
 
 pub fn read_nastran_known_key(input: &[u8], v: i32) -> IResult<&[u8], ()> {
-    do_parse!(input,
-              apply!(read_known_i32, 4) >> apply!(read_known_i32, v) >>
-              apply!(read_known_i32, 4) >> ())
+    do_parse!(
+        input,
+        apply!(read_known_i32, 4) >> apply!(read_known_i32, v) >> apply!(read_known_i32, 4) >> ()
+    )
 }
 
 pub fn buf_to_struct<T: Sized>(buf: &[u8]) -> &T {
