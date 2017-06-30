@@ -16,7 +16,7 @@ pub trait BufferUtil {
     fn to_string_lossy(self) -> String;
 }
 
-impl <'a> BufferUtil for &'a [u8] {
+impl<'a> BufferUtil for &'a [u8] {
     fn to_string_lossy(self) -> String {
         String::from_utf8_lossy(self).into_owned()
     }
@@ -207,7 +207,11 @@ impl<'a> WorkingDeck<'a> {
         match card.first {
             Field::Continuation(c) |
             Field::DoubleContinuation(c) => {
-                let index = self.continuations.remove(c).ok_or(Error::UnmatchedContinuation(c.to_owned()))?;
+                let index = self.continuations.remove(c).ok_or(
+                    Error::UnmatchedContinuation(
+                        c.to_owned(),
+                    ),
+                )?;
                 let mut existing = self.deck.cards.index_mut(index);
                 self.continuations.insert(card.continuation, index);
                 existing.merge(card);
@@ -221,7 +225,11 @@ impl<'a> WorkingDeck<'a> {
                 self.deck.cards.push(card);
             }
             Field::Blank => {
-                let index = self.continuations.remove("").ok_or(Error::UnmatchedContinuation("".to_owned()))?;
+                let index = self.continuations.remove("").ok_or(
+                    Error::UnmatchedContinuation(
+                        "".to_owned(),
+                    ),
+                )?;
                 let mut existing = self.deck.cards.index_mut(index);
                 self.continuations.insert(card.continuation, index);
                 existing.merge(card);
@@ -424,8 +432,9 @@ pub fn parse_line(buffer: &[u8]) -> Result<Card> {
     })
 }
 
-pub fn read_comments(input_buffer: &[u8]) -> &[u8] {
+pub fn read_comments(input_buffer: &[u8]) -> (&[u8], usize) {
     let mut buffer = input_buffer;
+    let mut lines_read = 0;
     while let Some(j) = buffer.iter().position(|&c| c == b'\n') {
         let mut line_iter = buffer.iter().take(j);
         let mut is_comment_or_blank = true;
@@ -440,17 +449,18 @@ pub fn read_comments(input_buffer: &[u8]) -> &[u8] {
             }
         }
         if !is_comment_or_blank {
-            return buffer;
+            return (buffer, lines_read);
         } else {
-            buffer = &buffer[j + 1..]
+            buffer = &buffer[j + 1..];
+            lines_read += 1;
         }
     }
-    return buffer;
+    (buffer, lines_read)
 }
 
-pub fn read_header(input_buffer: &[u8]) -> (Option<&[u8]>, &[u8]) {
+pub fn read_header(input_buffer: &[u8]) -> (Option<&[u8]>, &[u8], usize) {
     let mut header = None;
-    let mut buffer = read_comments(input_buffer);
+    let (mut buffer, mut lines_read) = read_comments(input_buffer);
     if !buffer.is_empty() {
         let is_header = match buffer[0] {
             b'I' => buffer.len() > 4 && &buffer[..4] == b"INIT",
@@ -466,10 +476,12 @@ pub fn read_header(input_buffer: &[u8]) -> (Option<&[u8]>, &[u8]) {
                     if line.len() > 5 && &line[..5] == b"BEGIN" {
                         header_end = Some(input_buffer.len() - buffer.len());
                         buffer = &buffer[j + 1..];
+                        lines_read += 1;
                         break;
                     }
                 }
-                buffer = &buffer[j + 1..]
+                buffer = &buffer[j + 1..];
+                lines_read += 1;
             }
             if let Some(j) = header_end {
                 header = Some(&input_buffer[..j]);
@@ -482,14 +494,15 @@ pub fn read_header(input_buffer: &[u8]) -> (Option<&[u8]>, &[u8]) {
             buffer = input_buffer;
         }
     }
-    (header, buffer)
+    (header, buffer, lines_read)
 }
 
 
 pub fn parse_buffer(input_buffer: &[u8]) -> Result<Deck> {
     let mut deck = WorkingDeck::new();
     let mut line_num = 1;
-    let (header, mut buffer) = read_header(input_buffer);
+    let (header, mut buffer, lines_read) = read_header(input_buffer);
+    line_num += lines_read;
     if let Some(h) = header {
         deck.set_header(h);
     }
@@ -502,7 +515,9 @@ pub fn parse_buffer(input_buffer: &[u8]) -> Result<Deck> {
             if j > 0 && line[j - 1] == b'\r' {
                 line = &buffer[..j - 1]
             }
-            let card = parse_line(line).map_err(|e| Error::LineError(line_num,Box::new(e)))?;
+            let card = parse_line(line).map_err(
+                |e| Error::LineError(line_num, Box::new(e)),
+            )?;
             // Check for ENDDATA. If found, drop the card and set remaining buffer to unparsed
             if card.first == Field::String("ENDDATA") {
                 deck.set_unparsed(&buffer[j + 1..]);
@@ -512,7 +527,9 @@ pub fn parse_buffer(input_buffer: &[u8]) -> Result<Deck> {
                 buffer = &buffer[j + 1..];
             }
         } else {
-            let card = parse_line(buffer).map_err(|e| Error::LineError(line_num,Box::new(e)))?;
+            let card = parse_line(buffer).map_err(|e| {
+                Error::LineError(line_num, Box::new(e))
+            })?;
             deck.add_card(card)?;
             break;
         }
