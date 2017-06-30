@@ -26,7 +26,7 @@ fn comma_separated() {
     assert_eq!(
         it.next(),
         Some(datfile::Card {
-            first: datfile::Field::String("PARAM"),
+            first: Some(datfile::Field::String("PARAM")),
             fields: vec![
                 datfile::Field::String("POST"),
                 datfile::Field::Int(1),
@@ -47,7 +47,7 @@ fn comma_separated() {
     assert_eq!(
         it.next(),
         Some(datfile::Card {
-            first: datfile::Field::String("PARAM"),
+            first: Some(datfile::Field::String("PARAM")),
             fields: vec![
                 datfile::Field::String("WTMASS"),
                 datfile::Field::Float(0.00259),
@@ -76,7 +76,7 @@ fn comma_separated() {
     assert_eq!(
         it.next(),
         Some(datfile::Card {
-            first: datfile::Field::String("ABCDEF"),
+            first: Some(datfile::Field::String("ABCDEF")),
             fields: vec![
                 datfile::Field::Int(123456),
                 datfile::Field::Int(123456),
@@ -105,7 +105,7 @@ fn comma_separated() {
     assert_eq!(
         it.next(),
         Some(datfile::Card {
-            first: datfile::Field::String("BLAH"),
+            first: Some(datfile::Field::String("BLAH")),
             fields: vec![
                 datfile::Field::Int(123),
                 datfile::Field::Float(1e5),
@@ -126,7 +126,7 @@ fn comma_separated() {
     assert_eq!(
         it.next(),
         Some(datfile::Card {
-            first: datfile::Field::DoubleString("GRID"),
+            first: Some(datfile::Field::DoubleString("GRID")),
             fields: vec![
                 datfile::Field::Int(1100001),
                 datfile::Field::Int(0),
@@ -179,7 +179,7 @@ fn header() {
     deck.set_header(b"$ABC\n\nNASTRAN\n");
     deck.set_unparsed(b"BCD,2\n");
     deck.add_card(datfile::Card {
-        first: datfile::Field::String("ABC"),
+        first: Some(datfile::Field::String("ABC")),
         fields: vec![
             datfile::Field::Int(1),
             datfile::Field::Blank,
