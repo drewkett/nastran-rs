@@ -62,7 +62,7 @@ impl<'a> fmt::Display for Field<'a> {
                 Field::Blank => write!(f, "        "),
                 Field::Int(i) => write!(f, "{:8}", i),
                 Field::Float(d) => write!(f, "{:>8}", float_to_8(d)),
-                Field::Double(d) => write!(f, "{:>8}", double_to_8(d)),
+                Field::Double(d) => write!(f, "{:>8}", float_to_8(d)),
                 Field::Continuation(c) => write!(f, "+{:7}", c),
                 Field::String(s) => write!(f, "{:8}", s),
                 Field::DoubleContinuation(c) => write!(f, "*{:7}", c),
@@ -72,8 +72,8 @@ impl<'a> fmt::Display for Field<'a> {
             match *self {
                 Field::Blank => write!(f, "                "),
                 Field::Int(i) => write!(f, "{:16}", i),
-                Field::Float(d) => write!(f, "{:16.9e}", d),
-                Field::Double(d) => write!(f, "{:16.9e}", d),
+                Field::Float(d) => write!(f, "{:>16}", float_to_16(d)),
+                Field::Double(d) => write!(f, "{:>16}", float_to_16(d)),
                 Field::Continuation(_) => unreachable!(),
                 Field::String(s) => write!(f, "{:16}", s),
                 Field::DoubleContinuation(_) => unreachable!(),
@@ -126,7 +126,11 @@ impl<'a> fmt::Debug for Card<'a> {
             try!(write!(f, "double,"));
         }
         if let Some(unparsed) = self.unparsed {
-            try!(write!(f, "Unparsed='{}',", String::from_utf8_lossy(unparsed)));
+            try!(write!(
+                f,
+                "Unparsed='{}',",
+                String::from_utf8_lossy(unparsed)
+            ));
         }
         write!(f, ")")
     }
@@ -278,21 +282,24 @@ impl<'a> WorkingDeck<'a> {
     }
 }
 
-fn float_to_8(f: f32) -> String {
+fn float_to_8<T>(f: T) -> String
+where
+    T: Into<f64> + Copy + fmt::Display + fmt::LowerExp + dtoa::Floating + cmp::PartialOrd,
+{
     // FIXME: can be improved
-    let mut buf = [b' '; 8];
+    let mut buf = [b' '; 9];
     if let Ok(n) = dtoa::write(&mut buf[..], f) {
         unsafe { String::from_utf8_unchecked(buf[..n].to_vec()) }
     } else {
-        let s = if f <= -1e+10 {
+        let s = if f.into() <= -1e+10 {
             format!("{:8.1e}", f)
-        } else if f < -1e-10 {
+        } else if f.into() < -1e-10 {
             format!("{:8.2e}", f)
-        } else if f < 0.0 {
+        } else if f.into() < 0.0 {
             format!("{:8.1e}", f)
-        } else if f <= 1e-10 {
+        } else if f.into() <= 1e-10 {
             format!("{:8.2e}", f)
-        } else if f < 1e+10 {
+        } else if f.into() < 1e+10 {
             format!("{:8.3e}", f)
         } else {
             format!("{:8.2e}", f)
@@ -304,31 +311,23 @@ fn float_to_8(f: f32) -> String {
     }
 }
 
-fn double_to_8(f: f64) -> String {
+fn float_to_16<T>(f: T) -> String
+where
+    T: Copy + fmt::Display + fmt::LowerExp + dtoa::Floating,
+{
     // FIXME: can be improved
-    let mut buf = [b' '; 8];
+    let mut buf = [b' '; 16];
     if let Ok(n) = dtoa::write(&mut buf[..], f) {
         unsafe { String::from_utf8_unchecked(buf[..n].to_vec()) }
     } else {
-        let s = if f <= -1e+10 {
-            format!("{:8.1e}", f)
-        } else if f < -1e-10 {
-            format!("{:8.2e}", f)
-        } else if f < 0.0 {
-            format!("{:8.1e}", f)
-        } else if f <= 1e-10 {
-            format!("{:8.2e}", f)
-        } else if f < 1e+10 {
-            format!("{:8.3e}", f)
-        } else {
-            format!("{:8.2e}", f)
-        };
-        if s.len() > 8 {
-            panic!("help '{}'", s)
+        let s = format!("{:16.8e}", f);
+        if s.len() > 16 {
+            panic!("Couldn't write {} in less than 16 chars '{}'", f, s)
         }
         s
     }
 }
+
 
 fn split_line(buffer: &[u8]) -> (&[u8], &[u8]) {
     let mut i_comment = cmp::min(80, buffer.len());
