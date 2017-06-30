@@ -8,7 +8,6 @@ use std::collections::HashMap;
 use std::ops::IndexMut;
 
 use dtoa;
-use itertools::Itertools;
 
 use errors::*;
 pub use self::field::{maybe_field, maybe_any_field};
@@ -73,12 +72,12 @@ impl<'a> fmt::Display for Field<'a> {
             match *self {
                 Field::Blank => write!(f, "                "),
                 Field::Int(i) => write!(f, "{:16}", i),
-                Field::Float(d) => write!(f, "{:>16}", float_to_8(d)),
-                Field::Double(d) => write!(f, "{:>16}", double_to_8(d)),
+                Field::Float(d) => write!(f, "{:16.9e}", d),
+                Field::Double(d) => write!(f, "{:16.9e}", d),
                 Field::Continuation(_) => unreachable!(),
-                Field::String(s) => write!(f, "{:8}", s),
+                Field::String(s) => write!(f, "{:16}", s),
                 Field::DoubleContinuation(_) => unreachable!(),
-                Field::DoubleString(s) => write!(f, "{:7}*", s),
+                Field::DoubleString(s) => write!(f, "{:15}*", s),
             }
         } else {
             unreachable!()
