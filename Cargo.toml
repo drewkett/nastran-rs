@@ -9,6 +9,9 @@ quick-error = "1.2"
 ascii = "0.8"
 clap = "2.24"
 dtoa = "0.4"
+itertools = "0.6"
+num = "0.1"
+num-traits = "0.1"
 
 [dependencies.nom]
 version = "^3.0"

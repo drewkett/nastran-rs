@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::ops::IndexMut;
 
 use dtoa;
+use itertools::Itertools;
 
 use errors::*;
 pub use self::field::{maybe_field, maybe_any_field};
@@ -51,22 +52,43 @@ impl<'a> fmt::Debug for Field<'a> {
 }
 impl<'a> fmt::Display for Field<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            Field::Blank => write!(f, "        "),
-            Field::Int(i) => write!(f, "{:8}", i),
-            Field::Float(d) => write!(f, "{:>8}", float_to_8(d)),
-            Field::Double(d) => write!(f, "{:>8}", double_to_8(d)),
-            Field::Continuation(c) => write!(f, "+{:7}", c),
-            Field::String(s) => write!(f, "{:8}", s),
-            Field::DoubleContinuation(c) => write!(f, "*{:7}", c),
-            Field::DoubleString(s) => write!(f, "{:7}*", s),
+        let width = match f.width() {
+            Some(8) => 8,
+            Some(16) => 16,
+            Some(_) => return Err(fmt::Error),
+            None => 8,
+        };
+        if width == 8 {
+            match *self {
+                Field::Blank => write!(f, "        "),
+                Field::Int(i) => write!(f, "{:8}", i),
+                Field::Float(d) => write!(f, "{:>8}", float_to_8(d)),
+                Field::Double(d) => write!(f, "{:>8}", double_to_8(d)),
+                Field::Continuation(c) => write!(f, "+{:7}", c),
+                Field::String(s) => write!(f, "{:8}", s),
+                Field::DoubleContinuation(c) => write!(f, "*{:7}", c),
+                Field::DoubleString(s) => write!(f, "{:7}*", s),
+            }
+        } else if width == 16 {
+            match *self {
+                Field::Blank => write!(f, "                "),
+                Field::Int(i) => write!(f, "{:16}", i),
+                Field::Float(d) => write!(f, "{:>16}", float_to_8(d)),
+                Field::Double(d) => write!(f, "{:>16}", double_to_8(d)),
+                Field::Continuation(_) => unreachable!(),
+                Field::String(s) => write!(f, "{:8}", s),
+                Field::DoubleContinuation(_) => unreachable!(),
+                Field::DoubleString(s) => write!(f, "{:7}*", s),
+            }
+        } else {
+            unreachable!()
         }
     }
 }
 
 #[derive(PartialEq, Clone)]
 pub struct Card<'a> {
-    pub first: Field<'a>,
+    pub first: Option<Field<'a>>,
     pub fields: Vec<Field<'a>>,
     pub continuation: &'a str,
     pub comment: Option<&'a [u8]>,
@@ -120,12 +142,32 @@ impl<'a> fmt::Debug for Card<'a> {
 
 impl<'a> fmt::Display for Card<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if self.first != Field::Blank || !self.fields.is_empty() {
-            try!(write!(f, "{}", self.first));
-            for field in &self.fields {
-                try!(write!(f, "{}", field));
+        if let Some(ref first) = self.first {
+            try!(write!(f, "{}", first));
+            let mut write_cont = false;
+            if self.is_double {
+                for field_chunk in self.fields.chunks(4) {
+                    if write_cont {
+                        try!(write!(f, "+       \n*       "))
+                    }
+                    for field in field_chunk {
+                        try!(write!(f, "{:16}", field))
+                    }
+                    write_cont = true;
+                }
+            } else {
+                for field_chunk in self.fields.chunks(8) {
+                    if write_cont {
+                        try!(write!(f, "+       \n+       "))
+                    }
+                    for field in field_chunk {
+                        try!(write!(f, "{}", field))
+                    }
+                    write_cont = true;
+                }
             }
-            try!(write!(f, "+{}", self.continuation));
+            // TODO Need a better way to handle this. I complete card shouldn't have a continuation
+            //try!(write!(f, "+{:7}", self.continuation));
         }
         if let Some(comment) = self.comment {
             if !comment.is_empty() && comment[0] != b'$' {
@@ -205,8 +247,8 @@ impl<'a> WorkingDeck<'a> {
 
     pub fn add_card(&mut self, card: Card<'a>) -> Result<()> {
         match card.first {
-            Field::Continuation(c) |
-            Field::DoubleContinuation(c) => {
+            Some(Field::Continuation(c)) |
+            Some(Field::DoubleContinuation(c)) => {
                 let index = self.continuations.remove(c).ok_or(
                     Error::UnmatchedContinuation(
                         c.to_owned(),
@@ -216,15 +258,15 @@ impl<'a> WorkingDeck<'a> {
                 self.continuations.insert(card.continuation, index);
                 existing.merge(card);
             }
-            Field::String(_) |
-            Field::DoubleString(_) => {
+            Some(Field::String(_)) |
+            Some(Field::DoubleString(_)) => {
                 self.continuations.insert(
                     card.continuation,
                     self.deck.cards.len(),
                 );
                 self.deck.cards.push(card);
             }
-            Field::Blank => {
+            Some(Field::Blank) => {
                 let index = self.continuations.remove("").ok_or(
                     Error::UnmatchedContinuation(
                         "".to_owned(),
@@ -234,6 +276,7 @@ impl<'a> WorkingDeck<'a> {
                 self.continuations.insert(card.continuation, index);
                 existing.merge(card);
             }
+            None => self.deck.cards.push(card),
             _ => unreachable!(),
         };
         Ok(())
@@ -252,7 +295,23 @@ fn float_to_8(f: f32) -> String {
     if let Ok(n) = dtoa::write(&mut buf[..], f) {
         unsafe { String::from_utf8_unchecked(buf[..n].to_vec()) }
     } else {
-        format!("{:8e}", f)
+        let s = if f <= -1e+10 {
+            format!("{:8.1e}", f)
+        } else if f < -1e-10 {
+            format!("{:8.2e}", f)
+        } else if f < 0.0 {
+            format!("{:8.1e}", f)
+        } else if f <= 1e-10 {
+            format!("{:8.2e}", f)
+        } else if f < 1e+10 {
+            format!("{:8.3e}", f)
+        } else {
+            format!("{:8.2e}", f)
+        };
+        if s.len() > 8 {
+            panic!("help '{}'", s)
+        }
+        s
     }
 }
 
@@ -262,7 +321,23 @@ fn double_to_8(f: f64) -> String {
     if let Ok(n) = dtoa::write(&mut buf[..], f) {
         unsafe { String::from_utf8_unchecked(buf[..n].to_vec()) }
     } else {
-        format!("{:8e}", f)
+        let s = if f <= -1e+10 {
+            format!("{:8.1e}", f)
+        } else if f < -1e-10 {
+            format!("{:8.2e}", f)
+        } else if f < 0.0 {
+            format!("{:8.1e}", f)
+        } else if f <= 1e-10 {
+            format!("{:8.2e}", f)
+        } else if f < 1e+10 {
+            format!("{:8.3e}", f)
+        } else {
+            format!("{:8.2e}", f)
+        };
+        if s.len() > 8 {
+            panic!("help '{}'", s)
+        }
+        s
     }
 }
 
@@ -348,6 +423,17 @@ fn get_long_slice(buffer: &[u8]) -> Option<(&[u8], &[u8])> {
 
 pub fn parse_line(buffer: &[u8]) -> Result<Card> {
     let (content, comment) = split_line(buffer);
+    if content.is_empty() {
+        return Ok(Card {
+            first: None,
+            fields: vec![],
+            continuation: "",
+            comment: option_from_slice(comment),
+            is_double: false,
+            is_comma: false,
+            unparsed: None,
+        });
+    }
     let FirstField {
         field,
         is_comma,
@@ -362,19 +448,30 @@ pub fn parse_line(buffer: &[u8]) -> Result<Card> {
     let mut continuation = "";
     if is_comma {
         let mut field_count = 0;
-        for sl in remainder.split(|&b| b == b',') {
+        let mut it = remainder.split(|&b| b == b',');
+        while let Some(sl) = it.next() {
             if field_count == 8 {
-                let f = field::maybe_any_field(sl)?;
-                match f {
+                match field::maybe_any_field(sl)? {
                     Field::Continuation(c) |
                     Field::DoubleContinuation(c) => {
-                        // TODO Need to handle continuations in comma separated
-                        return Err(Error::UnexpectedContinuation(c.to_owned()));
+                        if let Some(sl) = it.next() {
+                            match field::maybe_any_field(sl)? {
+                                Field::Continuation(_) |
+                                Field::DoubleContinuation(_) => {
+                                    field_count = 0;
+                                }
+                                _ => return Err(Error::UnexpectedContinuation(c.to_owned())),
+                            }
+                        } else {
+                            continuation = c;
+                            break;
+                        }
                     }
-                    _ => fields.push(f),
-
+                    f @ _ => {
+                        fields.push(f);
+                        field_count = 1;
+                    }
                 }
-                field_count = 1;
             } else {
                 fields.push(field::maybe_field(sl)?);
                 field_count += 1;
@@ -421,15 +518,28 @@ pub fn parse_line(buffer: &[u8]) -> Result<Card> {
         }
     }
 
-    Ok(Card {
-        first: field,
-        fields,
-        continuation,
-        comment: option_from_slice(comment),
-        is_double,
-        is_comma,
-        unparsed: option_from_slice(remainder),
-    })
+    if field == Field::Blank && fields.iter().all(|f| *f == Field::Blank) {
+        Ok(Card {
+            first: None,
+            fields: vec![],
+            continuation: "",
+            comment: option_from_slice(comment),
+            is_double: false,
+            is_comma: false,
+            unparsed: option_from_slice(remainder),
+        })
+    } else {
+        Ok(Card {
+            first: Some(field),
+            fields,
+            continuation,
+            comment: option_from_slice(comment),
+            is_double,
+            is_comma,
+            unparsed: option_from_slice(remainder),
+        })
+    }
+
 }
 
 pub fn read_comments(input_buffer: &[u8]) -> (&[u8], usize) {
@@ -519,7 +629,7 @@ pub fn parse_buffer(input_buffer: &[u8]) -> Result<Deck> {
                 |e| Error::LineError(line_num, Box::new(e)),
             )?;
             // Check for ENDDATA. If found, drop the card and set remaining buffer to unparsed
-            if card.first == Field::String("ENDDATA") {
+            if card.first == Some(Field::String("ENDDATA")) {
                 deck.set_unparsed(&buffer[j + 1..]);
                 break;
             } else {

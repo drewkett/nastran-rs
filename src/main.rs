@@ -14,6 +14,9 @@ extern crate ascii;
 extern crate quick_error;
 extern crate dtoa;
 extern crate clap;
+extern crate itertools;
+extern crate num;
+extern crate num_traits;
 
 use std::fs::File;
 use std::io::Write;
