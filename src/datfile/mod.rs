@@ -117,11 +117,7 @@ impl<'a> fmt::Debug for Card<'a> {
             try!(write!(f, "+{:?}", self.continuation));
         }
         if let Some(comment) = self.comment {
-            try!(write!(
-                f,
-                "Comment='{}',",
-                unsafe { str::from_utf8_unchecked(comment) }
-            ));
+            try!(write!(f, "Comment='{}',", String::from_utf8_lossy(comment)));
         }
         if self.is_comma {
             try!(write!(f, "comma,"));
@@ -130,9 +126,7 @@ impl<'a> fmt::Debug for Card<'a> {
             try!(write!(f, "double,"));
         }
         if let Some(unparsed) = self.unparsed {
-            try!(write!(f, "Unparsed='{}',", unsafe {
-                str::from_utf8_unchecked(unparsed)
-            }));
+            try!(write!(f, "Unparsed='{}',", String::from_utf8_lossy(unparsed)));
         }
         write!(f, ")")
     }
@@ -172,11 +166,7 @@ impl<'a> fmt::Display for Card<'a> {
             if !comment.is_empty() && comment[0] != b'$' {
                 try!(write!(f, "$"));
             }
-            try!(write!(
-                f,
-                "{}",
-                unsafe { str::from_utf8_unchecked(comment) }
-            ));
+            try!(write!(f, "{}", String::from_utf8_lossy(comment)));
         }
         write!(f, "")
     }
