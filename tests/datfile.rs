@@ -195,6 +195,6 @@ fn header() {
         is_comma: true,
         is_double: false,
         unparsed: None,
-    });
+    }).unwrap();
     assert_eq!(res, deck);
 }

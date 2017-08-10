@@ -52,10 +52,9 @@ impl<'a> fmt::Debug for Field<'a> {
 impl<'a> fmt::Display for Field<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let width = match f.width() {
-            Some(8) => 8,
+            Some(8) | None => 8,
             Some(16) => 16,
             Some(_) => return Err(fmt::Error),
-            None => 8,
         };
         if width == 8 {
             match *self {
@@ -192,6 +191,13 @@ impl<'a> fmt::Display for Deck<'a> {
         write!(f, ")")
     }
 }
+
+impl<'a> Default for Deck<'a> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'a> Deck<'a> {
     pub fn new() -> Deck<'a> {
         Deck {
@@ -224,6 +230,12 @@ impl<'a> From<WorkingDeck<'a>> for Deck<'a> {
 pub struct WorkingDeck<'a> {
     deck: Deck<'a>,
     continuations: HashMap<&'a str, usize>,
+}
+
+impl<'a> Default for WorkingDeck<'a> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<'a> WorkingDeck<'a> {
@@ -455,7 +467,7 @@ pub fn parse_line(buffer: &[u8]) -> Result<Card> {
                             break;
                         }
                     }
-                    f @ _ => {
+                    f => {
                         fields.push(f);
                         field_count = 1;
                     }
@@ -534,9 +546,8 @@ pub fn read_comments(input_buffer: &[u8]) -> (&[u8], usize) {
     let mut buffer = input_buffer;
     let mut lines_read = 0;
     while let Some(j) = buffer.iter().position(|&c| c == b'\n') {
-        let mut line_iter = buffer.iter().take(j);
         let mut is_comment_or_blank = true;
-        while let Some(&c) = line_iter.next() {
+        for &c in buffer.iter().take(j) {
             match c {
                 b' ' => (),
                 b'$' => break,
@@ -570,13 +581,11 @@ pub fn read_header(input_buffer: &[u8]) -> (Option<&[u8]>, &[u8], usize) {
             // Loop through lines, looking for BEGIN [BULK]
             while let Some(j) = buffer.iter().position(|&c| c == b'\n') {
                 let line = &buffer[..j];
-                if !line.is_empty() {
-                    if line.len() > 5 && &line[..5] == b"BEGIN" {
-                        header_end = Some(input_buffer.len() - buffer.len());
-                        buffer = &buffer[j + 1..];
-                        lines_read += 1;
-                        break;
-                    }
+                if line.len() > 5 && &line[..5] == b"BEGIN" {
+                    header_end = Some(input_buffer.len() - buffer.len());
+                    buffer = &buffer[j + 1..];
+                    lines_read += 1;
+                    break;
                 }
                 buffer = &buffer[j + 1..];
                 lines_read += 1;

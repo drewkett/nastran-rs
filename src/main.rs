@@ -55,7 +55,7 @@ pub fn main() {
             if let Some(output_filename) = matches.value_of("OUTPUT") {
                 if let Ok(mut f) = File::create(output_filename) {
                     if let Some(header) = deck.header {
-                        f.write(header).unwrap();
+                        f.write_all(header).unwrap();
                     }
                     for card in deck.cards {
                         write!(f, "{}\n", card).unwrap();
@@ -67,7 +67,7 @@ pub fn main() {
                 if let Some(header) = deck.header {
                     let stdout = io::stdout();
                     let mut handle = stdout.lock();
-                    handle.write(header).unwrap();
+                    handle.write_all(header).unwrap();
                 }
                 for card in deck.cards {
                     println!("{}", card)
