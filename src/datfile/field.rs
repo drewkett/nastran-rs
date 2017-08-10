@@ -90,7 +90,7 @@ fn maybe_string(buffer: &[u8]) -> Result<Field> {
     Err(Error::UnexpectedCharInField(buffer.to_string_lossy()))
 }
 
-fn maybe_number(buffer: &[u8]) -> Result<Field> {
+fn maybe_number(buffer: &[u8], always_double: bool) -> Result<Field> {
     let n = buffer.len();
     let mut i = 0;
     if is_plus_minus(buffer[i]) {
@@ -114,7 +114,11 @@ fn maybe_number(buffer: &[u8]) -> Result<Field> {
             i += count_digits(&buffer[i..]);
             if i == n {
                 let s = str::from_utf8(buffer)?;
-                return s.parse().map(Field::Float).map_err(|e| e.into());
+                if always_double {
+                    return s.parse().map(Field::Double).map_err(|e| e.into());
+                } else {
+                    return s.parse().map(Field::Float).map_err(|e| e.into());
+                }
             }
         }
         try_read_exponent = true;
@@ -128,7 +132,11 @@ fn maybe_number(buffer: &[u8]) -> Result<Field> {
         try_read_exponent = true;
         if i == n {
             let s = str::from_utf8(buffer)?;
-            return s.parse().map(Field::Float).map_err(|e| e.into());
+            if always_double {
+                return s.parse().map(Field::Double).map_err(|e| e.into());
+            } else {
+                return s.parse().map(Field::Float).map_err(|e| e.into());
+            }
         }
     }
     if try_read_exponent {
@@ -148,7 +156,11 @@ fn maybe_number(buffer: &[u8]) -> Result<Field> {
                 return Err(Error::UnexpectedCharInField(buffer.to_string_lossy()));
             }
             let s = str::from_utf8(buffer)?;
-            return s.parse().map(Field::Float).map_err(|e| e.into());
+            if always_double {
+                return s.parse().map(Field::Double).map_err(|e| e.into());
+            } else {
+                return s.parse().map(Field::Float).map_err(|e| e.into());
+            }
         } else if buffer[i] == b'd' || buffer[i] == b'D' {
             // j is the idnex of 'd' or 'D'. Needed for later replacing the value
             let j = i;
@@ -187,7 +199,11 @@ fn maybe_number(buffer: &[u8]) -> Result<Field> {
             temp[j] = b'e';
             temp[j + 1..n + 1].copy_from_slice(&buffer[j..]);
             let s = str::from_utf8(&temp[..n + 1])?;
-            return s.parse().map(Field::Float).map_err(|e| e.into());
+            if always_double {
+                return s.parse().map(Field::Double).map_err(|e| e.into());
+            } else {
+                return s.parse().map(Field::Float).map_err(|e| e.into());
+            }
         }
     }
     Err(Error::UnexpectedCharInField(buffer.to_string_lossy()))
@@ -240,7 +256,7 @@ pub fn trailing_continuation(buffer: &[u8]) -> Result<&str> {
     Ok(s.trim())
 }
 
-pub fn maybe_any_field(buffer: &[u8]) -> Result<Field> {
+pub fn maybe_any_field(buffer: &[u8], always_double: bool) -> Result<Field> {
     let n = buffer.len();
     if n == 0 {
         return Ok(Field::Blank);
@@ -249,7 +265,7 @@ pub fn maybe_any_field(buffer: &[u8]) -> Result<Field> {
         let buffer = trim_spaces(buffer);
         let n = buffer.len();
         if n > 1 && (is_numeric(buffer[1]) || buffer[1] == b'.') {
-            return maybe_number(buffer);
+            return maybe_number(buffer, always_double);
         } else if n <= 8 {
             let s = str::from_utf8(&buffer[1..])?;
             return Ok(Field::Continuation(s));
@@ -272,7 +288,7 @@ pub fn maybe_any_field(buffer: &[u8]) -> Result<Field> {
     }
     match buffer[0] {
         b'a'...b'z' | b'A'...b'Z' => maybe_string(buffer),
-        b'+' | b'-' | b'0'...b'9' | b'.' => maybe_number(buffer),
+        b'+' | b'-' | b'0'...b'9' | b'.' => maybe_number(buffer, always_double),
         _ => Err(Error::UnexpectedCharInField(buffer.to_string_lossy())),
     }
 }
@@ -288,7 +304,7 @@ pub fn maybe_field(buffer: &[u8]) -> Result<Field> {
     }
     match buffer[0] {
         b'a'...b'z' | b'A'...b'Z' => maybe_string(buffer),
-        b'+' | b'-' | b'0'...b'9' | b'.' => maybe_number(buffer),
+        b'+' | b'-' | b'0'...b'9' | b'.' => maybe_number(buffer, false),
         _ => Err(Error::UnexpectedCharInField(buffer.to_string_lossy())),
     }
 }

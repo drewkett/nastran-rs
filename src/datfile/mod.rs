@@ -451,11 +451,11 @@ pub fn parse_line(buffer: &[u8]) -> Result<Card> {
         let mut it = remainder.split(|&b| b == b',');
         while let Some(sl) = it.next() {
             if field_count == 8 {
-                match field::maybe_any_field(sl)? {
+                match field::maybe_any_field(sl,false)? {
                     Field::Continuation(c) |
                     Field::DoubleContinuation(c) => {
                         if let Some(sl) = it.next() {
-                            match field::maybe_any_field(sl)? {
+                            match field::maybe_any_field(sl,false)? {
                                 Field::Continuation(_) |
                                 Field::DoubleContinuation(_) => {
                                     field_count = 0;
