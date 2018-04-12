@@ -2,6 +2,7 @@
 name = "nastran"
 version = "0.0.1"
 authors = ["Andrew Burkett <burkett.andrew@gmail.com>"]
+repository = "https://github.com/drewkett/nastran-rs"
 
 [dependencies]
 memmap = "0.5"
