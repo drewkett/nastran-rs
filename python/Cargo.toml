@@ -1,11 +1,11 @@
 [package]
-name = "libnastran-cp36"
+name = "libnastran"
 version = "0.1.0"
 authors = ["Andrew Burkett <burkett.andrew@gmail.com>"]
 
 [dependencies.cpython]
 version = "0.1"
-features = ["extension-module","python-3-6"]
+features = ["extension-module"]
 
 [dependencies]
 nastran = { path = ".." }
