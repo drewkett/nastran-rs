@@ -1,6 +1,6 @@
 [package]
 name = "nastran"
-version = "0.1.0"
+version = "0.0.1"
 authors = ["Andrew Burkett <burkett.andrew@gmail.com>"]
 
 [dependencies]
