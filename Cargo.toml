@@ -5,10 +5,13 @@ authors = ["Andrew Burkett <burkett.andrew@gmail.com>"]
 
 [dependencies]
 memmap = "0.5"
-error-chain = "0.10"
+quick-error = "1.2"
 ascii = "0.8"
 clap = "2.24"
 dtoa = "0.4"
+itertools = "0.6"
+num = "0.1"
+num-traits = "0.1"
 
 [dependencies.nom]
 version = "^3.0"

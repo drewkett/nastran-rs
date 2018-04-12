@@ -11,9 +11,15 @@ extern crate nom;
 extern crate memmap;
 extern crate ascii;
 #[macro_use]
-extern crate error_chain;
+extern crate quick_error;
 extern crate dtoa;
 extern crate clap;
+extern crate itertools;
+extern crate num;
+extern crate num_traits;
+
+use std::fs::File;
+use std::io::{self, Write};
 
 use memmap::{Mmap, Protection};
 use clap::{Arg, App};
@@ -26,17 +32,47 @@ mod errors;
 
 pub fn main() {
     let matches = App::new("Nastran Reader")
-        .arg(Arg::with_name("DATFILE")
-                 .help(".dat file for reading")
-                 .required(true)
-                 .index(1))
+        .arg(
+            Arg::with_name("DATFILE")
+                .help(".dat file for reading")
+                .required(true)
+                .index(1),
+        )
+        .arg(
+            Arg::with_name("OUTPUT")
+                .help("output to file")
+                .short("o")
+                .takes_value(true),
+        )
+        .arg(Arg::with_name("echo").long("echo").help("Output cards"))
         .get_matches();
     if let Some(filename) = matches.value_of("DATFILE") {
         let f = Mmap::open_path(filename, Protection::Read).unwrap();
         let sl = unsafe { f.as_slice() };
+        let echo = matches.is_present("echo") || matches.is_present("OUTPUT");
         let deck = datfile::parse_buffer(sl).unwrap();
-        for card in deck.cards {
-            println!("{}",card)
+        if echo {
+            if let Some(output_filename) = matches.value_of("OUTPUT") {
+                if let Ok(mut f) = File::create(output_filename) {
+                    if let Some(header) = deck.header {
+                        f.write_all(header).unwrap();
+                    }
+                    for card in deck.cards {
+                        write!(f, "{}\n", card).unwrap();
+                    }
+                } else {
+                    println!("Couldn't open file '{}' for writing", output_filename)
+                }
+            } else {
+                if let Some(header) = deck.header {
+                    let stdout = io::stdout();
+                    let mut handle = stdout.lock();
+                    handle.write_all(header).unwrap();
+                }
+                for card in deck.cards {
+                    println!("{}", card)
+                }
+            }
         }
     }
     // let f = Mmap::open_path(filename, Protection::Read).unwrap();

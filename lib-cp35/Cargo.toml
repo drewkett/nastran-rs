@@ -1,0 +1,14 @@
+[package]
+name = "libnastran-cp35"
+version = "0.1.0"
+authors = ["Andrew Burkett <burkett.andrew@gmail.com>"]
+
+[dependencies.cpython]
+version = "0.1"
+features = ["extension-module","python-3-5"]
+
+[dependencies]
+nastran = { path = ".." }
+
+[lib]
+crate-type = ["cdylib"]

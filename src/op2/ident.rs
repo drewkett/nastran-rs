@@ -17,16 +17,19 @@ pub struct DataBlockIdentPair<'a, T: 'a, U: 'a> {
 
 pub fn read_ident<T>(input: &[u8]) -> IResult<&[u8], &T> {
     let struct_size: i32 = (size_of::<T>() / 4) as i32;
-    let (input, _) = try_parse!(input,apply!(op2::read_nastran_known_i32,0));
-    let (input, data) = try_parse!(input,apply!(op2::read_nastran_data_known_length,struct_size));
-    let (input, _) = try_parse!(input,op2::read_nastran_eor);
+    let (input, _) = try_parse!(input, apply!(op2::read_nastran_known_i32, 0));
+    let (input, data) = try_parse!(
+        input,
+        apply!(op2::read_nastran_data_known_length, struct_size)
+    );
+    let (input, _) = try_parse!(input, op2::read_nastran_eor);
     IResult::Done(input, op2::buf_to_struct(data))
 }
 
 pub fn read_data<T>(input: &[u8]) -> IResult<&[u8], &[T]> {
-    let (input, _) = try_parse!(input,apply!(op2::read_nastran_known_i32,0));
-    let (input, data) = try_parse!(input,op2::read_nastran_data);
-    let (input, _) = try_parse!(input,op2::read_nastran_eor);
+    let (input, _) = try_parse!(input, apply!(op2::read_nastran_known_i32, 0));
+    let (input, data) = try_parse!(input, op2::read_nastran_data);
+    let (input, _) = try_parse!(input, op2::read_nastran_eor);
     if data.len() % size_of::<T>() != 0 {
         return IResult::Error(ErrorKind::Custom(21));
     }
