@@ -9,7 +9,6 @@ edition = "2018"
 
 [dependencies]
 memmap = "0.5"
-quick-error = "1.2"
 ascii = "0.8"
 clap = "2.24"
 dtoa = "0.4"
