@@ -5,7 +5,7 @@ use std::fs::File;
 use std::io::{self, Write};
 
 use clap::{App, Arg};
-use memmap::{Mmap, Protection};
+use memmap::Mmap;
 
 pub fn main() {
     let matches = App::new("Nastran Reader")
@@ -24,8 +24,9 @@ pub fn main() {
         .arg(Arg::with_name("echo").long("echo").help("Output cards"))
         .get_matches();
     if let Some(filename) = matches.value_of("DATFILE") {
-        let f = Mmap::open_path(filename, Protection::Read).unwrap();
-        let sl = unsafe { f.as_slice() };
+        let f = File::open(filename).unwrap();
+        let mm = unsafe { Mmap::map(&f).unwrap() };
+        let sl = mm.as_ref();
         let echo = matches.is_present("echo") || matches.is_present("OUTPUT");
         let deck = nastran::datfile::parse_buffer(sl).unwrap();
         if echo {
@@ -52,7 +53,7 @@ pub fn main() {
             }
         }
     }
-    // let f = Mmap::open_path(filename, Protection::Read).unwrap();
+    // let f = amap::open_path(filename, Protection::Read).unwrap();
     // let sl = unsafe { f.as_slice() };
 
     // let (_, data) = op2::read_op2(sl).unwrap();
