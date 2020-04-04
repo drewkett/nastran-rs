@@ -107,8 +107,8 @@ impl<'a> Card<'a> {
 
 impl<'a> fmt::Debug for Card<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        try!(write!(f, "Card("));
-        try!(write!(f, "{:?},", self.first));
+        write!(f, "Card(")?;
+        write!(f, "{:?},", self.first)?;
         for field in &self.fields {
             try!(write!(f, "{:?},", field));
         }

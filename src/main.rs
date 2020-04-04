@@ -1,23 +1,6 @@
 #![allow(dead_code)]
 #![allow(unused_comparisons)]
 
-#![cfg_attr(test,feature(test))]
-
-#[cfg(test)]
-extern crate test;
-
-#[macro_use]
-extern crate nom;
-extern crate memmap;
-extern crate ascii;
-#[macro_use]
-extern crate quick_error;
-extern crate dtoa;
-extern crate clap;
-extern crate itertools;
-extern crate num;
-extern crate num_traits;
-
 use std::fs::File;
 use std::io::{self, Write};
 
