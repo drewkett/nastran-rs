@@ -7,10 +7,6 @@ use std::io::{self, Write};
 use clap::{App, Arg};
 use memmap::{Mmap, Protection};
 
-mod datfile;
-mod errors;
-mod op2;
-
 pub fn main() {
     let matches = App::new("Nastran Reader")
         .arg(
@@ -31,7 +27,7 @@ pub fn main() {
         let f = Mmap::open_path(filename, Protection::Read).unwrap();
         let sl = unsafe { f.as_slice() };
         let echo = matches.is_present("echo") || matches.is_present("OUTPUT");
-        let deck = datfile::parse_buffer(sl).unwrap();
+        let deck = nastran::datfile::parse_buffer(sl).unwrap();
         if echo {
             if let Some(output_filename) = matches.value_of("OUTPUT") {
                 if let Ok(mut f) = File::create(output_filename) {

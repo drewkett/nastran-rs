@@ -1,15 +1,12 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
-fn fibonacci(n: u64) -> u64 {
-    match n {
-        0 => 1,
-        1 => 1,
-        n => fibonacci(n-1) + fibonacci(n-2),
-    }
-}
-
 fn criterion_benchmark(c: &mut Criterion) {
-    c.bench_function("fib 20", |b| b.iter(|| fibonacci(black_box(20))));
+    c.bench_function("maybe_field_nastran_float", |b| {
+        b.iter(|| nastran::datfile::maybe_field(black_box(b"11.22+7")))
+    });
+    c.bench_function("maybe_field_float", |b| {
+        b.iter(|| nastran::datfile::maybe_field(black_box(b"11.22e+7")))
+    });
 }
 
 criterion_group!(benches, criterion_benchmark);
