@@ -1,6 +1,3 @@
-#![allow(dead_code)]
-#![allow(unused_comparisons)]
-
 use std::fs::File;
 use std::io::{self, Write};
 
