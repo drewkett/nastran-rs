@@ -12,7 +12,7 @@ pub enum Error {
     UnmatchedContinuation(String),
     NotPossible(&'static str),
     UTF8ConversionError(::std::str::Utf8Error),
-    OP2ParseError(nom::ErrorKind),
+    OP2ParseError(nom::error::ErrorKind),
     ParseIntError(::std::num::ParseIntError),
     ParseFloatError(::std::num::ParseFloatError),
 }
@@ -42,8 +42,8 @@ impl From<std::num::ParseFloatError> for Error {
         Error::ParseFloatError(e)
     }
 }
-impl From<nom::ErrorKind> for Error {
-    fn from(e: nom::ErrorKind) -> Self {
+impl From<nom::error::ErrorKind> for Error {
+    fn from(e: nom::error::ErrorKind) -> Self {
         Error::OP2ParseError(e)
     }
 }
