@@ -1,10 +1,8 @@
-
 use std::fmt;
 
-use nom::IResult;
+use nom::{call, error_position, many0, pair, try_parse, tuple, tuple_parser, IResult};
 
-use op2;
-use op2::ident;
+use crate::op2::{self, ident};
 
 pub struct Ident {
     pub acode: i32,
@@ -43,11 +41,7 @@ impl fmt::Display for Ident {
         write!(
             f,
             "OUG_IDENT[acode={},tcode={},title={},subtitle={},label={}]",
-            self.acode,
-            self.tcode,
-            title,
-            subtitle,
-            label
+            self.acode, self.tcode, title, subtitle, label
         )
     }
 }

@@ -1,9 +1,8 @@
-
 use std::str;
 
-use crate::errors::*;
-use crate::datfile::Field;
 use crate::datfile::BufferUtil;
+use crate::datfile::Field;
+use crate::errors::*;
 
 #[inline]
 fn count_spaces(buffer: &[u8]) -> usize {
@@ -222,7 +221,7 @@ pub fn maybe_first_field(buffer: &[u8]) -> Result<Field> {
         return Ok(Field::Blank);
     }
     match buffer[0] {
-        b'a'...b'z' | b'A'...b'Z' => maybe_string(buffer),
+        b'a'..=b'z' | b'A'..=b'Z' => maybe_string(buffer),
         _ => Err(Error::UnexpectedCharInField(buffer.to_string_lossy())),
     }
 }
@@ -287,8 +286,8 @@ pub fn maybe_field(buffer: &[u8]) -> Result<Field> {
         return Ok(Field::Blank);
     }
     match buffer[0] {
-        b'a'...b'z' | b'A'...b'Z' => maybe_string(buffer),
-        b'+' | b'-' | b'0'...b'9' | b'.' => maybe_number(buffer),
+        b'a'..=b'z' | b'A'..=b'Z' => maybe_string(buffer),
+        b'+' | b'-' | b'0'..=b'9' | b'.' => maybe_number(buffer),
         _ => Err(Error::UnexpectedCharInField(buffer.to_string_lossy())),
     }
 }
@@ -296,17 +295,17 @@ pub fn maybe_field(buffer: &[u8]) -> Result<Field> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use test::Bencher;
+    // use test::Bencher;
 
-    #[bench]
-    fn bench_maybe_field_nastran_float(b: &mut Bencher) {
-        b.iter(|| maybe_field(b"11.22+7"));
-    }
+    // #[bench]
+    // fn bench_maybe_field_nastran_float(b: &mut Bencher) {
+    //     b.iter(|| maybe_field(b"11.22+7"));
+    // }
 
-    #[bench]
-    fn bench_maybe_field_float(b: &mut Bencher) {
-        b.iter(|| maybe_field(b"11.22e+7"));
-    }
+    // #[bench]
+    // fn bench_maybe_field_float(b: &mut Bencher) {
+    //     b.iter(|| maybe_field(b"11.22e+7"));
+    // }
 
     fn success_maybe_field(test: &str, result: Field) {
         match maybe_field(test.as_bytes()) {

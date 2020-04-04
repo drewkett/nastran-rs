@@ -1,8 +1,9 @@
-
-use op2;
-use op2::keyed;
-use nom::IResult;
+use crate::op2::{self, keyed};
 use ascii::AsciiChar;
+use nom::{
+    apply, call, error_node_position, error_position, many_till, map, named, switch, try_parse,
+    IResult,
+};
 
 pub type DataBlock<'a> = keyed::DataBlock<'a, Record<'a>>;
 
@@ -30,7 +31,8 @@ pub enum Record<'a> {
     Unknown(keyed::Key, keyed::UnknownRecord<'a>),
 }
 
-named!(read_record<Record>,
+named!(
+    read_record<Record>,
     switch!(call!(keyed::read_record_key),
       keyed::RecordKey { key: (307,3,85), size } => map!(
           apply!(keyed::read_fixed_size_record,size),
@@ -48,9 +50,9 @@ pub fn read_datablock<'a>(
     input: &'a [u8],
     start: op2::DataBlockStart<'a>,
 ) -> IResult<&'a [u8], DataBlock<'a>> {
-    let (input, header) = try_parse!(input,op2::read_datablock_header);
-    let (input, (records, _)) = try_parse!(input,many_till!(read_record,keyed::read_eodb));
-    let (input, _) = try_parse!(input,op2::read_last_table_record);
+    let (input, header) = try_parse!(input, op2::read_datablock_header);
+    let (input, (records, _)) = try_parse!(input, many_till!(read_record, keyed::read_eodb));
+    let (input, _) = try_parse!(input, op2::read_last_table_record);
     IResult::Done(
         input,
         DataBlock {

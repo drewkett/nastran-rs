@@ -1,6 +1,5 @@
-
-use op2;
-use nom::IResult;
+use crate::op2;
+use nom::{apply, call, do_parse, error_position, many0, named, try_parse, IResult};
 
 #[derive(Debug)]
 pub struct DataBlock<'a> {
@@ -14,11 +13,11 @@ pub struct DataBlock<'a> {
 named!(
     read_table_record,
     do_parse!(
-  apply!(op2::read_nastran_known_i32,0) >>
-  data : call!(op2::read_nastran_data) >>
-  call!(op2::read_nastran_eor) >>
-  (data)
-)
+        apply!(op2::read_nastran_known_i32, 0)
+            >> data: call!(op2::read_nastran_data)
+            >> call!(op2::read_nastran_eor)
+            >> (data)
+    )
 );
 
 pub fn read_datablock<'a>(

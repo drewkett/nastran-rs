@@ -4,14 +4,12 @@
 use std::fs::File;
 use std::io::{self, Write};
 
+use clap::{App, Arg};
 use memmap::{Mmap, Protection};
-use clap::{Arg, App};
 
-#[macro_use]
-mod macros;
-mod op2;
 mod datfile;
 mod errors;
+mod op2;
 
 pub fn main() {
     let matches = App::new("Nastran Reader")

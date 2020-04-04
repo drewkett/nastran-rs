@@ -1,16 +1,15 @@
-
 mod field;
 
-use std::fmt;
-use std::str;
 use std::cmp;
 use std::collections::HashMap;
+use std::fmt;
 use std::ops::IndexMut;
+use std::str;
 
 use dtoa;
 
-use errors::*;
-pub use self::field::{maybe_field, maybe_any_field};
+pub use self::field::{maybe_any_field, maybe_field};
+use crate::errors::*;
 
 pub trait BufferUtil {
     fn to_string_lossy(self) -> String;
@@ -110,54 +109,49 @@ impl<'a> fmt::Debug for Card<'a> {
         write!(f, "Card(")?;
         write!(f, "{:?},", self.first)?;
         for field in &self.fields {
-            try!(write!(f, "{:?},", field));
+            write!(f, "{:?},", field)?;
         }
         if self.continuation != "" {
-            try!(write!(f, "+{:?}", self.continuation));
+            write!(f, "+{:?}", self.continuation)?;
         }
         if let Some(comment) = self.comment {
-            try!(write!(f, "Comment='{}',", String::from_utf8_lossy(comment)));
+            write!(f, "Comment='{}',", String::from_utf8_lossy(comment))?;
         }
         if self.is_comma {
-            try!(write!(f, "comma,"));
+            write!(f, "comma,")?;
         }
         if self.is_double {
-            try!(write!(f, "double,"));
+            write!(f, "double,")?;
         }
         if let Some(unparsed) = self.unparsed {
-            try!(write!(
-                f,
-                "Unparsed='{}',",
-                String::from_utf8_lossy(unparsed)
-            ));
+            write!(f, "Unparsed='{}',", String::from_utf8_lossy(unparsed))?;
         }
         write!(f, ")")
     }
 }
 
-
 impl<'a> fmt::Display for Card<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if let Some(ref first) = self.first {
-            try!(write!(f, "{}", first));
+            write!(f, "{}", first)?;
             let mut write_cont = false;
             if self.is_double {
                 for field_chunk in self.fields.chunks(4) {
                     if write_cont {
-                        try!(write!(f, "+       \n*       "))
+                        write!(f, "+       \n*       ")?
                     }
                     for field in field_chunk {
-                        try!(write!(f, "{:16}", field))
+                        write!(f, "{:16}", field)?
                     }
                     write_cont = true;
                 }
             } else {
                 for field_chunk in self.fields.chunks(8) {
                     if write_cont {
-                        try!(write!(f, "+       \n+       "))
+                        write!(f, "+       \n+       ")?
                     }
                     for field in field_chunk {
-                        try!(write!(f, "{}", field))
+                        write!(f, "{}", field)?
                     }
                     write_cont = true;
                 }
@@ -167,9 +161,9 @@ impl<'a> fmt::Display for Card<'a> {
         }
         if let Some(comment) = self.comment {
             if !comment.is_empty() && comment[0] != b'$' {
-                try!(write!(f, "$"));
+                write!(f, "$")?;
             }
-            try!(write!(f, "{}", String::from_utf8_lossy(comment)));
+            write!(f, "{}", String::from_utf8_lossy(comment))?;
         }
         write!(f, "")
     }
@@ -184,9 +178,9 @@ pub struct Deck<'a> {
 
 impl<'a> fmt::Display for Deck<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        try!(write!(f, "Deck(\n"));
+        write!(f, "Deck(\n")?;
         for card in &self.cards {
-            try!(write!(f, "  {},\n", card));
+            write!(f, "  {},\n", card)?;
         }
         write!(f, ")")
     }
@@ -252,32 +246,26 @@ impl<'a> WorkingDeck<'a> {
 
     pub fn add_card(&mut self, card: Card<'a>) -> Result<()> {
         match card.first {
-            Some(Field::Continuation(c)) |
-            Some(Field::DoubleContinuation(c)) => {
-                let index = self.continuations.remove(c).ok_or(
-                    Error::UnmatchedContinuation(
-                        c.to_owned(),
-                    ),
-                )?;
-                let mut existing = self.deck.cards.index_mut(index);
+            Some(Field::Continuation(c)) | Some(Field::DoubleContinuation(c)) => {
+                let index = self
+                    .continuations
+                    .remove(c)
+                    .ok_or(Error::UnmatchedContinuation(c.to_owned()))?;
+                let existing = self.deck.cards.index_mut(index);
                 self.continuations.insert(card.continuation, index);
                 existing.merge(card);
             }
-            Some(Field::String(_)) |
-            Some(Field::DoubleString(_)) => {
-                self.continuations.insert(
-                    card.continuation,
-                    self.deck.cards.len(),
-                );
+            Some(Field::String(_)) | Some(Field::DoubleString(_)) => {
+                self.continuations
+                    .insert(card.continuation, self.deck.cards.len());
                 self.deck.cards.push(card);
             }
             Some(Field::Blank) => {
-                let index = self.continuations.remove("").ok_or(
-                    Error::UnmatchedContinuation(
-                        "".to_owned(),
-                    ),
-                )?;
-                let mut existing = self.deck.cards.index_mut(index);
+                let index = self
+                    .continuations
+                    .remove("")
+                    .ok_or(Error::UnmatchedContinuation("".to_owned()))?;
+                let existing = self.deck.cards.index_mut(index);
                 self.continuations.insert(card.continuation, index);
                 existing.merge(card);
             }
@@ -340,7 +328,6 @@ where
     }
 }
 
-
 fn split_line(buffer: &[u8]) -> (&[u8], &[u8]) {
     let mut i_comment = cmp::min(80, buffer.len());
     if let Some(i) = buffer.iter().position(|&c| c == b'$') {
@@ -352,7 +339,11 @@ fn split_line(buffer: &[u8]) -> (&[u8], &[u8]) {
 }
 
 fn option_from_slice(sl: &[u8]) -> Option<&[u8]> {
-    if !sl.is_empty() { Some(sl) } else { None }
+    if !sl.is_empty() {
+        Some(sl)
+    } else {
+        None
+    }
 }
 
 struct FirstField<'a> {
@@ -440,8 +431,7 @@ pub fn parse_line(buffer: &[u8]) -> Result<Card> {
         mut remainder,
     } = read_first_field(content)?;
     let is_double = match field {
-        Field::DoubleContinuation(_) |
-        Field::DoubleString(_) => true,
+        Field::DoubleContinuation(_) | Field::DoubleString(_) => true,
         _ => false,
     };
     let mut fields = vec![];
@@ -452,12 +442,10 @@ pub fn parse_line(buffer: &[u8]) -> Result<Card> {
         while let Some(sl) = it.next() {
             if field_count == 8 {
                 match field::maybe_any_field(sl)? {
-                    Field::Continuation(c) |
-                    Field::DoubleContinuation(c) => {
+                    Field::Continuation(c) | Field::DoubleContinuation(c) => {
                         if let Some(sl) = it.next() {
                             match field::maybe_any_field(sl)? {
-                                Field::Continuation(_) |
-                                Field::DoubleContinuation(_) => {
+                                Field::Continuation(_) | Field::DoubleContinuation(_) => {
                                     field_count = 0;
                                 }
                                 _ => return Err(Error::UnexpectedContinuation(c.to_owned())),
@@ -539,7 +527,6 @@ pub fn parse_line(buffer: &[u8]) -> Result<Card> {
             unparsed: option_from_slice(remainder),
         })
     }
-
 }
 
 pub fn read_comments(input_buffer: &[u8]) -> (&[u8], usize) {
@@ -604,7 +591,6 @@ pub fn read_header(input_buffer: &[u8]) -> (Option<&[u8]>, &[u8], usize) {
     (header, buffer, lines_read)
 }
 
-
 pub fn parse_buffer(input_buffer: &[u8]) -> Result<Deck> {
     let mut deck = WorkingDeck::new();
     let mut line_num = 1;
@@ -622,9 +608,7 @@ pub fn parse_buffer(input_buffer: &[u8]) -> Result<Deck> {
             if j > 0 && line[j - 1] == b'\r' {
                 line = &buffer[..j - 1]
             }
-            let card = parse_line(line).map_err(
-                |e| Error::LineError(line_num, Box::new(e)),
-            )?;
+            let card = parse_line(line).map_err(|e| Error::LineError(line_num, Box::new(e)))?;
             // Check for ENDDATA. If found, drop the card and set remaining buffer to unparsed
             if card.first == Some(Field::String("ENDDATA")) {
                 deck.set_unparsed(&buffer[j + 1..]);
@@ -634,9 +618,7 @@ pub fn parse_buffer(input_buffer: &[u8]) -> Result<Deck> {
                 buffer = &buffer[j + 1..];
             }
         } else {
-            let card = parse_line(buffer).map_err(|e| {
-                Error::LineError(line_num, Box::new(e))
-            })?;
+            let card = parse_line(buffer).map_err(|e| Error::LineError(line_num, Box::new(e)))?;
             deck.add_card(card)?;
             break;
         }

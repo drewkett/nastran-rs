@@ -1,8 +1,9 @@
-
-use nom::{IResult, le_i32};
+use nom::{
+    apply, call, do_parse, le_i32, named, take, try_parse, tuple, tuple_parser, value, IResult,
+};
 use std::mem::size_of;
 
-use op2;
+use crate::op2;
 
 #[derive(Debug)]
 pub struct DataBlock<'a, T: 'a> {
@@ -76,6 +77,5 @@ pub fn read_unknown_record(input: &[u8], record_size: i32) -> IResult<&[u8], Unk
     let (input, _) = try_parse!(input, op2::read_nastran_eor);
     IResult::Done(input, data)
 }
-
 
 named!(pub read_eodb<()>,value!((),apply!(read_record::<()>,65535,65535,65535)));

@@ -1,19 +1,23 @@
+use std::marker::Sized;
 use std::mem::{size_of, transmute};
 use std::slice::from_raw_parts;
-use std::marker::Sized;
 
-use nom::{IResult, le_i32};
-use errors::Result;
+use crate::errors::{Error, Result};
+use nom::{
+    alt, apply, bits, bits_impl, call, complete, do_parse, eof, error_position, le_i32, many0, map,
+    map_res, named, recognize, tag, tag_bits, take, take_bits, take_str, terminated, try_parse,
+    tuple, tuple_parser, IResult,
+};
 
+mod dynamic;
+mod ept;
+mod generic;
 mod geom1;
 mod geom2;
 mod geom4;
-mod ept;
-mod dynamic;
-mod keyed;
 mod ident;
+mod keyed;
 mod oug;
-mod generic;
 
 #[derive(Debug)]
 struct Date {
@@ -105,49 +109,56 @@ pub fn read_nastran_tag<'a>(input: &'a [u8], v: &[u8]) -> IResult<&'a [u8], ()> 
     let l: i32 = v.len() as i32;
     do_parse!(
         input,
-        apply!(read_fortran_known_i32, l / WORD_SIZE) >> apply!(read_known_i32, l) >> tag!(v) >>
-            apply!(read_known_i32, l) >> ()
+        apply!(read_fortran_known_i32, l / WORD_SIZE)
+            >> apply!(read_known_i32, l)
+            >> tag!(v)
+            >> apply!(read_known_i32, l)
+            >> ()
     )
 }
 
 pub fn read_nastran_data_known_length(input: &[u8], v: i32) -> IResult<&[u8], &[u8]> {
-    do_parse!(input,
-  apply!(read_fortran_known_i32,v) >>
-  apply!(read_known_i32,v*WORD_SIZE) >>
-  data: take!(v*WORD_SIZE) >>
-  apply!(read_known_i32,v*WORD_SIZE) >>
-  (data)
-  )
+    do_parse!(
+        input,
+        apply!(read_fortran_known_i32, v)
+            >> apply!(read_known_i32, v * WORD_SIZE)
+            >> data: take!(v * WORD_SIZE)
+            >> apply!(read_known_i32, v * WORD_SIZE)
+            >> (data)
+    )
 }
 
 pub fn read_nastran_data(input: &[u8]) -> IResult<&[u8], &[u8]> {
-    do_parse!(input,
-  length: read_fortran_i32 >>
-  apply!(read_known_i32,length*WORD_SIZE) >>
-  data: take!(length*WORD_SIZE) >>
-  apply!(read_known_i32,length*WORD_SIZE) >>
-  (data)
-  )
+    do_parse!(
+        input,
+        length: read_fortran_i32
+            >> apply!(read_known_i32, length * WORD_SIZE)
+            >> data: take!(length * WORD_SIZE)
+            >> apply!(read_known_i32, length * WORD_SIZE)
+            >> (data)
+    )
 }
 
 pub fn read_nastran_string(input: &[u8]) -> IResult<&[u8], &str> {
-    do_parse!(input,
-  length: read_fortran_i32 >>
-  apply!(read_known_i32,length*WORD_SIZE) >>
-  data: take_str!(length*WORD_SIZE) >>
-  apply!(read_known_i32,length*WORD_SIZE) >>
-  (data)
-  )
+    do_parse!(
+        input,
+        length: read_fortran_i32
+            >> apply!(read_known_i32, length * WORD_SIZE)
+            >> data: take_str!(length * WORD_SIZE)
+            >> apply!(read_known_i32, length * WORD_SIZE)
+            >> (data)
+    )
 }
 
 pub fn read_nastran_string_known_length(input: &[u8], length: i32) -> IResult<&[u8], &str> {
-    do_parse!(input,
-  apply!(read_fortran_known_i32,length) >>
-  apply!(read_known_i32,length*WORD_SIZE) >>
-  data: take_str!(length*WORD_SIZE) >>
-  apply!(read_known_i32,length*WORD_SIZE) >>
-  (data)
-  )
+    do_parse!(
+        input,
+        apply!(read_fortran_known_i32, length)
+            >> apply!(read_known_i32, length * WORD_SIZE)
+            >> data: take_str!(length * WORD_SIZE)
+            >> apply!(read_known_i32, length * WORD_SIZE)
+            >> (data)
+    )
 }
 
 named!(pub read_nastran_key<i32>, do_parse!(
@@ -168,16 +179,20 @@ pub fn buf_to_struct<T: Sized>(buf: &[u8]) -> &T {
     unsafe { &*(buf.as_ptr() as *const T) }
 }
 
-named!(read_header<FileHeader>,
-  do_parse!(
-  date: apply!(read_nastran_data_known_length, 3) >>
-  apply!(read_nastran_tag,b"NASTRAN FORT TAPE ID CODE - ") >>
-  label: apply!(read_nastran_data_known_length,2) >>
-  apply!(read_nastran_known_key,-1) >>
-  apply!(read_nastran_known_key,0) >>
-  (FileHeader {date:buf_to_struct(date), label: label})
-  )
-  );
+named!(
+    read_header<FileHeader>,
+    do_parse!(
+        date: apply!(read_nastran_data_known_length, 3)
+            >> apply!(read_nastran_tag, b"NASTRAN FORT TAPE ID CODE - ")
+            >> label: apply!(read_nastran_data_known_length, 2)
+            >> apply!(read_nastran_known_key, -1)
+            >> apply!(read_nastran_known_key, 0)
+            >> (FileHeader {
+                date: buf_to_struct(date),
+                label: label
+            })
+    )
+);
 
 named!(pub read_first_table_record, do_parse!(
   record: read_nastran_data >>
@@ -186,14 +201,13 @@ named!(pub read_first_table_record, do_parse!(
 ));
 
 fn read_negative_i32(input: &[u8]) -> IResult<&[u8], &i32> {
-    map!(input,
-  recognize!(
-    bits!(
-    do_parse!(
-    tag_bits!(u8,1,0b1) >>
-    take_bits!(u32,31) >>
-    ())
-  )),|v| buf_to_struct(v) )
+    map!(
+        input,
+        recognize!(bits!(do_parse!(
+            tag_bits!(u8, 1, 0b1) >> take_bits!(u32, 31) >> ()
+        ))),
+        |v| buf_to_struct(v)
+    )
 }
 
 named!(pub read_nastran_eof<()>, apply!(read_fortran_known_i32,0));
@@ -237,24 +251,43 @@ named!(pub read_datablock_header,do_parse!(
   (header)
 ));
 
-
 pub fn read_struct_array<T>(input: &[u8], count: usize) -> IResult<&[u8], &[T]> {
     let length = size_of::<T>() * count;
-    let (input, data) = try_parse!(input,take!(length));
+    let (input, data) = try_parse!(input, take!(length));
     let sl = unsafe { from_raw_parts::<T>(transmute(data.as_ptr()), count) };
     IResult::Done(input, sl)
 }
 
 fn read_datablock(input: &[u8]) -> IResult<&[u8], DataBlock> {
-    let (input, start) = try_parse!(input,read_datablock_start);
+    let (input, start) = try_parse!(input, read_datablock_start);
     match start.name {
-        "OUGV1   " => map!(input,apply!(oug::read_datablock,start),DataBlock::OUG),
-        "GEOM1S  " => map!(input,apply!(geom1::read_datablock,start),DataBlock::GEOM1),
-        "GEOM2S  " => map!(input,apply!(geom2::read_datablock,start),DataBlock::GEOM2),
-        "GEOM4S  " => map!(input,apply!(geom4::read_datablock,start),DataBlock::GEOM4),
-        "EPTS    " => map!(input,apply!(ept::read_datablock,start),DataBlock::EPT),
-        "DYNAMICS" => map!(input,apply!(dynamic::read_datablock,start),DataBlock::DYNAMIC),
-        _ => map!(input,apply!(generic::read_datablock,start),DataBlock::Generic),
+        "OUGV1   " => map!(input, apply!(oug::read_datablock, start), DataBlock::OUG),
+        "GEOM1S  " => map!(
+            input,
+            apply!(geom1::read_datablock, start),
+            DataBlock::GEOM1
+        ),
+        "GEOM2S  " => map!(
+            input,
+            apply!(geom2::read_datablock, start),
+            DataBlock::GEOM2
+        ),
+        "GEOM4S  " => map!(
+            input,
+            apply!(geom4::read_datablock, start),
+            DataBlock::GEOM4
+        ),
+        "EPTS    " => map!(input, apply!(ept::read_datablock, start), DataBlock::EPT),
+        "DYNAMICS" => map!(
+            input,
+            apply!(dynamic::read_datablock, start),
+            DataBlock::DYNAMIC
+        ),
+        _ => map!(
+            input,
+            apply!(generic::read_datablock, start),
+            DataBlock::Generic
+        ),
     }
 }
 
@@ -266,7 +299,11 @@ named!(pub parse_op2<OP2>,do_parse!(
   (OP2 {header:header,blocks:blocks})
 ));
 
-
 pub fn parse_buffer(buffer: &[u8]) -> Result<OP2> {
-    whole_file!(buffer,parse_op2)
+    match complete!(buffer, terminated!(parse_op2, eof!())) {
+        IResult::Done(b"", d) => Ok(d),
+        IResult::Done(_, _) => Err(Error::NotPossible("Remaining characters in buffer")),
+        IResult::Incomplete(_) => Err(Error::NotPossible("Remaining characters in buffer")),
+        IResult::Error(e) => Err(e.into()),
+    }
 }
