@@ -1,8 +1,70 @@
-use std::str;
+use std::{cmp, fmt, str};
 
 use crate::datfile::BufferUtil;
-use crate::datfile::Field;
 use crate::errors::*;
+
+//TODO Need to make sure right number of fields are being output for card
+#[derive(PartialEq, Clone)]
+pub enum Field<'a> {
+    Blank,
+    Int(i32),
+    Float(f32),
+    Double(f64),
+    Continuation(&'a str),
+    DoubleContinuation(&'a str),
+    String(&'a str),
+    DoubleString(&'a str),
+}
+
+impl<'a> fmt::Debug for Field<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            Field::Blank => write!(f, "Blank"),
+            Field::Int(i) => write!(f, "Int({})", i),
+            Field::Float(d) => write!(f, "Float({})", d),
+            Field::Double(d) => write!(f, "Double({})", d),
+            Field::Continuation(c) => write!(f, "Continuation('{}')", c),
+            Field::String(s) => write!(f, "String('{}')", s),
+            Field::DoubleContinuation(s) => write!(f, "DoubleContinuation('{}')", s),
+            Field::DoubleString(s) => write!(f, "DoubleString('{}')", s),
+        }
+    }
+}
+
+impl<'a> fmt::Display for Field<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let width = match f.width() {
+            Some(8) | None => 8,
+            Some(16) => 16,
+            Some(_) => return Err(fmt::Error),
+        };
+        if width == 8 {
+            match *self {
+                Field::Blank => write!(f, "        "),
+                Field::Int(i) => write!(f, "{:8}", i),
+                Field::Float(d) => write!(f, "{:>8}", float_to_8(d)),
+                Field::Double(d) => write!(f, "{:>8}", float_to_8(d)),
+                Field::Continuation(c) => write!(f, "+{:7}", c),
+                Field::String(s) => write!(f, "{:8}", s),
+                Field::DoubleContinuation(c) => write!(f, "*{:7}", c),
+                Field::DoubleString(s) => write!(f, "{:7}*", s),
+            }
+        } else if width == 16 {
+            match *self {
+                Field::Blank => write!(f, "                "),
+                Field::Int(i) => write!(f, "{:16}", i),
+                Field::Float(d) => write!(f, "{:>16}", float_to_16(d)),
+                Field::Double(d) => write!(f, "{:>16}", float_to_16(d)),
+                Field::Continuation(_) => unreachable!(),
+                Field::String(s) => write!(f, "{:16}", s),
+                Field::DoubleContinuation(_) => unreachable!(),
+                Field::DoubleString(s) => write!(f, "{:15}*", s),
+            }
+        } else {
+            unreachable!()
+        }
+    }
+}
 
 #[inline]
 fn count_spaces(buffer: &[u8]) -> usize {
@@ -289,6 +351,52 @@ pub fn maybe_field(buffer: &[u8]) -> Result<Field> {
         b'a'..=b'z' | b'A'..=b'Z' => maybe_string(buffer),
         b'+' | b'-' | b'0'..=b'9' | b'.' => maybe_number(buffer),
         _ => Err(Error::UnexpectedCharInField(buffer.to_string_lossy())),
+    }
+}
+
+fn float_to_8<T>(f: T) -> String
+where
+    T: Into<f64> + Copy + fmt::Display + fmt::LowerExp + dtoa::Floating + cmp::PartialOrd,
+{
+    // FIXME: can be improved
+    let mut buf = [b' '; 9];
+    if let Ok(n) = dtoa::write(&mut buf[..], f) {
+        unsafe { String::from_utf8_unchecked(buf[..n].to_vec()) }
+    } else {
+        let s = if f.into() <= -1e+10 {
+            format!("{:8.1e}", f)
+        } else if f.into() < -1e-10 {
+            format!("{:8.2e}", f)
+        } else if f.into() < 0.0 {
+            format!("{:8.1e}", f)
+        } else if f.into() <= 1e-10 {
+            format!("{:8.2e}", f)
+        } else if f.into() < 1e+10 {
+            format!("{:8.3e}", f)
+        } else {
+            format!("{:8.2e}", f)
+        };
+        if s.len() > 8 {
+            panic!("help '{}'", s)
+        }
+        s
+    }
+}
+
+fn float_to_16<T>(f: T) -> String
+where
+    T: Copy + fmt::Display + fmt::LowerExp + dtoa::Floating,
+{
+    // FIXME: can be improved
+    let mut buf = [b' '; 16];
+    if let Ok(n) = dtoa::write(&mut buf[..], f) {
+        unsafe { String::from_utf8_unchecked(buf[..n].to_vec()) }
+    } else {
+        let s = format!("{:16.8e}", f);
+        if s.len() > 16 {
+            panic!("Couldn't write {} in less than 16 chars '{}'", f, s)
+        }
+        s
     }
 }
 

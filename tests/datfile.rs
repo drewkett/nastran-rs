@@ -1,5 +1,5 @@
 extern crate nastran;
-use nastran::datfile;
+use nastran::datfile::{parse_buffer, Card, Deck, Field};
 
 const DATFILE: &'static [u8] = b"\
 PARAM,POST , 1 $ABC
@@ -14,7 +14,7 @@ GRID*            1100001               0    3.732130e+02    3.329000e+00 ED00013
 
 #[test]
 fn comma_separated() {
-    let res = match datfile::parse_buffer(DATFILE) {
+    let res = match parse_buffer(DATFILE) {
         Ok(d) => d,
         Err(e) => {
             println!("{:?}", e);
@@ -25,17 +25,17 @@ fn comma_separated() {
     let mut it = res.cards.into_iter();
     assert_eq!(
         it.next(),
-        Some(datfile::Card {
-            first: Some(datfile::Field::String("PARAM")),
+        Some(Card {
+            first: Some(Field::String("PARAM")),
             fields: vec![
-                datfile::Field::String("POST"),
-                datfile::Field::Int(1),
-                datfile::Field::Blank,
-                datfile::Field::Blank,
-                datfile::Field::Blank,
-                datfile::Field::Blank,
-                datfile::Field::Blank,
-                datfile::Field::Blank,
+                Field::String("POST"),
+                Field::Int(1),
+                Field::Blank,
+                Field::Blank,
+                Field::Blank,
+                Field::Blank,
+                Field::Blank,
+                Field::Blank,
             ],
             continuation: "",
             comment: Some(b"$ABC"),
@@ -46,25 +46,25 @@ fn comma_separated() {
     );
     assert_eq!(
         it.next(),
-        Some(datfile::Card {
-            first: Some(datfile::Field::String("PARAM")),
+        Some(Card {
+            first: Some(Field::String("PARAM")),
             fields: vec![
-                datfile::Field::String("WTMASS"),
-                datfile::Field::Float(0.00259),
-                datfile::Field::Blank,
-                datfile::Field::Blank,
-                datfile::Field::Blank,
-                datfile::Field::Blank,
-                datfile::Field::Blank,
-                datfile::Field::Blank,
-                datfile::Field::Int(1),
-                datfile::Field::Int(2),
-                datfile::Field::Blank,
-                datfile::Field::Blank,
-                datfile::Field::Blank,
-                datfile::Field::Blank,
-                datfile::Field::Blank,
-                datfile::Field::Blank,
+                Field::String("WTMASS"),
+                Field::Float(0.00259),
+                Field::Blank,
+                Field::Blank,
+                Field::Blank,
+                Field::Blank,
+                Field::Blank,
+                Field::Blank,
+                Field::Int(1),
+                Field::Int(2),
+                Field::Blank,
+                Field::Blank,
+                Field::Blank,
+                Field::Blank,
+                Field::Blank,
+                Field::Blank,
             ],
             continuation: "",
             comment: None,
@@ -75,25 +75,25 @@ fn comma_separated() {
     );
     assert_eq!(
         it.next(),
-        Some(datfile::Card {
-            first: Some(datfile::Field::String("ABCDEF")),
+        Some(Card {
+            first: Some(Field::String("ABCDEF")),
             fields: vec![
-                datfile::Field::Int(123456),
-                datfile::Field::Int(123456),
-                datfile::Field::Int(123456),
-                datfile::Field::Int(123456),
-                datfile::Field::Int(123456),
-                datfile::Field::Int(123456),
-                datfile::Field::Int(123456),
-                datfile::Field::Int(123456),
-                datfile::Field::Int(123456),
-                datfile::Field::Int(123456),
-                datfile::Field::Int(123),
-                datfile::Field::Blank,
-                datfile::Field::Blank,
-                datfile::Field::Blank,
-                datfile::Field::Blank,
-                datfile::Field::Blank,
+                Field::Int(123456),
+                Field::Int(123456),
+                Field::Int(123456),
+                Field::Int(123456),
+                Field::Int(123456),
+                Field::Int(123456),
+                Field::Int(123456),
+                Field::Int(123456),
+                Field::Int(123456),
+                Field::Int(123456),
+                Field::Int(123),
+                Field::Blank,
+                Field::Blank,
+                Field::Blank,
+                Field::Blank,
+                Field::Blank,
             ],
             continuation: "",
             comment: Some(b"456,123456"),
@@ -104,17 +104,17 @@ fn comma_separated() {
     );
     assert_eq!(
         it.next(),
-        Some(datfile::Card {
-            first: Some(datfile::Field::String("BLAH")),
+        Some(Card {
+            first: Some(Field::String("BLAH")),
             fields: vec![
-                datfile::Field::Int(123),
-                datfile::Field::Float(1e5),
-                datfile::Field::Float(1e2),
-                datfile::Field::String("ABC"),
-                datfile::Field::Blank,
-                datfile::Field::Blank,
-                datfile::Field::Blank,
-                datfile::Field::Blank,
+                Field::Int(123),
+                Field::Float(1e5),
+                Field::Float(1e2),
+                Field::String("ABC"),
+                Field::Blank,
+                Field::Blank,
+                Field::Blank,
+                Field::Blank,
             ],
             continuation: "",
             comment: None,
@@ -125,25 +125,25 @@ fn comma_separated() {
     );
     assert_eq!(
         it.next(),
-        Some(datfile::Card {
-            first: Some(datfile::Field::DoubleString("GRID")),
+        Some(Card {
+            first: Some(Field::DoubleString("GRID")),
             fields: vec![
-                datfile::Field::Int(1100001),
-                datfile::Field::Int(0),
-                datfile::Field::Float(373.213),
-                datfile::Field::Float(3.329),
-                datfile::Field::Float(74.081),
-                datfile::Field::Int(0),
-                datfile::Field::Blank,
-                datfile::Field::Blank,
-                datfile::Field::Blank,
-                datfile::Field::Blank,
-                datfile::Field::Blank,
-                datfile::Field::Blank,
-                datfile::Field::Float(0.0),
-                datfile::Field::Float(0.059),
-                datfile::Field::Float(0.0),
-                datfile::Field::Float(0.059),
+                Field::Int(1100001),
+                Field::Int(0),
+                Field::Float(373.213),
+                Field::Float(3.329),
+                Field::Float(74.081),
+                Field::Int(0),
+                Field::Blank,
+                Field::Blank,
+                Field::Blank,
+                Field::Blank,
+                Field::Blank,
+                Field::Blank,
+                Field::Float(0.0),
+                Field::Float(0.059),
+                Field::Float(0.0),
+                Field::Float(0.059),
             ],
             continuation: "",
             comment: None,
@@ -167,7 +167,7 @@ BCD,2
 
 #[test]
 fn header() {
-    let res = match datfile::parse_buffer(HEADER) {
+    let res = match parse_buffer(HEADER) {
         Ok(d) => d,
         Err(e) => {
             println!("{:?}", e);
@@ -175,26 +175,27 @@ fn header() {
             return;
         }
     };
-    let mut deck = datfile::Deck::new();
+    let mut deck = Deck::new();
     deck.set_header(b"$ABC\n\nNASTRAN\n");
     deck.set_unparsed(b"BCD,2\n");
-    deck.add_card(datfile::Card {
-        first: Some(datfile::Field::String("ABC")),
+    deck.add_card(Card {
+        first: Some(Field::String("ABC")),
         fields: vec![
-            datfile::Field::Int(1),
-            datfile::Field::Blank,
-            datfile::Field::Blank,
-            datfile::Field::Blank,
-            datfile::Field::Blank,
-            datfile::Field::Blank,
-            datfile::Field::Blank,
-            datfile::Field::Blank,
+            Field::Int(1),
+            Field::Blank,
+            Field::Blank,
+            Field::Blank,
+            Field::Blank,
+            Field::Blank,
+            Field::Blank,
+            Field::Blank,
         ],
         continuation: "",
         comment: None,
         is_comma: true,
         is_double: false,
         unparsed: None,
-    }).unwrap();
+    })
+    .unwrap();
     assert_eq!(res, deck);
 }
