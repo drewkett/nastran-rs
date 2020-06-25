@@ -1,5 +1,3 @@
-use std::fmt;
-
 use bstr::ByteSlice;
 use nom;
 use thiserror::Error;
