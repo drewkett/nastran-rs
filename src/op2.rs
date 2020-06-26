@@ -3,11 +3,7 @@ use std::mem::{size_of, transmute};
 use std::slice::from_raw_parts;
 
 use crate::errors::{Error, Result};
-use nom::{
-    alt, apply, bits, bits_impl, call, complete, do_parse, eof, error_position, le_i32, many0, map,
-    map_res, named, recognize, tag, tag_bits, take, take_bits, take_str, terminated, try_parse,
-    tuple, tuple_parser, IResult,
-};
+use nom::{le_i32, IResult};
 
 mod dynamic;
 mod ept;
@@ -74,12 +70,13 @@ pub fn read_known_i32(input: &[u8], v: i32) -> IResult<&[u8], ()> {
 }
 
 named!(pub read_fortran_i32<i32>,
-  do_parse!(
-  apply!(read_known_i32,4) >>
-  v: le_i32 >>
-  apply!(read_known_i32,4) >>
-  (v)
-  ));
+    do_parse!(
+        apply!(read_known_i32,4) >>
+        v: le_i32 >>
+        apply!(read_known_i32,4) >>
+        (v)
+    )
+);
 
 fn read_fortran_known_i32(input: &[u8], v: i32) -> IResult<&[u8], ()> {
     do_parse!(

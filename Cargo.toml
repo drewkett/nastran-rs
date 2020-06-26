@@ -13,11 +13,10 @@ ascii = "1.0"
 clap = "2.24"
 dtoa = "0.4"
 itertools = "0.9"
+nom = "0.3"
 num = "0.2"
 num-traits = "0.2"
-
-[dependencies.nom]
-version = "^5.0"
+version = "3"
 
 [dev-dependencies]
 criterion = "0.3"
