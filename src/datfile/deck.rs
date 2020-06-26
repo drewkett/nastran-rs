@@ -63,7 +63,7 @@ impl<'a> From<WorkingDeck<'a>> for Deck<'a> {
 #[derive(Debug, PartialEq)]
 pub struct WorkingDeck<'a> {
     deck: Deck<'a>,
-    continuations: HashMap<&'a str, usize>,
+    continuations: HashMap<&'a [u8], usize>,
 }
 
 impl<'a> Default for WorkingDeck<'a> {
@@ -90,7 +90,7 @@ impl<'a> WorkingDeck<'a> {
                 let index = self
                     .continuations
                     .remove(c)
-                    .ok_or(Error::UnmatchedContinuation(c.to_owned()))?;
+                    .ok_or(Error::UnmatchedContinuation(c))?;
                 let existing = self.deck.cards.index_mut(index);
                 self.continuations.insert(card.continuation, index);
                 existing.merge(card);
@@ -103,8 +103,8 @@ impl<'a> WorkingDeck<'a> {
             Some(Field::Blank) => {
                 let index = self
                     .continuations
-                    .remove("")
-                    .ok_or(Error::UnmatchedContinuation("".to_owned()))?;
+                    .remove(&b""[..])
+                    .ok_or(Error::UnmatchedContinuation(&b""[..]))?;
                 let existing = self.deck.cards.index_mut(index);
                 self.continuations.insert(card.continuation, index);
                 existing.merge(card);
@@ -212,7 +212,7 @@ pub fn parse_line(buffer: &[u8]) -> Result<Card> {
         return Ok(Card {
             first: None,
             fields: vec![],
-            continuation: "",
+            continuation: b"",
             comment: option_from_slice(comment),
             is_double: false,
             is_comma: false,
@@ -229,7 +229,7 @@ pub fn parse_line(buffer: &[u8]) -> Result<Card> {
         _ => false,
     };
     let mut fields = vec![];
-    let mut continuation = "";
+    let mut continuation = b"".as_ref();
     if is_comma {
         let mut field_count = 0;
         let mut it = remainder.split(|&b| b == b',');
@@ -242,7 +242,7 @@ pub fn parse_line(buffer: &[u8]) -> Result<Card> {
                                 Field::Continuation(_) | Field::DoubleContinuation(_) => {
                                     field_count = 0;
                                 }
-                                _ => return Err(Error::UnexpectedContinuation(c.to_owned())),
+                                _ => return Err(Error::UnexpectedContinuation(c)),
                             }
                         } else {
                             continuation = c;
@@ -304,7 +304,7 @@ pub fn parse_line(buffer: &[u8]) -> Result<Card> {
         Ok(Card {
             first: None,
             fields: vec![],
-            continuation: "",
+            continuation: b"",
             comment: option_from_slice(comment),
             is_double: false,
             is_comma: false,
@@ -404,16 +404,16 @@ pub fn parse_buffer(input_buffer: &[u8]) -> Result<Deck> {
             }
             let card = parse_line(line).map_err(|e| Error::LineError(line_num, Box::new(e)))?;
             // Check for ENDDATA. If found, drop the card and set remaining buffer to unparsed
-            if card.first == Some(Field::String("ENDDATA")) {
+            if card.first == Some(Field::String(b"ENDDATA")) {
                 deck.set_unparsed(&buffer[j + 1..]);
                 break;
             } else {
-                deck.add_card(card)?;
+                deck.add_card(card).unwrap();
                 buffer = &buffer[j + 1..];
             }
         } else {
             let card = parse_line(buffer).map_err(|e| Error::LineError(line_num, Box::new(e)))?;
-            deck.add_card(card)?;
+            deck.add_card(card).unwrap();
             break;
         }
         line_num += 1;
