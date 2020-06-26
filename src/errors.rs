@@ -1,50 +1,33 @@
 use std::fmt;
 
+use bstr::ByteSlice;
 use nom;
+use thiserror::Error;
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum Error<'a> {
+    #[error("Parse Failure")]
     ParseFailure,
+    #[error("Unexpected end to field '{}'",.0.as_bstr())]
     UnexpectedFieldEnd(&'a [u8]),
+    #[error("Unexpected char in field '{}'",.0.as_bstr())]
     UnexpectedCharInField(&'a [u8]),
+    #[error("Unexpected continuation '{}'",.0.as_bstr())]
     UnexpectedContinuation(&'a [u8]),
+    #[error("Error on Line {0}: {1}")]
     LineError(usize, Box<Error<'a>>),
+    #[error("Unmatched Continuation '{}'",.0.as_bstr())]
     UnmatchedContinuation(&'a [u8]),
+    #[error("Not Possible '{0}'")]
     NotPossible(&'static str),
-    UTF8ConversionError(::std::str::Utf8Error),
-    OP2ParseError(nom::ErrorKind),
-    ParseIntError(::std::num::ParseIntError),
-    ParseFloatError(::std::num::ParseFloatError),
+    #[error("UTF8 Conversion Error")]
+    UTF8ConversionError(#[from] ::std::str::Utf8Error),
+    #[error("OP2 Parse Error {0}")]
+    OP2ParseError(#[from] nom::ErrorKind),
+    #[error("Error Parsing Integer")]
+    ParseIntError(#[from] ::std::num::ParseIntError),
+    #[error("Error Parsing Float")]
+    ParseFloatError(#[from] ::std::num::ParseFloatError),
 }
 
 pub type Result<'a, T> = ::std::result::Result<T, Error<'a>>;
-
-impl<'a> fmt::Display for Error<'a> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", &self)
-    }
-}
-
-impl<'a> From<std::str::Utf8Error> for Error<'a> {
-    fn from(e: std::str::Utf8Error) -> Self {
-        Error::UTF8ConversionError(e)
-    }
-}
-
-impl<'a> From<std::num::ParseIntError> for Error<'a> {
-    fn from(e: std::num::ParseIntError) -> Self {
-        Error::ParseIntError(e)
-    }
-}
-
-impl<'a> From<std::num::ParseFloatError> for Error<'a> {
-    fn from(e: std::num::ParseFloatError) -> Self {
-        Error::ParseFloatError(e)
-    }
-}
-
-impl<'a> From<nom::ErrorKind> for Error<'a> {
-    fn from(e: nom::ErrorKind) -> Self {
-        Error::OP2ParseError(e)
-    }
-}
