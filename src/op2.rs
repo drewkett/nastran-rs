@@ -1,34 +1,63 @@
-use std::marker::Sized;
-use std::mem::{size_of, transmute};
-use std::slice::from_raw_parts;
+use std::mem;
+use thiserror::Error;
 
-use crate::errors::{Error, Result};
-use nom::{le_i32, IResult};
+#[derive(Debug, Error)]
+pub enum ErrorCode {
+    #[error("Bytes remaining")]
+    BytesRemaining,
+    #[error("Unexpected EOF")]
+    UnexpectedEOF,
+    #[error("Unexpected EOR ({0})")]
+    UnexpectedEOR(i32),
+    #[error("IO Error {0}")]
+    IO(#[from] std::io::Error),
+    #[error("UnexpectedDataSize: expected={0} found={1}")]
+    UnexpectedDataSize(i32, i32),
+    #[error("UnexpectedDataLength: expected={0} found={1}")]
+    UnexpectedDataLength(usize, usize),
+    #[error("UnexpectedValue")]
+    UnexpectedValue,
+    #[error("Error with negative read : {0}")]
+    NegativeRead(i32),
+    #[error("Struct too large")]
+    StructTooLarge,
+    #[error("Read too large")]
+    ReadTooLarge,
+    #[error("Alignment Error")]
+    AlignmentError,
+    #[error("Struct not multiple of word size")]
+    StructNotWordSizeMultiple,
+    #[error("UnknownDataBlockType ({0})")]
+    UnknownDataBlockType(i32),
+    #[error("ExpectedEOR found {0}")]
+    ExpectedEOR(i32),
+    #[error("Expected EOR found {0:?}")]
+    ExpectedEOR2(EncodedSize),
+    #[error("ExpectedData")]
+    ExpectedData,
+}
 
-mod dynamic;
-mod ept;
-mod generic;
-mod geom1;
-mod geom2;
-mod geom4;
-mod ident;
-mod keyed;
-mod oug;
+#[derive(Debug, Error)]
+#[error("{0}\nnext bytes:\n{1:?}",code,&remaining[..std::cmp::min(remaining.len(),20)])]
+pub struct Error<'a> {
+    code: ErrorCode,
+    remaining: &'a [u8],
+}
 
-#[derive(Debug)]
-struct Date {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Date {
     month: i32,
     day: i32,
     year: i32,
 }
 
-#[derive(Debug)]
-pub struct FileHeader<'a> {
-    date: &'a Date,
-    label: &'a [u8], // Might want to make this fixed length at some point
+#[derive(Debug, PartialEq)]
+pub struct FileHeader {
+    date: Date,
+    label: [u8; 8], // Might want to make this fixed length at some point
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DataBlockType {
     Table,
     Matrix,
@@ -36,271 +65,267 @@ pub enum DataBlockType {
     MatrixFactor,
 }
 
-pub type DataBlockTrailer<'a> = &'a [i32; 7];
-
-pub enum DataBlock<'a> {
-    Generic(generic::DataBlock<'a>),
-    OUG(oug::DataBlock<'a>),
-    GEOM1(geom1::DataBlock<'a>),
-    GEOM2(geom2::DataBlock<'a>),
-    GEOM4(geom4::DataBlock<'a>),
-    EPT(ept::DataBlock<'a>),
-    DYNAMIC(dynamic::DataBlock<'a>),
+impl std::convert::TryFrom<&i32> for DataBlockType {
+    type Error = ErrorCode;
+    fn try_from(v: &i32) -> Result<Self, Self::Error> {
+        match *v {
+            0 => Ok(DataBlockType::Table),
+            1 => Ok(DataBlockType::Matrix),
+            2 => Ok(DataBlockType::StringFactor),
+            3 => Ok(DataBlockType::MatrixFactor),
+            n => Err(ErrorCode::UnknownDataBlockType(n)),
+        }
+    }
 }
 
+#[derive(Debug, PartialEq)]
+pub struct DataBlock<'a> {
+    name: [u8; 8],
+    trailer: [i32; 7],
+    record_type: DataBlockType,
+    header: &'a [u8],
+    records: Vec<&'a [u8]>,
+}
+
+#[derive(Debug, PartialEq)]
 pub struct OP2<'a> {
-    pub header: FileHeader<'a>,
-    pub blocks: Vec<DataBlock<'a>>,
+    header: FileHeader,
+    blocks: Vec<DataBlock<'a>>,
 }
 
-named!(pub read_fortran_data,
-       do_parse!(
-  length: le_i32 >>
-  data: take!(length) >>
-  tag!(unsafe { transmute::<i32,[u8;4]>(length)}) >>
-  (data)
-));
-
-fn i32_to_bytearray(num: i32) -> [u8; 4] {
-    unsafe { transmute(num.to_le()) }
+#[derive(Debug)]
+pub enum EncodedSize {
+    Data(i32),
+    Zero,
+    EOR(i32),
 }
 
-pub fn read_known_i32(input: &[u8], v: i32) -> IResult<&[u8], ()> {
-    tag!(input, i32_to_bytearray(v)).map(|_| ())
+pub enum EncodedData<T> {
+    Data(T),
+    Zero,
+    EOR(i32),
 }
 
-named!(pub read_fortran_i32<i32>,
-    do_parse!(
-        apply!(read_known_i32,4) >>
-        v: le_i32 >>
-        apply!(read_known_i32,4) >>
-        (v)
-    )
-);
-
-fn read_fortran_known_i32(input: &[u8], v: i32) -> IResult<&[u8], ()> {
-    do_parse!(
-        input,
-        apply!(read_known_i32, 4) >> apply!(read_known_i32, v) >> apply!(read_known_i32, 4) >> ()
-    )
+struct OP2Parser<'a> {
+    buffer: &'a [u8],
 }
 
-named!(pub read_nastran_i32<i32>,
-  do_parse!(
-  apply!(read_fortran_known_i32,1) >>
-  value: read_fortran_i32 >>
-  (value)
-  )
-);
+impl<'a> OP2Parser<'a> {
+    #[inline]
+    fn take(&mut self, n: usize) -> Result<&'a [u8], ErrorCode> {
+        if self.buffer.len() < n {
+            return Err(ErrorCode::UnexpectedEOF);
+        }
+        let (ret, buffer) = self.buffer.split_at(n);
+        self.buffer = buffer;
+        Ok(ret)
+    }
 
-pub fn read_nastran_known_i32(input: &[u8], v: i32) -> IResult<&[u8], ()> {
-    do_parse!(
-        input,
-        apply!(read_fortran_known_i32, 1) >> apply!(read_fortran_known_i32, v) >> ()
-    )
-}
+    fn read_i32(&mut self) -> Result<i32, ErrorCode> {
+        use std::convert::TryInto;
+        let sl = self.take(4)?;
+        Ok(i32::from_le_bytes(sl.try_into().unwrap()))
+    }
 
-const WORD_SIZE: i32 = 4;
+    fn read_i32_value(&mut self, expected: i32) -> Result<(), ErrorCode> {
+        let found = self.read_i32()?;
+        if found != expected {
+            return Err(ErrorCode::UnexpectedDataSize(expected, found));
+        }
+        Ok(())
+    }
 
-pub fn read_nastran_tag<'a>(input: &'a [u8], v: &[u8]) -> IResult<&'a [u8], ()> {
-    let l: i32 = v.len() as i32;
-    do_parse!(
-        input,
-        apply!(read_fortran_known_i32, l / WORD_SIZE)
-            >> apply!(read_known_i32, l)
-            >> tag!(v)
-            >> apply!(read_known_i32, l)
-            >> ()
-    )
-}
+    fn read_padded<T>(&mut self) -> Result<&'a T, ErrorCode> {
+        let expected = mem::size_of::<T>();
+        if expected > i32::MAX as usize {
+            return Err(ErrorCode::ReadTooLarge);
+        }
+        if expected > i32::MAX as usize {
+            return Err(ErrorCode::ReadTooLarge);
+        }
+        self.read_i32_value(expected as i32)?;
+        let res = self.take(expected)?;
+        self.read_i32_value(expected as i32)?;
+        let (begin, res, end) = unsafe { res.align_to::<T>() };
+        if !begin.is_empty() {
+            return Err(ErrorCode::AlignmentError);
+        }
+        #[cfg(debug_assertions)]
+        if !end.is_empty() {
+            return Err(ErrorCode::BytesRemaining);
+        }
+        return Ok(&res[0]);
+    }
 
-pub fn read_nastran_data_known_length(input: &[u8], v: i32) -> IResult<&[u8], &[u8]> {
-    do_parse!(
-        input,
-        apply!(read_fortran_known_i32, v)
-            >> apply!(read_known_i32, v * WORD_SIZE)
-            >> data: take!(v * WORD_SIZE)
-            >> apply!(read_known_i32, v * WORD_SIZE)
-            >> (data)
-    )
-}
+    fn read_padded_value<T: PartialEq>(&mut self, expected_value: &T) -> Result<&'a T, ErrorCode> {
+        let value = self.read_padded()?;
+        if value != expected_value {
+            return Err(ErrorCode::UnexpectedValue);
+        }
+        return Ok(value);
+    }
 
-pub fn read_nastran_data(input: &[u8]) -> IResult<&[u8], &[u8]> {
-    do_parse!(
-        input,
-        length: read_fortran_i32
-            >> apply!(read_known_i32, length * WORD_SIZE)
-            >> data: take!(length * WORD_SIZE)
-            >> apply!(read_known_i32, length * WORD_SIZE)
-            >> (data)
-    )
-}
+    fn read_padded_slice(&mut self) -> Result<&'a [u8], ErrorCode> {
+        let n = self.read_i32()?;
+        if n < 1 {
+            return Err(ErrorCode::NegativeRead(n));
+        }
+        let res = self.take(n as usize)?;
+        if n != self.read_i32()? {
+            return Err(ErrorCode::UnexpectedValue);
+        }
+        return Ok(res);
+    }
 
-pub fn read_nastran_string(input: &[u8]) -> IResult<&[u8], &str> {
-    do_parse!(
-        input,
-        length: read_fortran_i32
-            >> apply!(read_known_i32, length * WORD_SIZE)
-            >> data: take_str!(length * WORD_SIZE)
-            >> apply!(read_known_i32, length * WORD_SIZE)
-            >> (data)
-    )
-}
+    fn read_encoded_slice(&mut self) -> Result<EncodedData<&'a [u8]>, ErrorCode> {
+        let nwords: i32 = *self.read_padded()?;
+        if nwords < 0 {
+            Ok(EncodedData::EOR(nwords))
+        } else if nwords == 0 {
+            Ok(EncodedData::Zero)
+        } else {
+            let nbytes = (nwords as usize) * 4;
+            let ret = self.read_padded_slice()?;
+            if ret.len() != nbytes {
+                return Err(ErrorCode::UnexpectedDataLength(nbytes, ret.len()));
+            }
+            Ok(EncodedData::Data(ret))
+        }
+    }
 
-pub fn read_nastran_string_known_length(input: &[u8], length: i32) -> IResult<&[u8], &str> {
-    do_parse!(
-        input,
-        apply!(read_fortran_known_i32, length)
-            >> apply!(read_known_i32, length * WORD_SIZE)
-            >> data: take_str!(length * WORD_SIZE)
-            >> apply!(read_known_i32, length * WORD_SIZE)
-            >> (data)
-    )
-}
+    fn read_encoded<T>(&mut self) -> Result<EncodedData<&'a T>, ErrorCode> {
+        let nwords: i32 = *self.read_padded()?;
+        if nwords < 0 {
+            Ok(EncodedData::EOR(nwords))
+        } else if nwords == 0 {
+            Ok(EncodedData::Zero)
+        } else {
+            let ret = self.read_padded()?;
+            Ok(EncodedData::Data(ret))
+        }
+    }
 
-named!(pub read_nastran_key<i32>, do_parse!(
-  apply!(read_known_i32,4) >>
-  data: le_i32 >>
-  apply!(read_known_i32,4) >>
-  (data)
-));
+    fn read_encoded_data<T>(&mut self) -> Result<&'a T, ErrorCode> {
+        match self.read_encoded()? {
+            EncodedData::EOR(n) => Err(ErrorCode::UnexpectedEOR(n)),
+            EncodedData::Zero => Err(ErrorCode::UnexpectedEOR(0)),
+            EncodedData::Data(d) => Ok(d),
+        }
+    }
 
-pub fn read_nastran_known_key(input: &[u8], v: i32) -> IResult<&[u8], ()> {
-    do_parse!(
-        input,
-        apply!(read_known_i32, 4) >> apply!(read_known_i32, v) >> apply!(read_known_i32, 4) >> ()
-    )
-}
+    fn read_encoded_data_slice(&mut self) -> Result<&'a [u8], ErrorCode> {
+        match self.read_encoded_slice()? {
+            EncodedData::EOR(n) => Err(ErrorCode::UnexpectedEOR(n)),
+            EncodedData::Zero => Err(ErrorCode::UnexpectedEOR(0)),
+            EncodedData::Data(d) => Ok(d),
+        }
+    }
 
-pub fn buf_to_struct<T: Sized>(buf: &[u8]) -> &T {
-    unsafe { &*(buf.as_ptr() as *const T) }
-}
+    fn read_encoded_value<T: PartialEq>(&mut self, expected_value: &T) -> Result<&'a T, ErrorCode> {
+        let value = self.read_encoded_data()?;
+        if value != expected_value {
+            return Err(ErrorCode::UnexpectedValue);
+        }
+        return Ok(value);
+    }
 
-named!(
-    read_header<FileHeader>,
-    do_parse!(
-        date: apply!(read_nastran_data_known_length, 3)
-            >> apply!(read_nastran_tag, b"NASTRAN FORT TAPE ID CODE - ")
-            >> label: apply!(read_nastran_data_known_length, 2)
-            >> apply!(read_nastran_known_key, -1)
-            >> apply!(read_nastran_known_key, 0)
-            >> (FileHeader {
-                date: buf_to_struct(date),
-                label: label
-            })
-    )
-);
+    fn read_header(&mut self) -> Result<FileHeader, ErrorCode> {
+        let date: Date = *self.read_encoded_data()?;
+        let _ = self.read_encoded_value(b"NASTRAN FORT TAPE ID CODE - ")?;
+        let label = *self.read_encoded_data()?;
+        let _ = self.read_padded_value(&-1i32)?;
+        let _ = self.read_padded_value(&0i32)?;
+        Ok(FileHeader { date, label })
+    }
 
-named!(pub read_first_table_record, do_parse!(
-  record: read_nastran_data >>
-  apply!(read_nastran_known_key,-3) >>
-  (record)
-));
+    fn read_table_record(&mut self) -> Result<Option<&'a [u8]>, ErrorCode> {
+        self.read_encoded_value(&0i32)?;
+        match self.read_encoded_slice()? {
+            EncodedData::Data(data) => {
+                let record_num: i32 = *self.read_padded()?;
+                if record_num >= 0 {
+                    return Err(ErrorCode::ExpectedEOR(record_num));
+                }
+                Ok(Some(data))
+            }
+            EncodedData::Zero => Ok(None),
+            EncodedData::EOR(n) => Err(ErrorCode::UnexpectedEOR(n)),
+        }
+    }
 
-fn read_negative_i32(input: &[u8]) -> IResult<&[u8], &i32> {
-    map!(
-        input,
-        recognize!(bits!(do_parse!(
-            tag_bits!(u8, 1, 0b1) >> take_bits!(u32, 31) >> ()
-        ))),
-        |v| buf_to_struct(v)
-    )
-}
+    fn read_datablock(&mut self) -> Result<Option<DataBlock<'a>>, ErrorCode> {
+        use std::convert::TryInto;
+        let name = match self.read_encoded()? {
+            EncodedData::EOR(n) => return Err(ErrorCode::UnexpectedEOR(n)),
+            EncodedData::Zero => return Ok(None),
+            EncodedData::Data(name) => *name,
+        };
+        self.read_padded_value(&-1)?;
+        let trailer = *self.read_encoded_data()?;
+        self.read_padded_value(&-2)?;
+        let record_type = self.read_encoded_data::<i32>()?.try_into()?;
+        let header: &[u8] = self.read_encoded_data_slice()?;
+        self.read_padded_value(&-3)?;
+        let mut records = vec![];
+        while let Some(record) = self.read_table_record()? {
+            records.push(record);
+        }
+        Ok(Some(DataBlock {
+            name,
+            trailer,
+            record_type,
+            header,
+            records,
+        }))
+    }
 
-named!(pub read_nastran_eof<()>, apply!(read_fortran_known_i32,0));
+    fn inner_parse(&mut self) -> Result<OP2<'a>, ErrorCode> {
+        let header = self.read_header()?;
+        let mut blocks = vec![];
+        while let Some(block) = self.read_datablock()? {
+            blocks.push(block);
+        }
+        if self.buffer.is_empty() {
+            Ok(OP2 { header, blocks })
+        } else {
+            Err(ErrorCode::BytesRemaining)
+        }
+    }
 
-named!(pub read_nastran_eor<&i32>,do_parse!(
-  apply!(read_known_i32,4) >>
-  value: read_negative_i32 >>
-  apply!(read_known_i32,4) >>
-  (value)
-));
-
-named!(pub read_last_table_record<()>,do_parse!(
-  apply!(read_nastran_known_i32,0) >>
-  read_nastran_eof >>
-  ()
-));
-
-pub struct DataBlockStart<'a> {
-    pub name: &'a str,
-    pub trailer: DataBlockTrailer<'a>,
-    pub record_type: DataBlockType,
-}
-
-named!(pub read_datablock_start<DataBlockStart>,do_parse!(
-  name: apply!(read_nastran_string_known_length,2) >>
-  apply!(read_nastran_known_key,-1) >>
-  trailer: apply!(read_nastran_data_known_length,7) >>
-  apply!(read_nastran_known_key,-2) >>
-  record_type: alt!(
-    apply!(read_nastran_known_i32,0) => {|_| DataBlockType::Table}
-    | apply!(read_nastran_known_i32,1) => {|_| DataBlockType::Matrix}
-    | apply!(read_nastran_known_i32,2) => {|_| DataBlockType::StringFactor}
-    | apply!(read_nastran_known_i32,3) => {|_| DataBlockType::MatrixFactor}
-  ) >>
-(DataBlockStart {name:name,trailer:buf_to_struct(trailer),record_type:record_type})
-));
-
-named!(pub read_datablock_header,do_parse!(
-  header: read_nastran_data >>
-  apply!(read_nastran_known_key,-3) >>
-  (header)
-));
-
-pub fn read_struct_array<T>(input: &[u8], count: usize) -> IResult<&[u8], &[T]> {
-    let length = size_of::<T>() * count;
-    let (input, data) = try_parse!(input, take!(length));
-    let sl = unsafe { from_raw_parts::<T>(transmute(data.as_ptr()), count) };
-    IResult::Done(input, sl)
-}
-
-fn read_datablock(input: &[u8]) -> IResult<&[u8], DataBlock> {
-    let (input, start) = try_parse!(input, read_datablock_start);
-    match start.name {
-        "OUGV1   " => map!(input, apply!(oug::read_datablock, start), DataBlock::OUG),
-        "GEOM1S  " => map!(
-            input,
-            apply!(geom1::read_datablock, start),
-            DataBlock::GEOM1
-        ),
-        "GEOM2S  " => map!(
-            input,
-            apply!(geom2::read_datablock, start),
-            DataBlock::GEOM2
-        ),
-        "GEOM4S  " => map!(
-            input,
-            apply!(geom4::read_datablock, start),
-            DataBlock::GEOM4
-        ),
-        "EPTS    " => map!(input, apply!(ept::read_datablock, start), DataBlock::EPT),
-        "DYNAMICS" => map!(
-            input,
-            apply!(dynamic::read_datablock, start),
-            DataBlock::DYNAMIC
-        ),
-        _ => map!(
-            input,
-            apply!(generic::read_datablock, start),
-            DataBlock::Generic
-        ),
+    fn parse(&mut self) -> std::result::Result<OP2<'a>, Error<'a>> {
+        self.inner_parse().map_err(|code| Error {
+            code,
+            remaining: self.buffer,
+        })
     }
 }
 
-named!(pub parse_op2<OP2>,do_parse!(
-  header: read_header >>
-  blocks: many0!(read_datablock) >>
-  read_nastran_eof >>
-  eof!() >>
-  (OP2 {header:header,blocks:blocks})
-));
+pub fn parse_buffer(buffer: &[u8]) -> Result<OP2<'_>, Error<'_>> {
+    let mut parser = OP2Parser { buffer };
+    parser.parse()
+}
 
-pub fn parse_buffer(buffer: &[u8]) -> Result<OP2> {
-    match complete!(buffer, terminated!(parse_op2, eof!())) {
-        IResult::Done(b"", d) => Ok(d),
-        IResult::Done(_, _) => Err(Error::NotPossible("Remaining characters in buffer")),
-        IResult::Incomplete(_) => Err(Error::NotPossible("Remaining characters in buffer")),
-        IResult::Error(e) => Err(e.into()),
-    }
+#[test]
+fn test_parse_buffer() {
+    let buf = std::fs::read("tests/op2test32.op2").unwrap();
+    let op2 = match parse_buffer(&buf) {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!("{}", e);
+            assert!(false);
+            return;
+        }
+    };
+    assert_eq!(
+        op2.header.date,
+        Date {
+            month: 8,
+            day: 13,
+            year: 18
+        }
+    );
+    assert_eq!(op2.header.label, *b"NX11.0.2");
+    assert_eq!(op2.blocks[0].name, *b"PVT0    ");
+    assert_eq!(op2.blocks[0].trailer, [101, 13, 0, 0, 0, 0, 0]);
+    assert_eq!(op2.blocks[0].record_type, DataBlockType::Table);
 }

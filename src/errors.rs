@@ -1,5 +1,4 @@
 use bstr::ByteSlice;
-use nom;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -20,8 +19,6 @@ pub enum Error<'a> {
     NotPossible(&'static str),
     #[error("UTF8 Conversion Error")]
     UTF8ConversionError(#[from] ::std::str::Utf8Error),
-    #[error("OP2 Parse Error {0}")]
-    OP2ParseError(#[from] nom::ErrorKind),
     #[error("Error Parsing Integer")]
     ParseIntError(#[from] ::std::num::ParseIntError),
     #[error("Error Parsing Float")]
