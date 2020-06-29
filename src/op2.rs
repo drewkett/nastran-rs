@@ -154,6 +154,8 @@ impl<'a> OP2Parser<'a> {
         if !end.is_empty() {
             return Err(ErrorCode::BytesRemaining);
         }
+        #[cfg(not(debug_assertions))]
+        let _ = end;
         return Ok(&res[0]);
     }
 
@@ -328,4 +330,6 @@ fn test_parse_buffer() {
     assert_eq!(op2.blocks[0].name, *b"PVT0    ");
     assert_eq!(op2.blocks[0].trailer, [101, 13, 0, 0, 0, 0, 0]);
     assert_eq!(op2.blocks[0].record_type, DataBlockType::Table);
+    assert_eq!(op2.blocks[0].header, *b"PVT     ");
+    assert_eq!(op2.blocks[0].records.len(), 1);
 }
