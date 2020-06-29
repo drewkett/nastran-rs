@@ -1,54 +1,22 @@
 use std::fs::File;
 use std::io::{self, Write};
 
-use clap::{App, Arg};
 use memmap::Mmap;
 
 pub fn main() {
-    let matches = App::new("Nastran Reader")
-        .arg(
-            Arg::with_name("DATFILE")
-                .help(".dat file for reading")
-                .required(true)
-                .index(1),
-        )
-        .arg(
-            Arg::with_name("OUTPUT")
-                .help("output to file")
-                .short("o")
-                .takes_value(true),
-        )
-        .arg(Arg::with_name("echo").long("echo").help("Output cards"))
-        .get_matches();
-    if let Some(filename) = matches.value_of("DATFILE") {
-        let f = File::open(filename).unwrap();
-        let mm = unsafe { Mmap::map(&f).unwrap() };
-        let sl = mm.as_ref();
-        let echo = matches.is_present("echo") || matches.is_present("OUTPUT");
-        let deck = nastran::datfile::parse_buffer(sl).unwrap();
-        if echo {
-            if let Some(output_filename) = matches.value_of("OUTPUT") {
-                if let Ok(mut f) = File::create(output_filename) {
-                    if let Some(header) = deck.header {
-                        f.write_all(header).unwrap();
-                    }
-                    for card in deck.cards {
-                        write!(f, "{}\n", card).unwrap();
-                    }
-                } else {
-                    println!("Couldn't open file '{}' for writing", output_filename)
-                }
-            } else {
-                if let Some(header) = deck.header {
-                    let stdout = io::stdout();
-                    let mut handle = stdout.lock();
-                    handle.write_all(header).unwrap();
-                }
-                for card in deck.cards {
-                    println!("{}", card)
-                }
-            }
-        }
+    let mut args = std::env::args();
+    let filename = args.next().unwrap();
+    let f = File::open(filename).unwrap();
+    let mm = unsafe { Mmap::map(&f).unwrap() };
+    let sl = mm.as_ref();
+    let deck = nastran::datfile::parse_buffer(sl).unwrap();
+    if let Some(header) = deck.header {
+        let stdout = io::stdout();
+        let mut handle = stdout.lock();
+        handle.write_all(header).unwrap();
+    }
+    for card in deck.cards {
+        println!("{}", card)
     }
     // let f = amap::open_path(filename, Protection::Read).unwrap();
     // let sl = unsafe { f.as_slice() };
