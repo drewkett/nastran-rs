@@ -19,8 +19,18 @@ members = ["."]
 
 [[bin]]
 name = "datfile"
-path = "fuzzers/datfile.rs"
+path = "fuzz_targets/datfile.rs"
+test = false
+doc = false
 
 [[bin]]
 name = "op2"
-path = "fuzzers/op2.rs"
+path = "fuzz_targets/op2.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "op2_double"
+path = "fuzz_targets/op2_double.rs"
+test = false
+doc = false

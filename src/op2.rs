@@ -24,7 +24,7 @@ pub trait Precision: std::fmt::Debug + Sized + Copy {
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
-struct SinglePrecision;
+pub struct SinglePrecision;
 
 impl Precision for SinglePrecision {
     type Int = i32;
@@ -59,7 +59,7 @@ impl Precision for SinglePrecision {
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
-struct DoublePrecision;
+pub struct DoublePrecision;
 
 impl Precision for DoublePrecision {
     type Int = i64;
@@ -245,7 +245,7 @@ where
     ) -> Result<&'a T, ErrorCode<P>> {
         let value = self.read_padded()?;
         if value != expected_value {
-            eprintln!("{:?} != {:?}", value, expected_value);
+            //eprintln!("{:?} != {:?}", value, expected_value);
             return Err(ErrorCode::UnexpectedValue);
         }
         return Ok(value);
@@ -260,7 +260,7 @@ where
         let expected = n;
         let n = self.read_i32()?;
         if n != expected {
-            eprintln!("{:?} != {:?}", n, expected);
+            //eprintln!("{:?} != {:?}", n, expected);
             return Err(ErrorCode::UnexpectedValue);
         }
         return Ok(res);
@@ -317,7 +317,7 @@ where
     ) -> Result<&'a T, ErrorCode<P>> {
         let value = self.read_encoded_data()?;
         if value != expected_value {
-            eprintln!("{:?} != {:?}", value, expected_value);
+            //eprintln!("{:?} != {:?}", value, expected_value);
             return Err(ErrorCode::UnexpectedValue);
         }
         return Ok(value);
@@ -394,7 +394,19 @@ where
     }
 }
 
-pub fn parse_buffer<'a, P: Precision + 'a>(buffer: &'a [u8]) -> Result<OP2<'_, P>, Error<'_, P>> {
+pub fn parse_buffer_single<'a>(
+    buffer: &'a [u8],
+) -> Result<OP2<'a, SinglePrecision>, Error<'a, SinglePrecision>> {
+    let mut parser = OP2Parser {
+        buffer,
+        precision: std::marker::PhantomData,
+    };
+    parser.parse()
+}
+
+pub fn parse_buffer_double<'a>(
+    buffer: &'a [u8],
+) -> Result<OP2<'a, DoublePrecision>, Error<'a, DoublePrecision>> {
     let mut parser = OP2Parser {
         buffer,
         precision: std::marker::PhantomData,
@@ -405,7 +417,7 @@ pub fn parse_buffer<'a, P: Precision + 'a>(buffer: &'a [u8]) -> Result<OP2<'_, P
 #[test]
 fn test_parse_buffer() {
     let buf = std::fs::read("tests/op2test32.op2").unwrap();
-    let op2 = match parse_buffer::<SinglePrecision>(&buf) {
+    let op2 = match parse_buffer_single(&buf) {
         Ok(o) => o,
         Err(e) => {
             eprintln!("{}", e);
@@ -432,7 +444,7 @@ fn test_parse_buffer() {
 #[test]
 fn test_parse_buffer_64() {
     let buf = std::fs::read("tests/op2test64.op2").unwrap();
-    let op2 = match parse_buffer::<DoublePrecision>(&buf) {
+    let op2 = match parse_buffer_double(&buf) {
         Ok(o) => o,
         Err(e) => {
             eprintln!("{}", e);
