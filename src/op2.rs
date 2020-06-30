@@ -1,11 +1,38 @@
+use std::fmt;
 use std::mem;
+
+use bstr::ByteSlice;
 use thiserror::Error;
 
-pub trait Precision: std::fmt::Debug + Sized + Copy {
-    type Int: std::fmt::Debug + std::fmt::Display + num::Integer + Copy + Into<i64> + From<i32>;
-    type UInt: std::fmt::Debug + std::fmt::Display + num::Integer;
-    type Float: std::fmt::Debug + std::fmt::Display + num::Num;
-    type Char: std::fmt::Debug + std::fmt::Display + PartialEq + Copy + 'static;
+pub trait Word: fmt::Debug + fmt::Display + PartialEq + Copy {}
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub struct SingleWord([u8; 4]);
+
+impl fmt::Display for SingleWord {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0.as_bstr())
+    }
+}
+
+impl Word for SingleWord {}
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub struct DoubleWord([u8; 4], [u8; 4]);
+
+impl fmt::Display for DoubleWord {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0.as_bstr())
+    }
+}
+
+impl Word for DoubleWord {}
+
+pub trait Precision: fmt::Debug + Sized + Copy {
+    type Int: fmt::Debug + fmt::Display + num::Integer + Copy + Into<i64> + From<i32>;
+    type UInt: fmt::Debug + fmt::Display + num::Integer;
+    type Float: fmt::Debug + fmt::Display + num::Num;
+    type Word: Word;
 
     const WORDSIZE: usize;
 
@@ -13,7 +40,7 @@ pub trait Precision: std::fmt::Debug + Sized + Copy {
     fn max_int() -> Self::Int;
     fn max_int_usize() -> usize;
     fn int_from_usize(v: usize) -> Result<Self::Int, ErrorCode<Self>>;
-    fn header_code() -> &'static [Self::Char; 28];
+    fn header_code() -> [Self::Word; 7];
     fn i32_from_usize(v: usize) -> Result<i32, ErrorCode<Self>> {
         if v > i32::MAX as usize {
             Err(ErrorCode::ReadTooLarge)
@@ -30,7 +57,7 @@ impl Precision for SinglePrecision {
     type Int = i32;
     type UInt = u32;
     type Float = f32;
-    type Char = u8;
+    type Word = SingleWord;
 
     const WORDSIZE: usize = 4;
 
@@ -53,8 +80,16 @@ impl Precision for SinglePrecision {
             Ok(v as Self::Int)
         }
     }
-    fn header_code() -> &'static [Self::Char; 28] {
-        b"NASTRAN FORT TAPE ID CODE - "
+    fn header_code() -> [Self::Word; 7] {
+        [
+            SingleWord(*b"NAST"),
+            SingleWord(*b"RAN "),
+            SingleWord(*b"FORT"),
+            SingleWord(*b" TAP"),
+            SingleWord(*b"E ID"),
+            SingleWord(*b" COD"),
+            SingleWord(*b"E - "),
+        ]
     }
 }
 
@@ -65,7 +100,7 @@ impl Precision for DoublePrecision {
     type Int = i64;
     type UInt = u64;
     type Float = f64;
-    type Char = u16;
+    type Word = DoubleWord;
 
     const WORDSIZE: usize = 8;
 
@@ -85,8 +120,16 @@ impl Precision for DoublePrecision {
             Ok(v as Self::Int)
         }
     }
-    fn header_code() -> &'static [Self::Char; 28] {
-        unsafe { std::mem::transmute(b"NAST    RAN     FORT     TAP    E ID     COD    E -     ") }
+    fn header_code() -> [Self::Word; 7] {
+        [
+            DoubleWord(*b"NAST", *b"    "),
+            DoubleWord(*b"RAN ", *b"    "),
+            DoubleWord(*b"FORT", *b"    "),
+            DoubleWord(*b" TAP", *b"    "),
+            DoubleWord(*b"E ID", *b"    "),
+            DoubleWord(*b" COD", *b"    "),
+            DoubleWord(*b"E - ", *b"    "),
+        ]
     }
 }
 
@@ -145,7 +188,7 @@ pub struct Date<P: Precision> {
 #[derive(Debug, PartialEq)]
 pub struct FileHeader<P: Precision> {
     date: Date<P>,
-    label: [P::Char; 8], // Might want to make this fixed length at some point
+    label: [P::Word; 2], // Might want to make this fixed length at some point
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -170,10 +213,10 @@ impl DataBlockType {
 
 #[derive(Debug, PartialEq)]
 pub struct DataBlock<'a, P: Precision> {
-    name: [P::Char; 8],
+    name: [P::Word; 2],
     trailer: [P::Int; 7],
     record_type: DataBlockType,
-    header: &'a [u8],
+    header: &'a [P::Word],
     records: Vec<&'a [u8]>,
 }
 
@@ -239,7 +282,7 @@ where
         return Ok(res);
     }
 
-    fn read_padded_value<T: PartialEq + std::fmt::Debug>(
+    fn read_padded_value<T: PartialEq + fmt::Debug>(
         &mut self,
         expected_value: &T,
     ) -> Result<&'a T, ErrorCode<P>> {
@@ -251,7 +294,7 @@ where
         return Ok(value);
     }
 
-    fn read_padded_slice(&mut self) -> Result<&'a [u8], ErrorCode<P>> {
+    fn read_padded_byte_slice(&mut self) -> Result<&'a [u8], ErrorCode<P>> {
         let n = self.read_i32()?;
         if n < 1 {
             return Err(ErrorCode::NegativeRead(n));
@@ -266,7 +309,28 @@ where
         return Ok(res);
     }
 
-    fn read_encoded_slice(&mut self) -> Result<EncodedData<P, &'a [u8]>, ErrorCode<P>> {
+    fn read_padded_slice<T>(&mut self) -> Result<&'a [T], ErrorCode<P>> {
+        let size = std::mem::size_of::<T>();
+        let n = self.read_i32()?;
+        if n < 1 {
+            return Err(ErrorCode::NegativeRead(n));
+        }
+        if n as usize % size != 0 {
+            return Err(ErrorCode::AlignmentError);
+        }
+        let n_values = n as usize / size;
+        let res = self.take(n as usize)?;
+        let expected = n;
+        let n = self.read_i32()?;
+        if n != expected {
+            //eprintln!("{:?} != {:?}", n, expected);
+            return Err(ErrorCode::UnexpectedValue);
+        }
+        let res = unsafe { std::slice::from_raw_parts(res.as_ptr() as *const T, n_values) };
+        return Ok(res);
+    }
+
+    fn read_encoded_data_byte_slice(&mut self) -> Result<EncodedData<P, &'a [u8]>, ErrorCode<P>> {
         let nwords: P::Int = *self.read_padded()?;
         if nwords < P::zero_int() {
             Ok(EncodedData::EOR(nwords))
@@ -283,7 +347,29 @@ where
         }
     }
 
-    fn read_encoded<T>(&mut self) -> Result<EncodedData<P, &'a T>, ErrorCode<P>> {
+    fn read_encoded_data_slice<T>(&mut self) -> Result<EncodedData<P, &'a [T]>, ErrorCode<P>> {
+        let nwords: P::Int = *self.read_padded()?;
+        if nwords < P::zero_int() {
+            Ok(EncodedData::EOR(nwords))
+        } else if nwords == P::zero_int() {
+            Ok(EncodedData::Zero)
+        } else {
+            let nwords: i64 = nwords.into();
+            let nbytes = (nwords as usize) * P::WORDSIZE;
+            let size = std::mem::size_of::<T>();
+            if nbytes % size != 0 {
+                return Err(ErrorCode::AlignmentError);
+            }
+            let nvalues = nbytes / size;
+            let ret = self.read_padded_slice()?;
+            if ret.len() != nvalues {
+                return Err(ErrorCode::UnexpectedDataLength(nvalues, ret.len()));
+            }
+            Ok(EncodedData::Data(ret))
+        }
+    }
+
+    fn read_encoded_data<T>(&mut self) -> Result<EncodedData<P, &'a T>, ErrorCode<P>> {
         let nwords: P::Int = *self.read_padded()?;
         if nwords < P::zero_int() {
             Ok(EncodedData::EOR(nwords))
@@ -295,27 +381,35 @@ where
         }
     }
 
-    fn read_encoded_data<T>(&mut self) -> Result<&'a T, ErrorCode<P>> {
-        match self.read_encoded()? {
+    fn read_encoded<T>(&mut self) -> Result<&'a T, ErrorCode<P>> {
+        match self.read_encoded_data()? {
             EncodedData::EOR(n) => Err(ErrorCode::UnexpectedEOR(n)),
             EncodedData::Zero => Err(ErrorCode::UnexpectedEOR(P::zero_int())),
             EncodedData::Data(d) => Ok(d),
         }
     }
 
-    fn read_encoded_data_slice(&mut self) -> Result<&'a [u8], ErrorCode<P>> {
-        match self.read_encoded_slice()? {
+    fn read_encoded_byte_slice(&mut self) -> Result<&'a [u8], ErrorCode<P>> {
+        match self.read_encoded_data_byte_slice()? {
             EncodedData::EOR(n) => Err(ErrorCode::UnexpectedEOR(n)),
             EncodedData::Zero => Err(ErrorCode::UnexpectedEOR(P::zero_int())),
             EncodedData::Data(d) => Ok(d),
         }
     }
 
-    fn read_encoded_value<T: PartialEq + std::fmt::Debug>(
+    fn read_encoded_slice<T>(&mut self) -> Result<&'a [T], ErrorCode<P>> {
+        match self.read_encoded_data_slice()? {
+            EncodedData::EOR(n) => Err(ErrorCode::UnexpectedEOR(n)),
+            EncodedData::Zero => Err(ErrorCode::UnexpectedEOR(P::zero_int())),
+            EncodedData::Data(d) => Ok(d),
+        }
+    }
+
+    fn read_encoded_value<T: PartialEq + fmt::Debug>(
         &mut self,
         expected_value: &T,
     ) -> Result<&'a T, ErrorCode<P>> {
-        let value = self.read_encoded_data()?;
+        let value = self.read_encoded()?;
         if value != expected_value {
             //eprintln!("{:?} != {:?}", value, expected_value);
             return Err(ErrorCode::UnexpectedValue);
@@ -324,10 +418,9 @@ where
     }
 
     fn read_header(&mut self) -> Result<FileHeader<P>, ErrorCode<P>> {
-        let date: Date<P> = *self.read_encoded_data()?;
-        let v = P::header_code();
-        let _ = self.read_encoded_value(v)?;
-        let label = *self.read_encoded_data()?;
+        let date: Date<P> = *self.read_encoded()?;
+        let _ = self.read_encoded_value(&P::header_code())?;
+        let label = *self.read_encoded()?;
         let _ = self.read_padded_value(&P::Int::from(-1))?;
         let _ = self.read_padded_value(&P::Int::from(0))?;
         Ok(FileHeader { date, label })
@@ -335,7 +428,7 @@ where
 
     fn read_table_record(&mut self) -> Result<Option<&'a [u8]>, ErrorCode<P>> {
         self.read_encoded_value(&P::Int::from(0))?;
-        match self.read_encoded_slice()? {
+        match self.read_encoded_data_slice()? {
             EncodedData::Data(data) => {
                 let record_num: &P::Int = self.read_padded()?;
                 if record_num >= &P::zero_int() {
@@ -349,16 +442,18 @@ where
     }
 
     fn read_datablock(&mut self) -> Result<Option<DataBlock<'a, P>>, ErrorCode<P>> {
-        let name = match self.read_encoded()? {
+        let name = match self.read_encoded_data()? {
             EncodedData::EOR(n) => return Err(ErrorCode::UnexpectedEOR(n)),
             EncodedData::Zero => return Ok(None),
             EncodedData::Data(name) => *name,
         };
         self.read_padded_value(&P::Int::from(-1))?;
-        let trailer = *self.read_encoded_data()?;
+        let trailer = *self.read_encoded()?;
         self.read_padded_value(&P::Int::from(-2))?;
-        let record_type = DataBlockType::parse(*self.read_encoded_data::<P::Int>()?)?;
-        let header: &[u8] = self.read_encoded_data_slice()?;
+        let record_type = DataBlockType::parse(*self.read_encoded::<P::Int>()?)?;
+        println!("Hi");
+        let header = self.read_encoded_slice()?;
+        println!("Hi");
         self.read_padded_value(&P::Int::from(-3))?;
         let mut records = vec![];
         while let Some(record) = self.read_table_record()? {
@@ -433,11 +528,20 @@ fn test_parse_buffer() {
             year: 18
         }
     );
-    assert_eq!(op2.header.label, *b"NX11.0.2");
-    assert_eq!(op2.blocks[0].name, *b"PVT0    ");
+    assert_eq!(
+        op2.header.label,
+        [SingleWord(*b"NX11"), SingleWord(*b".0.2")]
+    );
+    assert_eq!(
+        op2.blocks[0].name,
+        [SingleWord(*b"PVT0"), SingleWord(*b"    ")]
+    );
     assert_eq!(op2.blocks[0].trailer, [101, 13, 0, 0, 0, 0, 0]);
     assert_eq!(op2.blocks[0].record_type, DataBlockType::Table);
-    assert_eq!(op2.blocks[0].header, *b"PVT     ");
+    assert_eq!(
+        op2.blocks[0].header,
+        [SingleWord(*b"PVT "), SingleWord(*b"    ")]
+    );
     assert_eq!(op2.blocks[0].records.len(), 1);
 }
 
@@ -464,6 +568,12 @@ fn test_parse_buffer_64() {
     //assert_eq!(op2.blocks[0].name, *b"PVT0    ");
     assert_eq!(op2.blocks[0].trailer, [101, 13, 0, 0, 0, 0, 0]);
     assert_eq!(op2.blocks[0].record_type, DataBlockType::Table);
-    assert_eq!(op2.blocks[0].header, *b"PVT             ");
+    assert_eq!(
+        op2.blocks[0].header,
+        [
+            DoubleWord(*b"PVT ", *b"    "),
+            DoubleWord(*b"    ", *b"    ")
+        ]
+    );
     assert_eq!(op2.blocks[0].records.len(), 1);
 }
