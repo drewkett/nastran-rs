@@ -7,6 +7,11 @@ description = "Rust library for reading NASTRAN files"
 license = "GPL-3.0"
 edition = "2018"
 
+[workspace]
+members = [
+  "naspy",
+]
+
 [dependencies]
 ascii = "1.0"
 bstr = "0.2"
