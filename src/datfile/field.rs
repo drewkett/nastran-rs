@@ -116,11 +116,6 @@ fn count_alphanumeric(buffer: &[u8]) -> usize {
         .count()
 }
 
-//fn print_slice(s: &str, buffer: &[u8]) {
-//let b = unsafe { str::from_utf8_unchecked(buffer) };
-//println!("{} {}", s, b)
-//}
-
 fn maybe_string(buffer: &[u8]) -> Result<Field> {
     let n = buffer.len();
     if n == 0 {
@@ -370,22 +365,35 @@ where
     T: Into<f64> + Copy + fmt::Display + fmt::LowerExp + dtoa::Floating + cmp::PartialOrd,
 {
     // FIXME: can be improved
-    let mut buf = [b' '; 9];
+    let mut buf = vec![b' '; 8];
+    let f = f.into();
     if let Ok(n) = dtoa::write(&mut buf[..], f) {
-        unsafe { String::from_utf8_unchecked(buf[..n].to_vec()) }
+        unsafe { String::from_utf8_unchecked(buf) }
     } else {
-        let s = if f.into() <= -1e+10 {
-            format!("{:8.1e}", f)
-        } else if f.into() < -1e-10 {
-            format!("{:8.2e}", f)
-        } else if f.into() < 0.0 {
-            format!("{:8.1e}", f)
-        } else if f.into() <= 1e-10 {
-            format!("{:8.2e}", f)
-        } else if f.into() < 1e+10 {
-            format!("{:8.3e}", f)
+        let s = if f <= -1e+100 {
+            format!("{:<8.1e}", f)
+        } else if f < -1e+10 {
+            format!("{:<8.2e}", f)
+        } else if f < -1e+0 {
+            format!("{:<8.3e}", f)
+        } else if f < -1e-9 {
+            format!("{:<8.2e}", f)
+        } else if f < -1e-99 {
+            format!("{:<8.1e}", f)
+        } else if f < 0.0 {
+            format!("{:<8.0e}", f)
+        } else if f <= 1e-99 {
+            format!("{:<8.1e}", f)
+        } else if f <= 1e-9 {
+            format!("{:<8.2e}", f)
+        } else if f < 1e+0 {
+            format!("{:<8.3e}", f)
+        } else if f < 1e+10 {
+            format!("{:<8.4e}", f)
+        } else if f < 1e+100 {
+            format!("{:<8.3e}", f)
         } else {
-            format!("{:8.2e}", f)
+            format!("{:<8.2e}", f)
         };
         if s.len() > 8 {
             panic!("help '{}'", s)
@@ -453,5 +461,37 @@ mod tests {
         success_maybe_first_field("* HI4", Field::DoubleContinuation(*b" HI4    "));
         success_maybe_field("", Field::Blank);
         success_maybe_field("  ", Field::Blank);
+    }
+
+    #[test]
+    fn test_float_to_8() {
+        assert_eq!(float_to_8(1.234), "1.234   ".to_string());
+        assert_eq!(float_to_8(1.234567), "1.234567".to_string());
+        assert_eq!(float_to_8(-1.234), "-1.234  ".to_string());
+        assert_eq!(float_to_8(-1.23456), "-1.23456".to_string());
+
+        assert_eq!(float_to_8(1.23456e-100), "1.2e-100".to_string());
+        assert_eq!(float_to_8(1.23456e-10), "1.23e-10".to_string());
+        assert_eq!(float_to_8(1.23456e-9), "1.235e-9".to_string());
+        assert_eq!(float_to_8(0.012345678), "1.235e-2".to_string());
+        assert_eq!(float_to_8(0.12345678), "1.235e-1".to_string());
+        assert_eq!(float_to_8(1.2345678), "1.2346e0".to_string());
+        assert_eq!(float_to_8(12.345678), "1.2346e1".to_string());
+        assert_eq!(float_to_8(123.45678), "1.2346e2".to_string());
+        assert_eq!(float_to_8(1.23456e9), "1.2346e9".to_string());
+        assert_eq!(float_to_8(1.23456e10), "1.235e10".to_string());
+        assert_eq!(float_to_8(1.23456e100), "1.23e100".to_string());
+
+        assert_eq!(float_to_8(-1.23456e-100), "-1e-100 ".to_string());
+        assert_eq!(float_to_8(-1.23456e-10), "-1.2e-10".to_string());
+        assert_eq!(float_to_8(-1.23456e-9), "-1.23e-9".to_string());
+        assert_eq!(float_to_8(-0.012345678), "-1.23e-2".to_string());
+        assert_eq!(float_to_8(-0.12345678), "-1.23e-1".to_string());
+        assert_eq!(float_to_8(-1.2345678), "-1.235e0".to_string());
+        assert_eq!(float_to_8(-12.345678), "-1.235e1".to_string());
+        assert_eq!(float_to_8(-123.45678), "-1.235e2".to_string());
+        assert_eq!(float_to_8(-1.23456e9), "-1.235e9".to_string());
+        assert_eq!(float_to_8(-1.23456e10), "-1.23e10".to_string());
+        assert_eq!(float_to_8(-1.23456e100), "-1.2e100".to_string());
     }
 }
