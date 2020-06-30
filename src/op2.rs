@@ -29,9 +29,9 @@ impl fmt::Display for DoubleWord {
 impl Word for DoubleWord {}
 
 pub trait Precision: fmt::Debug + Sized + Copy {
-    type Int: fmt::Debug + fmt::Display + num::Integer + Copy + Into<i64> + From<i32>;
-    type UInt: fmt::Debug + fmt::Display + num::Integer;
-    type Float: fmt::Debug + fmt::Display + num::Num;
+    type Int: fmt::Debug + fmt::Display + PartialEq + PartialOrd + Copy + Into<i64> + From<i32>;
+    type UInt: fmt::Debug + fmt::Display;
+    type Float: fmt::Debug + fmt::Display;
     type Word: Word;
 
     const WORDSIZE: usize;
