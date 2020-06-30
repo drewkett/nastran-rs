@@ -10,6 +10,8 @@ The op2 reader is written against NX Nastran 11 currently.
 - Reorganize the parser so that there is a struct that owns the buffer and drives it
   - The goal with the parser would be to store references to every byte in the original 
     datfile so that it can be written back out byte for byte if needed
+  - Do more to check for the safety of the parser. The fuzz checks are in place to help
+    with that but I'm not sure how long they need to run to be comprehensive
 - Consider expanding support for individual card types with named fields
 - Improve datfile test cases
 - Add documentation
