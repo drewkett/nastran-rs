@@ -82,7 +82,7 @@ impl<'a> WorkingDeck<'a> {
         }
     }
 
-    pub fn add_card(&mut self, card: Card<'a>) -> Result<()> {
+    pub fn add_card(&mut self, card: Card<'a>) -> Result<'a, ()> {
         match card.first {
             Some(Field::Continuation(c)) | Some(Field::DoubleContinuation(c)) => {
                 let index = self
@@ -406,13 +406,12 @@ pub fn parse_buffer(input_buffer: &[u8]) -> Result<Deck> {
                 deck.set_unparsed(&buffer[j + 1..]);
                 break;
             } else {
-                // TODO there is an unwrap here
-                deck.add_card(card).unwrap();
+                deck.add_card(card)?;
                 buffer = &buffer[j + 1..];
             }
         } else {
             let card = parse_line(buffer).map_err(|e| Error::LineError(line_num, Box::new(e)))?;
-            deck.add_card(card).unwrap();
+            deck.add_card(card)?;
             break;
         }
         line_num += 1;
