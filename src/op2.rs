@@ -1,14 +1,103 @@
 use std::mem;
 use thiserror::Error;
 
+pub trait Precision: std::fmt::Debug + Sized + Copy {
+    type Int: std::fmt::Debug + std::fmt::Display + num::Integer + Copy + Into<i64> + From<i32>;
+    type UInt: std::fmt::Debug + std::fmt::Display + num::Integer;
+    type Float: std::fmt::Debug + std::fmt::Display + num::Num;
+    type Char: std::fmt::Debug + std::fmt::Display + PartialEq + Copy + 'static;
+
+    const WORDSIZE: usize;
+
+    fn zero_int() -> Self::Int;
+    fn max_int() -> Self::Int;
+    fn max_int_usize() -> usize;
+    fn int_from_usize(v: usize) -> Result<Self::Int, ErrorCode<Self>>;
+    fn header_code() -> &'static [Self::Char; 28];
+    fn i32_from_usize(v: usize) -> Result<i32, ErrorCode<Self>> {
+        if v > i32::MAX as usize {
+            Err(ErrorCode::ReadTooLarge)
+        } else {
+            Ok(v as i32)
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+struct SinglePrecision;
+
+impl Precision for SinglePrecision {
+    type Int = i32;
+    type UInt = u32;
+    type Float = f32;
+    type Char = u8;
+
+    const WORDSIZE: usize = 4;
+
+    fn zero_int() -> Self::Int {
+        0
+    }
+
+    fn max_int_usize() -> usize {
+        Self::Int::MAX as usize
+    }
+
+    fn max_int() -> Self::Int {
+        Self::Int::MAX
+    }
+
+    fn int_from_usize(v: usize) -> Result<Self::Int, ErrorCode<Self>> {
+        if v > Self::max_int_usize() {
+            Err(ErrorCode::ReadTooLarge)
+        } else {
+            Ok(v as Self::Int)
+        }
+    }
+    fn header_code() -> &'static [Self::Char; 28] {
+        b"NASTRAN FORT TAPE ID CODE - "
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+struct DoublePrecision;
+
+impl Precision for DoublePrecision {
+    type Int = i64;
+    type UInt = u64;
+    type Float = f64;
+    type Char = u16;
+
+    const WORDSIZE: usize = 8;
+
+    fn zero_int() -> Self::Int {
+        0
+    }
+    fn max_int() -> Self::Int {
+        Self::Int::MAX
+    }
+    fn max_int_usize() -> usize {
+        Self::Int::MAX as usize
+    }
+    fn int_from_usize(v: usize) -> Result<Self::Int, ErrorCode<Self>> {
+        if v > Self::max_int_usize() {
+            Err(ErrorCode::ReadTooLarge)
+        } else {
+            Ok(v as Self::Int)
+        }
+    }
+    fn header_code() -> &'static [Self::Char; 28] {
+        unsafe { std::mem::transmute(b"NAST    RAN     FORT     TAP    E ID     COD    E -     ") }
+    }
+}
+
 #[derive(Debug, Error)]
-pub enum ErrorCode {
+pub enum ErrorCode<P: Precision> {
     #[error("Bytes remaining")]
     BytesRemaining,
     #[error("Unexpected EOF")]
     UnexpectedEOF,
     #[error("Unexpected EOR ({0})")]
-    UnexpectedEOR(i32),
+    UnexpectedEOR(P::Int),
     #[error("IO Error {0}")]
     IO(#[from] std::io::Error),
     #[error("UnexpectedDataSize: expected={0} found={1}")]
@@ -28,33 +117,35 @@ pub enum ErrorCode {
     #[error("Struct not multiple of word size")]
     StructNotWordSizeMultiple,
     #[error("UnknownDataBlockType ({0})")]
-    UnknownDataBlockType(i32),
+    UnknownDataBlockType(i64),
     #[error("ExpectedEOR found {0}")]
-    ExpectedEOR(i32),
+    ExpectedEOR(P::Int),
     #[error("Expected EOR found {0:?}")]
-    ExpectedEOR2(EncodedSize),
+    ExpectedEOR2(EncodedSize<P>),
     #[error("ExpectedData")]
     ExpectedData,
+    #[error("Integer Conversion")]
+    TryFrom(#[from] std::num::TryFromIntError),
 }
 
 #[derive(Debug, Error)]
 #[error("{0}\nnext bytes:\n{1:?}",code,&remaining[..std::cmp::min(remaining.len(),20)])]
-pub struct Error<'a> {
-    code: ErrorCode,
+pub struct Error<'a, P: Precision> {
+    code: ErrorCode<P>,
     remaining: &'a [u8],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Date {
-    month: i32,
-    day: i32,
-    year: i32,
+pub struct Date<P: Precision> {
+    month: P::Int,
+    day: P::Int,
+    year: P::Int,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct FileHeader {
-    date: Date,
-    label: [u8; 8], // Might want to make this fixed length at some point
+pub struct FileHeader<P: Precision> {
+    date: Date<P>,
+    label: [P::Char; 8], // Might want to make this fixed length at some point
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -65,10 +156,9 @@ pub enum DataBlockType {
     MatrixFactor,
 }
 
-impl std::convert::TryFrom<&i32> for DataBlockType {
-    type Error = ErrorCode;
-    fn try_from(v: &i32) -> Result<Self, Self::Error> {
-        match *v {
+impl DataBlockType {
+    fn parse<P: Precision>(v: impl Into<i64>) -> Result<Self, ErrorCode<P>> {
+        match v.into() {
             0 => Ok(DataBlockType::Table),
             1 => Ok(DataBlockType::Matrix),
             2 => Ok(DataBlockType::StringFactor),
@@ -79,40 +169,44 @@ impl std::convert::TryFrom<&i32> for DataBlockType {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct DataBlock<'a> {
-    name: [u8; 8],
-    trailer: [i32; 7],
+pub struct DataBlock<'a, P: Precision> {
+    name: [P::Char; 8],
+    trailer: [P::Int; 7],
     record_type: DataBlockType,
     header: &'a [u8],
     records: Vec<&'a [u8]>,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct OP2<'a> {
-    header: FileHeader,
-    blocks: Vec<DataBlock<'a>>,
+pub struct OP2<'a, P: Precision> {
+    header: FileHeader<P>,
+    blocks: Vec<DataBlock<'a, P>>,
 }
 
 #[derive(Debug)]
-pub enum EncodedSize {
-    Data(i32),
+pub enum EncodedSize<P: Precision> {
+    Data(P::Int),
     Zero,
-    EOR(i32),
+    EOR(P::Int),
 }
 
-pub enum EncodedData<T> {
+pub enum EncodedData<P: Precision, T> {
     Data(T),
     Zero,
-    EOR(i32),
+    EOR(P::Int),
 }
 
-struct OP2Parser<'a> {
+struct OP2Parser<'a, P> {
     buffer: &'a [u8],
+    precision: std::marker::PhantomData<P>,
 }
 
-impl<'a> OP2Parser<'a> {
+impl<'a, P: 'a> OP2Parser<'a, P>
+where
+    P: Precision,
+{
     #[inline]
-    fn take(&mut self, n: usize) -> Result<&'a [u8], ErrorCode> {
+    fn take(&mut self, n: usize) -> Result<&'a [u8], ErrorCode<P>> {
         if self.buffer.len() < n {
             return Err(ErrorCode::UnexpectedEOF);
         }
@@ -121,13 +215,13 @@ impl<'a> OP2Parser<'a> {
         Ok(ret)
     }
 
-    fn read_i32(&mut self) -> Result<i32, ErrorCode> {
-        use std::convert::TryInto;
+    fn read_i32(&mut self) -> Result<i32, ErrorCode<P>> {
         let sl = self.take(4)?;
-        Ok(i32::from_le_bytes(sl.try_into().unwrap()))
+        let sl = sl.as_ptr() as *const [u8; 4];
+        Ok(i32::from_le_bytes(unsafe { *sl }))
     }
 
-    fn read_i32_value(&mut self, expected: i32) -> Result<(), ErrorCode> {
+    fn read_i32_value(&mut self, expected: i32) -> Result<(), ErrorCode<P>> {
         let found = self.read_i32()?;
         if found != expected {
             return Err(ErrorCode::UnexpectedDataSize(expected, found));
@@ -135,58 +229,52 @@ impl<'a> OP2Parser<'a> {
         Ok(())
     }
 
-    fn read_padded<T>(&mut self) -> Result<&'a T, ErrorCode> {
+    fn read_padded<T>(&mut self) -> Result<&'a T, ErrorCode<P>> {
         let expected = mem::size_of::<T>();
-        if expected > i32::MAX as usize {
-            return Err(ErrorCode::ReadTooLarge);
-        }
-        if expected > i32::MAX as usize {
-            return Err(ErrorCode::ReadTooLarge);
-        }
-        self.read_i32_value(expected as i32)?;
+        let expected_i = P::i32_from_usize(expected)?;
+        self.read_i32_value(expected_i)?;
         let res = self.take(expected)?;
-        self.read_i32_value(expected as i32)?;
-        let (begin, res, end) = unsafe { res.align_to::<T>() };
-        if !begin.is_empty() {
-            return Err(ErrorCode::AlignmentError);
-        }
-        #[cfg(debug_assertions)]
-        if !end.is_empty() {
-            return Err(ErrorCode::BytesRemaining);
-        }
-        #[cfg(not(debug_assertions))]
-        let _ = end;
-        return Ok(&res[0]);
+        self.read_i32_value(expected_i)?;
+        let res = unsafe { &*(res.as_ptr() as *const T) };
+        return Ok(res);
     }
 
-    fn read_padded_value<T: PartialEq>(&mut self, expected_value: &T) -> Result<&'a T, ErrorCode> {
+    fn read_padded_value<T: PartialEq + std::fmt::Debug>(
+        &mut self,
+        expected_value: &T,
+    ) -> Result<&'a T, ErrorCode<P>> {
         let value = self.read_padded()?;
         if value != expected_value {
+            eprintln!("{:?} != {:?}", value, expected_value);
             return Err(ErrorCode::UnexpectedValue);
         }
         return Ok(value);
     }
 
-    fn read_padded_slice(&mut self) -> Result<&'a [u8], ErrorCode> {
+    fn read_padded_slice(&mut self) -> Result<&'a [u8], ErrorCode<P>> {
         let n = self.read_i32()?;
         if n < 1 {
             return Err(ErrorCode::NegativeRead(n));
         }
         let res = self.take(n as usize)?;
-        if n != self.read_i32()? {
+        let expected = n;
+        let n = self.read_i32()?;
+        if n != expected {
+            eprintln!("{:?} != {:?}", n, expected);
             return Err(ErrorCode::UnexpectedValue);
         }
         return Ok(res);
     }
 
-    fn read_encoded_slice(&mut self) -> Result<EncodedData<&'a [u8]>, ErrorCode> {
-        let nwords: i32 = *self.read_padded()?;
-        if nwords < 0 {
+    fn read_encoded_slice(&mut self) -> Result<EncodedData<P, &'a [u8]>, ErrorCode<P>> {
+        let nwords: P::Int = *self.read_padded()?;
+        if nwords < P::zero_int() {
             Ok(EncodedData::EOR(nwords))
-        } else if nwords == 0 {
+        } else if nwords == P::zero_int() {
             Ok(EncodedData::Zero)
         } else {
-            let nbytes = (nwords as usize) * 4;
+            let nwords: i64 = nwords.into();
+            let nbytes = (nwords as usize) * P::WORDSIZE;
             let ret = self.read_padded_slice()?;
             if ret.len() != nbytes {
                 return Err(ErrorCode::UnexpectedDataLength(nbytes, ret.len()));
@@ -195,11 +283,11 @@ impl<'a> OP2Parser<'a> {
         }
     }
 
-    fn read_encoded<T>(&mut self) -> Result<EncodedData<&'a T>, ErrorCode> {
-        let nwords: i32 = *self.read_padded()?;
-        if nwords < 0 {
+    fn read_encoded<T>(&mut self) -> Result<EncodedData<P, &'a T>, ErrorCode<P>> {
+        let nwords: P::Int = *self.read_padded()?;
+        if nwords < P::zero_int() {
             Ok(EncodedData::EOR(nwords))
-        } else if nwords == 0 {
+        } else if nwords == P::zero_int() {
             Ok(EncodedData::Zero)
         } else {
             let ret = self.read_padded()?;
@@ -207,46 +295,51 @@ impl<'a> OP2Parser<'a> {
         }
     }
 
-    fn read_encoded_data<T>(&mut self) -> Result<&'a T, ErrorCode> {
+    fn read_encoded_data<T>(&mut self) -> Result<&'a T, ErrorCode<P>> {
         match self.read_encoded()? {
             EncodedData::EOR(n) => Err(ErrorCode::UnexpectedEOR(n)),
-            EncodedData::Zero => Err(ErrorCode::UnexpectedEOR(0)),
+            EncodedData::Zero => Err(ErrorCode::UnexpectedEOR(P::zero_int())),
             EncodedData::Data(d) => Ok(d),
         }
     }
 
-    fn read_encoded_data_slice(&mut self) -> Result<&'a [u8], ErrorCode> {
+    fn read_encoded_data_slice(&mut self) -> Result<&'a [u8], ErrorCode<P>> {
         match self.read_encoded_slice()? {
             EncodedData::EOR(n) => Err(ErrorCode::UnexpectedEOR(n)),
-            EncodedData::Zero => Err(ErrorCode::UnexpectedEOR(0)),
+            EncodedData::Zero => Err(ErrorCode::UnexpectedEOR(P::zero_int())),
             EncodedData::Data(d) => Ok(d),
         }
     }
 
-    fn read_encoded_value<T: PartialEq>(&mut self, expected_value: &T) -> Result<&'a T, ErrorCode> {
+    fn read_encoded_value<T: PartialEq + std::fmt::Debug>(
+        &mut self,
+        expected_value: &T,
+    ) -> Result<&'a T, ErrorCode<P>> {
         let value = self.read_encoded_data()?;
         if value != expected_value {
+            eprintln!("{:?} != {:?}", value, expected_value);
             return Err(ErrorCode::UnexpectedValue);
         }
         return Ok(value);
     }
 
-    fn read_header(&mut self) -> Result<FileHeader, ErrorCode> {
-        let date: Date = *self.read_encoded_data()?;
-        let _ = self.read_encoded_value(b"NASTRAN FORT TAPE ID CODE - ")?;
+    fn read_header(&mut self) -> Result<FileHeader<P>, ErrorCode<P>> {
+        let date: Date<P> = *self.read_encoded_data()?;
+        let v = P::header_code();
+        let _ = self.read_encoded_value(v)?;
         let label = *self.read_encoded_data()?;
-        let _ = self.read_padded_value(&-1i32)?;
-        let _ = self.read_padded_value(&0i32)?;
+        let _ = self.read_padded_value(&P::Int::from(-1))?;
+        let _ = self.read_padded_value(&P::Int::from(0))?;
         Ok(FileHeader { date, label })
     }
 
-    fn read_table_record(&mut self) -> Result<Option<&'a [u8]>, ErrorCode> {
-        self.read_encoded_value(&0i32)?;
+    fn read_table_record(&mut self) -> Result<Option<&'a [u8]>, ErrorCode<P>> {
+        self.read_encoded_value(&P::Int::from(0))?;
         match self.read_encoded_slice()? {
             EncodedData::Data(data) => {
-                let record_num: i32 = *self.read_padded()?;
-                if record_num >= 0 {
-                    return Err(ErrorCode::ExpectedEOR(record_num));
+                let record_num: &P::Int = self.read_padded()?;
+                if record_num >= &P::zero_int() {
+                    return Err(ErrorCode::ExpectedEOR(*record_num));
                 }
                 Ok(Some(data))
             }
@@ -255,19 +348,18 @@ impl<'a> OP2Parser<'a> {
         }
     }
 
-    fn read_datablock(&mut self) -> Result<Option<DataBlock<'a>>, ErrorCode> {
-        use std::convert::TryInto;
+    fn read_datablock(&mut self) -> Result<Option<DataBlock<'a, P>>, ErrorCode<P>> {
         let name = match self.read_encoded()? {
             EncodedData::EOR(n) => return Err(ErrorCode::UnexpectedEOR(n)),
             EncodedData::Zero => return Ok(None),
             EncodedData::Data(name) => *name,
         };
-        self.read_padded_value(&-1)?;
+        self.read_padded_value(&P::Int::from(-1))?;
         let trailer = *self.read_encoded_data()?;
-        self.read_padded_value(&-2)?;
-        let record_type = self.read_encoded_data::<i32>()?.try_into()?;
+        self.read_padded_value(&P::Int::from(-2))?;
+        let record_type = DataBlockType::parse(*self.read_encoded_data::<P::Int>()?)?;
         let header: &[u8] = self.read_encoded_data_slice()?;
-        self.read_padded_value(&-3)?;
+        self.read_padded_value(&P::Int::from(-3))?;
         let mut records = vec![];
         while let Some(record) = self.read_table_record()? {
             records.push(record);
@@ -281,7 +373,7 @@ impl<'a> OP2Parser<'a> {
         }))
     }
 
-    fn inner_parse(&mut self) -> Result<OP2<'a>, ErrorCode> {
+    fn inner_parse(&mut self) -> Result<OP2<'a, P>, ErrorCode<P>> {
         let header = self.read_header()?;
         let mut blocks = vec![];
         while let Some(block) = self.read_datablock()? {
@@ -294,7 +386,7 @@ impl<'a> OP2Parser<'a> {
         }
     }
 
-    fn parse(&mut self) -> std::result::Result<OP2<'a>, Error<'a>> {
+    fn parse(&mut self) -> std::result::Result<OP2<'a, P>, Error<'a, P>> {
         self.inner_parse().map_err(|code| Error {
             code,
             remaining: self.buffer,
@@ -302,15 +394,18 @@ impl<'a> OP2Parser<'a> {
     }
 }
 
-pub fn parse_buffer(buffer: &[u8]) -> Result<OP2<'_>, Error<'_>> {
-    let mut parser = OP2Parser { buffer };
+pub fn parse_buffer<'a, P: Precision + 'a>(buffer: &'a [u8]) -> Result<OP2<'_, P>, Error<'_, P>> {
+    let mut parser = OP2Parser {
+        buffer,
+        precision: std::marker::PhantomData,
+    };
     parser.parse()
 }
 
 #[test]
 fn test_parse_buffer() {
     let buf = std::fs::read("tests/op2test32.op2").unwrap();
-    let op2 = match parse_buffer(&buf) {
+    let op2 = match parse_buffer::<SinglePrecision>(&buf) {
         Ok(o) => o,
         Err(e) => {
             eprintln!("{}", e);
@@ -320,7 +415,7 @@ fn test_parse_buffer() {
     };
     assert_eq!(
         op2.header.date,
-        Date {
+        Date::<_> {
             month: 8,
             day: 13,
             year: 18
@@ -331,5 +426,32 @@ fn test_parse_buffer() {
     assert_eq!(op2.blocks[0].trailer, [101, 13, 0, 0, 0, 0, 0]);
     assert_eq!(op2.blocks[0].record_type, DataBlockType::Table);
     assert_eq!(op2.blocks[0].header, *b"PVT     ");
+    assert_eq!(op2.blocks[0].records.len(), 1);
+}
+
+#[test]
+fn test_parse_buffer_64() {
+    let buf = std::fs::read("tests/op2test64.op2").unwrap();
+    let op2 = match parse_buffer::<DoublePrecision>(&buf) {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!("{}", e);
+            assert!(false);
+            return;
+        }
+    };
+    assert_eq!(
+        op2.header.date,
+        Date::<_> {
+            month: 7,
+            day: 10,
+            year: 18
+        }
+    );
+    //assert_eq!(op2.header.label, *b"NX11.0.2");
+    //assert_eq!(op2.blocks[0].name, *b"PVT0    ");
+    assert_eq!(op2.blocks[0].trailer, [101, 13, 0, 0, 0, 0, 0]);
+    assert_eq!(op2.blocks[0].record_type, DataBlockType::Table);
+    assert_eq!(op2.blocks[0].header, *b"PVT             ");
     assert_eq!(op2.blocks[0].records.len(), 1);
 }
