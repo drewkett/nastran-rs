@@ -26,9 +26,9 @@ fn comma_separated() {
     assert_eq!(
         it.next(),
         Some(Card {
-            first: Some(Field::String(b"PARAM")),
+            first: Some(Field::String(*b"PARAM   ")),
             fields: vec![
-                Field::String(b"POST"),
+                Field::String(*b"POST    "),
                 Field::Int(1),
                 Field::Blank,
                 Field::Blank,
@@ -37,7 +37,7 @@ fn comma_separated() {
                 Field::Blank,
                 Field::Blank,
             ],
-            continuation: b"",
+            continuation: *b"        ",
             comment: Some(b"$ABC"),
             is_comma: true,
             is_double: false,
@@ -47,9 +47,9 @@ fn comma_separated() {
     assert_eq!(
         it.next(),
         Some(Card {
-            first: Some(Field::String(b"PARAM")),
+            first: Some(Field::String(*b"PARAM   ")),
             fields: vec![
-                Field::String(b"WTMASS"),
+                Field::String(*b"WTMASS  "),
                 Field::Float(0.00259),
                 Field::Blank,
                 Field::Blank,
@@ -66,7 +66,7 @@ fn comma_separated() {
                 Field::Blank,
                 Field::Blank,
             ],
-            continuation: b"",
+            continuation: *b"        ",
             comment: None,
             is_comma: true,
             is_double: false,
@@ -76,7 +76,7 @@ fn comma_separated() {
     assert_eq!(
         it.next(),
         Some(Card {
-            first: Some(Field::String(b"ABCDEF")),
+            first: Some(Field::String(*b"ABCDEF  ")),
             fields: vec![
                 Field::Int(123456),
                 Field::Int(123456),
@@ -95,7 +95,7 @@ fn comma_separated() {
                 Field::Blank,
                 Field::Blank,
             ],
-            continuation: b"",
+            continuation: *b"        ",
             comment: Some(b"456,123456"),
             is_comma: true,
             is_double: false,
@@ -105,18 +105,18 @@ fn comma_separated() {
     assert_eq!(
         it.next(),
         Some(Card {
-            first: Some(Field::String(b"BLAH")),
+            first: Some(Field::String(*b"BLAH    ")),
             fields: vec![
                 Field::Int(123),
                 Field::Float(1e5),
                 Field::Float(1e2),
-                Field::String(b"ABC"),
+                Field::String(*b"ABC     "),
                 Field::Blank,
                 Field::Blank,
                 Field::Blank,
                 Field::Blank,
             ],
-            continuation: b"",
+            continuation: *b"        ",
             comment: None,
             is_comma: false,
             is_double: false,
@@ -126,7 +126,7 @@ fn comma_separated() {
     assert_eq!(
         it.next(),
         Some(Card {
-            first: Some(Field::DoubleString(b"GRID")),
+            first: Some(Field::DoubleString(*b"GRID    ")),
             fields: vec![
                 Field::Int(1100001),
                 Field::Int(0),
@@ -145,7 +145,7 @@ fn comma_separated() {
                 Field::Float(0.0),
                 Field::Float(0.059),
             ],
-            continuation: b"",
+            continuation: *b"        ",
             comment: None,
             is_comma: false,
             is_double: true,
@@ -179,7 +179,7 @@ fn header() {
     deck.set_header(b"$ABC\n\nNASTRAN\n");
     deck.set_unparsed(b"BCD,2\n");
     deck.add_card(Card {
-        first: Some(Field::String(b"ABC")),
+        first: Some(Field::String(*b"ABC     ")),
         fields: vec![
             Field::Int(1),
             Field::Blank,
@@ -190,12 +190,11 @@ fn header() {
             Field::Blank,
             Field::Blank,
         ],
-        continuation: b"",
+        continuation: *b"        ",
         comment: None,
         is_comma: true,
         is_double: false,
         unparsed: None,
-    })
-    .unwrap();
+    });
     assert_eq!(res, deck);
 }

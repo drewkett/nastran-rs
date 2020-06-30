@@ -2,22 +2,22 @@ use std::{cmp, fmt, str};
 
 use bstr::ByteSlice;
 
-use crate::errors::*;
+use super::{Error, Result};
 
 //TODO Need to make sure right number of fields are being output for card
-#[derive(PartialEq, Clone)]
-pub enum Field<'a> {
+#[derive(PartialEq, Clone, Copy)]
+pub enum Field {
     Blank,
     Int(i32),
     Float(f32),
     Double(f64),
-    Continuation(&'a [u8]),
-    DoubleContinuation(&'a [u8]),
-    String(&'a [u8]),
-    DoubleString(&'a [u8]),
+    Continuation([u8; 8]),
+    DoubleContinuation([u8; 8]),
+    String([u8; 8]),
+    DoubleString([u8; 8]),
 }
 
-impl<'a> fmt::Debug for Field<'a> {
+impl fmt::Debug for Field {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Field::Blank => write!(f, "Blank"),
@@ -32,7 +32,7 @@ impl<'a> fmt::Debug for Field<'a> {
     }
 }
 
-impl<'a> fmt::Display for Field<'a> {
+impl fmt::Display for Field {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let width = match f.width() {
             Some(8) | None => 8,
@@ -138,13 +138,17 @@ fn maybe_string(buffer: &[u8]) -> Result<Field> {
     let j = i;
     i += count_spaces(&buffer[i..]);
     if i == n {
-        return Ok(Field::String(&buffer[..j]));
+        let mut dst = [b' '; 8];
+        dst[..j].copy_from_slice(&buffer[..j]);
+        return Ok(Field::String(dst));
     }
     // '*' can only exist in a first field so field length must be <= 8
     if i < 8 && buffer[i] == b'*' {
         i += 1;
         if i == n {
-            return Ok(Field::DoubleString(&buffer[..j]));
+            let mut dst = [b' '; 8];
+            dst[..j].copy_from_slice(&buffer[..j]);
+            return Ok(Field::DoubleString(dst));
         }
     }
     Err(Error::UnexpectedCharInField(buffer))
@@ -262,7 +266,9 @@ pub fn maybe_first_field(buffer: &[u8]) -> Result<Field> {
         let buffer = trim_spaces(buffer);
         let n = buffer.len();
         if n <= 8 {
-            return Ok(Field::Continuation(&buffer[1..]));
+            let mut dst = [b' '; 8];
+            dst[..n - 1].copy_from_slice(&buffer[1..]);
+            return Ok(Field::Continuation(dst));
         } else {
             return Err(Error::UnexpectedCharInField(buffer));
         }
@@ -270,7 +276,9 @@ pub fn maybe_first_field(buffer: &[u8]) -> Result<Field> {
         let buffer = trim_spaces(buffer);
         let n = buffer.len();
         if n <= 8 {
-            return Ok(Field::DoubleContinuation(&buffer[1..]));
+            let mut dst = [b' '; 8];
+            dst[..n - 1].copy_from_slice(&buffer[1..]);
+            return Ok(Field::DoubleContinuation(dst));
         } else {
             return Err(Error::UnexpectedCharInField(buffer));
         }
@@ -285,16 +293,21 @@ pub fn maybe_first_field(buffer: &[u8]) -> Result<Field> {
     }
 }
 
-pub fn trailing_continuation(buffer: &[u8]) -> Result<&[u8]> {
+pub fn trailing_continuation(buffer: &[u8]) -> Result<[u8; 8]> {
     let n = buffer.len();
+    if n > 8 {
+        return Err(Error::UnexpectedFieldEnd(buffer));
+    }
     if n == 0 {
-        return Ok(b"");
+        return Ok(*b"        ");
     }
     match buffer[0] {
         b'+' | b'*' | b' ' => (),
         _ => return Err(Error::UnexpectedCharInField(buffer)),
     }
-    Ok(&buffer[1..])
+    let mut dst = [b' '; 8];
+    dst[..n - 1].copy_from_slice(&buffer[1..]);
+    Ok(dst)
 }
 
 pub fn maybe_any_field(buffer: &[u8]) -> Result<Field> {
@@ -308,7 +321,9 @@ pub fn maybe_any_field(buffer: &[u8]) -> Result<Field> {
         if n > 1 && (is_numeric(buffer[1]) || buffer[1] == b'.') {
             return maybe_number(buffer);
         } else if n <= 8 {
-            return Ok(Field::Continuation(&buffer[1..]));
+            let mut dst = [b' '; 8];
+            dst[..n - 1].copy_from_slice(&buffer[1..n]);
+            return Ok(Field::Continuation(dst));
         } else {
             return Err(Error::UnexpectedCharInField(buffer));
         }
@@ -316,7 +331,9 @@ pub fn maybe_any_field(buffer: &[u8]) -> Result<Field> {
         let buffer = trim_spaces(buffer);
         let n = buffer.len();
         if n <= 8 {
-            return Ok(Field::DoubleContinuation(&buffer[1..]));
+            let mut dst = [b' '; 8];
+            dst[..n - 1].copy_from_slice(&buffer[1..n]);
+            return Ok(Field::DoubleContinuation(dst));
         } else {
             return Err(Error::UnexpectedCharInField(buffer));
         }
@@ -414,11 +431,11 @@ mod tests {
 
     #[test]
     fn test_maybe_field() {
-        success_maybe_first_field("+A B", Field::Continuation(b"A B"));
-        success_maybe_first_field("+", Field::Continuation(b""));
-        success_maybe_first_field("+       ", Field::Continuation(b""));
-        success_maybe_field("HI1", Field::String(b"HI1"));
-        success_maybe_field("ABCDEFGH", Field::String(b"ABCDEFGH"));
+        success_maybe_first_field("+A B", Field::Continuation(*b"A B     "));
+        success_maybe_first_field("+", Field::Continuation(*b"        "));
+        success_maybe_first_field("+       ", Field::Continuation(*b"        "));
+        success_maybe_field("HI1", Field::String(*b"HI1     "));
+        success_maybe_field("ABCDEFGH", Field::String(*b"ABCDEFGH"));
         success_maybe_field(" 2.23 ", Field::Float(2.23));
         success_maybe_field("+2.24 ", Field::Float(2.24));
         success_maybe_field(" 2.25e7 ", Field::Float(2.25e7));
@@ -431,9 +448,9 @@ mod tests {
         success_maybe_field(" 3.+7 ", Field::Float(3.0e7));
         success_maybe_field(" .2+7 ", Field::Float(0.2e7));
         success_maybe_field(" .2-7 ", Field::Float(0.2e-7));
-        success_maybe_first_field("HI2*", Field::DoubleString(b"HI2"));
-        success_maybe_first_field("HI3 *", Field::DoubleString(b"HI3"));
-        success_maybe_first_field("* HI4", Field::DoubleContinuation(b" HI4"));
+        success_maybe_first_field("HI2*", Field::DoubleString(*b"HI2     "));
+        success_maybe_first_field("HI3 *", Field::DoubleString(*b"HI3     "));
+        success_maybe_first_field("* HI4", Field::DoubleContinuation(*b" HI4    "));
         success_maybe_field("", Field::Blank);
         success_maybe_field("  ", Field::Blank);
     }

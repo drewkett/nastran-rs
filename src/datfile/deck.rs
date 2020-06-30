@@ -5,9 +5,8 @@ use std::ops::IndexMut;
 
 use crate::datfile::{
     field::{maybe_any_field, maybe_field, maybe_first_field, trailing_continuation},
-    Card, Field,
+    Card, Error, Field, Result,
 };
-use crate::errors::*;
 
 #[derive(Debug, PartialEq)]
 pub struct Deck<'a> {
@@ -48,9 +47,8 @@ impl<'a> Deck<'a> {
         self.unparsed = Some(unparsed);
     }
 
-    pub fn add_card(&mut self, card: Card<'a>) -> Result<()> {
+    pub fn add_card(&mut self, card: Card<'a>) {
         self.cards.push(card);
-        Ok(())
     }
 }
 
@@ -63,7 +61,7 @@ impl<'a> From<WorkingDeck<'a>> for Deck<'a> {
 #[derive(Debug, PartialEq)]
 pub struct WorkingDeck<'a> {
     deck: Deck<'a>,
-    continuations: HashMap<&'a [u8], usize>,
+    continuations: HashMap<[u8; 8], usize>,
 }
 
 impl<'a> Default for WorkingDeck<'a> {
@@ -89,7 +87,7 @@ impl<'a> WorkingDeck<'a> {
             Some(Field::Continuation(c)) | Some(Field::DoubleContinuation(c)) => {
                 let index = self
                     .continuations
-                    .remove(c)
+                    .remove(&c)
                     .ok_or(Error::UnmatchedContinuation(c))?;
                 let existing = self.deck.cards.index_mut(index);
                 self.continuations.insert(card.continuation, index);
@@ -103,8 +101,8 @@ impl<'a> WorkingDeck<'a> {
             Some(Field::Blank) => {
                 let index = self
                     .continuations
-                    .remove(&b""[..])
-                    .ok_or(Error::UnmatchedContinuation(&b""[..]))?;
+                    .remove(&*b"        ")
+                    .ok_or(Error::UnmatchedContinuation(*b"        "))?;
                 let existing = self.deck.cards.index_mut(index);
                 self.continuations.insert(card.continuation, index);
                 existing.merge(card);
@@ -141,7 +139,7 @@ fn option_from_slice(sl: &[u8]) -> Option<&[u8]> {
 }
 
 struct FirstField<'a> {
-    field: Field<'a>,
+    field: Field,
     is_comma: bool,
     remainder: &'a [u8],
 }
@@ -212,7 +210,7 @@ pub fn parse_line(buffer: &[u8]) -> Result<Card> {
         return Ok(Card {
             first: None,
             fields: vec![],
-            continuation: b"",
+            continuation: *b"        ",
             comment: option_from_slice(comment),
             is_double: false,
             is_comma: false,
@@ -229,7 +227,7 @@ pub fn parse_line(buffer: &[u8]) -> Result<Card> {
         _ => false,
     };
     let mut fields = vec![];
-    let mut continuation = b"".as_ref();
+    let mut continuation = *b"        ";
     if is_comma {
         let mut field_count = 0;
         let mut it = remainder.split(|&b| b == b',');
@@ -304,7 +302,7 @@ pub fn parse_line(buffer: &[u8]) -> Result<Card> {
         Ok(Card {
             first: None,
             fields: vec![],
-            continuation: b"",
+            continuation: *b"        ",
             comment: option_from_slice(comment),
             is_double: false,
             is_comma: false,
@@ -404,10 +402,11 @@ pub fn parse_buffer(input_buffer: &[u8]) -> Result<Deck> {
             }
             let card = parse_line(line).map_err(|e| Error::LineError(line_num, Box::new(e)))?;
             // Check for ENDDATA. If found, drop the card and set remaining buffer to unparsed
-            if card.first == Some(Field::String(b"ENDDATA")) {
+            if card.first == Some(Field::String(*b"ENDDATA ")) {
                 deck.set_unparsed(&buffer[j + 1..]);
                 break;
             } else {
+                // TODO there is an unwrap here
                 deck.add_card(card).unwrap();
                 buffer = &buffer[j + 1..];
             }
