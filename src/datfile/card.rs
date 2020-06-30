@@ -3,9 +3,9 @@ use std::fmt;
 
 #[derive(PartialEq, Clone)]
 pub struct Card<'a> {
-    pub first: Option<Field<'a>>,
-    pub fields: Vec<Field<'a>>,
-    pub continuation: &'a [u8],
+    pub first: Option<Field>,
+    pub fields: Vec<Field>,
+    pub continuation: [u8; 8],
     pub comment: Option<&'a [u8]>,
     pub is_double: bool,
     pub is_comma: bool,
@@ -29,7 +29,7 @@ impl<'a> fmt::Debug for Card<'a> {
         for field in &self.fields {
             write!(f, "{:?},", field)?;
         }
-        if self.continuation != b"" {
+        if self.continuation != *b"        " {
             write!(f, "+{:?}", self.continuation)?;
         }
         if let Some(comment) = self.comment {

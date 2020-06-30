@@ -28,10 +28,10 @@ fn field_to_pyobject(py: Python, field: Field) -> PyObject {
         Field::Int(v) => v.to_object(py),
         Field::Float(v) => v.to_object(py),
         Field::Double(v) => v.to_object(py),
-        Field::Continuation(v) => PyBytes::new(py, v).into(),
-        Field::DoubleContinuation(v) => PyBytes::new(py, v).into(),
-        Field::String(v) => PyBytes::new(py, v).into(),
-        Field::DoubleString(v) => PyBytes::new(py, v).into(),
+        Field::Continuation(v) => PyBytes::new(py, &v).into(),
+        Field::DoubleContinuation(v) => PyBytes::new(py, &v).into(),
+        Field::String(v) => PyBytes::new(py, &v).into(),
+        Field::DoubleString(v) => PyBytes::new(py, &v).into(),
     }
 }
 
