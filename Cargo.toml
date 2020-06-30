@@ -14,7 +14,7 @@ byteorder = "1"
 dtoa = "0.4"
 itertools = "0.9"
 memmap = "0.7"
-num = "0.2"
+num = "0.3"
 num-traits = "0.2"
 thiserror = "1.0"
 
