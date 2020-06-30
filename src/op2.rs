@@ -451,9 +451,7 @@ where
         let trailer = *self.read_encoded()?;
         self.read_padded_value(&P::Int::from(-2))?;
         let record_type = DataBlockType::parse(*self.read_encoded::<P::Int>()?)?;
-        println!("Hi");
         let header = self.read_encoded_slice()?;
-        println!("Hi");
         self.read_padded_value(&P::Int::from(-3))?;
         let mut records = vec![];
         while let Some(record) = self.read_table_record()? {
