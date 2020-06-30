@@ -1,6 +1,6 @@
 use nastran::datfile::{self, maybe_any_field, Field};
 use pyo3::prelude::*;
-use pyo3::{create_exception, types::PyList, wrap_pyfunction};
+use pyo3::{create_exception, types::PyBytes, types::PyList, wrap_pyfunction};
 
 #[pymodule]
 fn naspy(_py: Python, m: &PyModule) -> PyResult<()> {
@@ -24,14 +24,14 @@ pub fn parse_field(py: Python, field: String) -> PyResult<PyObject> {
 
 fn field_to_pyobject(py: Python, field: Field) -> PyObject {
     match field {
-        Field::Blank => "".to_object(py),
+        Field::Blank => PyBytes::new(py, b"").into(),
         Field::Int(v) => v.to_object(py),
         Field::Float(v) => v.to_object(py),
         Field::Double(v) => v.to_object(py),
-        Field::Continuation(v) => v.to_object(py),
-        Field::DoubleContinuation(v) => v.to_object(py),
-        Field::String(v) => v.to_object(py),
-        Field::DoubleString(v) => v.to_object(py),
+        Field::Continuation(v) => PyBytes::new(py, v).into(),
+        Field::DoubleContinuation(v) => PyBytes::new(py, v).into(),
+        Field::String(v) => PyBytes::new(py, v).into(),
+        Field::DoubleString(v) => PyBytes::new(py, v).into(),
     }
 }
 
