@@ -22,5 +22,5 @@ thiserror = "1.0"
 criterion = "0.3"
 
 [[bench]]
-name = "datfile"
+name = "bdf"
 harness = false

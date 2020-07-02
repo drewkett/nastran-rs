@@ -1,4 +1,4 @@
-use crate::datfile::Field;
+use crate::bdf::Field;
 use std::fmt;
 
 #[derive(PartialEq, Clone)]
