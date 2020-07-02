@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::ops::IndexMut;
 
-use crate::datfile::{
+use crate::bdf::{
     field::{maybe_any_field, maybe_field, maybe_first_field, trailing_continuation},
     Card, Error, Field, Result,
 };

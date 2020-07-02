@@ -1,5 +1,5 @@
 extern crate nastran;
-use nastran::datfile::{parse_buffer, Card, Deck, Field};
+use nastran::bdf::{parse_buffer, Card, Deck, Field};
 
 const DATFILE: &'static [u8] = b"\
 PARAM,POST , 1 $ABC

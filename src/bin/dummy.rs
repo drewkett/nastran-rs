@@ -9,7 +9,7 @@ pub fn main() {
     let f = File::open(filename).unwrap();
     let mm = unsafe { Mmap::map(&f).unwrap() };
     let sl = mm.as_ref();
-    let deck = nastran::datfile::parse_buffer(sl).unwrap();
+    let deck = nastran::bdf::parse_buffer(sl).unwrap();
     if let Some(header) = deck.header {
         let stdout = io::stdout();
         let mut handle = stdout.lock();
