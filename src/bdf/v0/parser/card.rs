@@ -1,4 +1,4 @@
-use crate::bdf::Field;
+use super::Field;
 use std::fmt;
 
 #[derive(PartialEq, Clone)]
