@@ -294,6 +294,7 @@ where
         return Ok(value);
     }
 
+    #[allow(dead_code)]
     fn read_padded_byte_slice(&mut self) -> Result<&'a [u8], ErrorCode<P>> {
         let n = self.read_i32()?;
         if n < 1 {
@@ -330,6 +331,7 @@ where
         return Ok(res);
     }
 
+    #[allow(dead_code)]
     fn read_encoded_data_byte_slice(&mut self) -> Result<EncodedData<P, &'a [u8]>, ErrorCode<P>> {
         let nwords: P::Int = *self.read_padded()?;
         if nwords < P::zero_int() {
@@ -389,6 +391,7 @@ where
         }
     }
 
+    #[allow(dead_code)]
     fn read_encoded_byte_slice(&mut self) -> Result<&'a [u8], ErrorCode<P>> {
         match self.read_encoded_data_byte_slice()? {
             EncodedData::EOR(n) => Err(ErrorCode::UnexpectedEOR(n)),

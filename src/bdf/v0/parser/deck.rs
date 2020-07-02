@@ -3,9 +3,10 @@ use std::collections::HashMap;
 use std::fmt;
 use std::ops::IndexMut;
 
-use crate::bdf::{
+use super::{
+    super::{Error, Result},
     field::{maybe_any_field, maybe_field, maybe_first_field, trailing_continuation},
-    Card, Error, Field, Result,
+    Card, Field,
 };
 
 #[derive(Debug, PartialEq)]

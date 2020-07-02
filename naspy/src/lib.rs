@@ -1,4 +1,7 @@
-use nastran::bdf::{self, maybe_any_field, Field};
+use nastran::bdf::v0::{
+    parser::{self, maybe_any_field},
+    Field,
+};
 use pyo3::prelude::*;
 use pyo3::{create_exception, types::PyBytes, types::PyList, wrap_pyfunction};
 
@@ -37,7 +40,7 @@ fn field_to_pyobject(py: Python, field: Field) -> PyObject {
 
 #[pyfunction]
 pub fn parse_line(py: Python, field: String) -> PyResult<&PyList> {
-    match bdf::parse_line(field.as_bytes()) {
+    match parser::parse_line(field.as_bytes()) {
         Ok(card) => {
             let mut list = vec![];
             if let Some(o) = card.first {
