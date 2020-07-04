@@ -1,12 +1,12 @@
 #[derive(Debug, PartialEq)]
-struct LineParser<'a> {
+struct BulkLineParser<'a> {
     buffer: &'a [u8],
     trailing: Option<&'a [u8]>,
     chars_seen: usize,
     fields_seen: usize,
 }
 
-impl<'a> LineParser<'a> {
+impl<'a> BulkLineParser<'a> {
     #[allow(dead_code)]
     fn new(buffer: &'a [u8]) -> Self {
         Self {
