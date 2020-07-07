@@ -2,7 +2,7 @@ use super::super::{Deck, Result};
 
 use std::collections::HashMap;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 struct LinesIterator<'a> {
     buffer: &'a [u8],
 }
