@@ -13,7 +13,7 @@ pub fn main() -> io::Result<()> {
         .ok_or(io::Error::new(io::ErrorKind::NotFound, "missing argument"))?;
     println!("{}", filename);
     let f = File::open(filename)?;
-    let deck = nastran::bdf::v1::parser::parse_bytes(f.bytes())?;
+    let deck = nastran::bdf::v1::parser::parse_bytes(std::io::BufReader::new(f).bytes())?;
     for card in deck {
         print!("original = {}", card.original.as_bstr());
         println!("result   = {}", card);
