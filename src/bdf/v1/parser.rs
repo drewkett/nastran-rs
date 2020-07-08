@@ -1,6 +1,23 @@
 use bstr::ByteSlice;
 use std::fmt;
 use std::io;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("Embedded Space in field")]
+    EmbeddedSpace,
+    #[error("Unexpected character {}",(&[*.0][..]).as_bstr())]
+    UnexpectedChar(u8),
+    #[error("Text field greater than 8 chars")]
+    TextTooLong,
+    #[error("Field is not valid")]
+    InvalidField,
+    #[error("Error reading datfile : {0}")]
+    IO(#[from] io::Error),
+}
+
+pub type Result<T> = std::result::Result<T, Error>;
 
 struct SplitLines<I> {
     iter: I,
@@ -10,7 +27,7 @@ impl<I> Iterator for SplitLines<I>
 where
     I: Iterator<Item = io::Result<u8>> + Sized,
 {
-    type Item = io::Result<Vec<u8>>;
+    type Item = Result<Vec<u8>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut result = Vec::with_capacity(80);
@@ -22,7 +39,7 @@ where
                         break;
                     }
                 }
-                Some(Err(e)) => return Some(Err(e)),
+                Some(Err(e)) => return Some(Err(e.into())),
                 None => break,
             }
         }
@@ -147,39 +164,56 @@ impl Iterator for NastranLineIter {
             Some((_, b'\n')) => None,
             Some((_, b'\r')) => None,
             Some((80, _)) => None,
+            Some((_, c @ b'a'..=b'z')) => Some(c - 32),
             Some((_, c)) => Some(c),
             None => None,
         }
     }
 }
 
-pub enum FieldData {
+#[derive(Debug)]
+pub struct UnparsedFirstField([u8; 8]);
+pub struct UnparsedSingleField([u8; 8]);
+pub struct UnparsedDoubleField([u8; 16]);
+#[derive(Debug)]
+pub struct UnparsedTraiingField([u8; 8]);
+
+pub enum UnparsedFieldData {
     Blank,
-    Single([[u8; 8]; 10]),
-    Double([u8; 8], [[u8; 16]; 4], [u8; 8]),
+    Single(
+        UnparsedFirstField,
+        [UnparsedSingleField; 8],
+        UnparsedTraiingField,
+    ),
+    Double(
+        UnparsedFirstField,
+        [UnparsedDoubleField; 4],
+        UnparsedTraiingField,
+    ),
 }
 
-pub struct BulkCard {
+pub struct UnparsedBulkCard {
     pub original: Vec<u8>,
-    data: FieldData,
+    data: UnparsedFieldData,
 }
 
-impl fmt::Display for BulkCard {
+impl fmt::Display for UnparsedBulkCard {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.data {
-            FieldData::Blank => write!(f, "\n"),
-            FieldData::Single(fields) => {
+        match &self.data {
+            UnparsedFieldData::Blank => write!(f, "\n"),
+            UnparsedFieldData::Single(first, fields, trailing) => {
+                write!(f, "{}", first.0.as_bstr())?;
                 for field in fields.iter() {
-                    write!(f, "{}", field.as_bstr())?;
+                    write!(f, "{}", field.0.as_bstr())?;
                 }
-                Ok(())
+                write!(f, "{}", trailing.0.as_bstr())
             }
-            FieldData::Double(first, fields, trailing) => {
-                write!(f, "{}", first.as_bstr())?;
+            UnparsedFieldData::Double(first, fields, trailing) => {
+                write!(f, "{}", first.0.as_bstr())?;
                 for field in fields.iter() {
-                    write!(f, "{}", field.as_bstr())?;
+                    write!(f, "{}", field.0.as_bstr())?;
                 }
-                write!(f, "{}", trailing.as_bstr())
+                write!(f, "{}", trailing.0.as_bstr())
             }
         }
     }
@@ -204,7 +238,7 @@ impl<I> Iterator for BulkCardIter<I>
 where
     I: Iterator<Item = io::Result<u8>>,
 {
-    type Item = io::Result<BulkCard>;
+    type Item = Result<UnparsedBulkCard>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(line) = self.iter.next() {
@@ -222,9 +256,18 @@ where
                 let field3 = line.take16();
                 let field4 = line.take16();
                 let trailing = line.take8();
-                Some(Ok(BulkCard {
+                Some(Ok(UnparsedBulkCard {
                     original,
-                    data: FieldData::Double(first, [field1, field2, field3, field4], trailing),
+                    data: UnparsedFieldData::Double(
+                        UnparsedFirstField(first),
+                        [
+                            UnparsedDoubleField(field1),
+                            UnparsedDoubleField(field2),
+                            UnparsedDoubleField(field3),
+                            UnparsedDoubleField(field4),
+                        ],
+                        UnparsedTraiingField(trailing),
+                    ),
                 }))
             } else {
                 let field1 = line.take8();
@@ -236,12 +279,22 @@ where
                 let field7 = line.take8();
                 let field8 = line.take8();
                 let trailing = line.take8();
-                Some(Ok(BulkCard {
+                Some(Ok(UnparsedBulkCard {
                     original,
-                    data: FieldData::Single([
-                        first, field1, field2, field3, field4, field5, field6, field7, field8,
-                        trailing,
-                    ]),
+                    data: UnparsedFieldData::Single(
+                        UnparsedFirstField(first),
+                        [
+                            UnparsedSingleField(field1),
+                            UnparsedSingleField(field2),
+                            UnparsedSingleField(field3),
+                            UnparsedSingleField(field4),
+                            UnparsedSingleField(field5),
+                            UnparsedSingleField(field6),
+                            UnparsedSingleField(field7),
+                            UnparsedSingleField(field8),
+                        ],
+                        UnparsedTraiingField(trailing),
+                    ),
                 }))
             }
         } else {
@@ -250,9 +303,204 @@ where
     }
 }
 
-pub fn parse_bytes<I>(iter: I) -> io::Result<Vec<BulkCard>>
+#[derive(Debug)]
+pub enum Field {
+    Blank,
+    Int(i32),
+    Float(f32),
+    Double(f64),
+    Text([u8; 8]),
+}
+
+#[derive(Debug)]
+pub enum FieldData {
+    Blank,
+    Single(UnparsedFirstField, [Field; 8], UnparsedTraiingField),
+    Double(UnparsedFirstField, [Field; 4], UnparsedTraiingField),
+}
+
+pub struct BulkCard {
+    pub original: Vec<u8>,
+    pub data: FieldData,
+}
+
+fn parse_field<I>(field: &mut I) -> Result<Field>
+where
+    I: Iterator<Item = u8>,
+{
+    use std::convert::TryInto;
+    enum State {
+        Start,
+        PlusMinus,   // Seen starting '+' or '-'
+        Period,      // Seen starting numbers
+        FloatPeriod, // Seen starting numbers
+        Digits,      // Seen starting '.'
+        Alpha,       // Seen starting 'A' to 'Z'
+        FloatExponent,
+        DoubleExponent,
+        FloatSignedExponent,
+        DoubleSignedExponent,
+        FloatSignedExponentValue,
+        DoubleSignedExponentValue,
+        EndText,
+        EndInt,
+        EndFloat,
+        EndDouble,
+    }
+    enum ZeroOneTwo {
+        Zero,
+        One(u8),
+        Two(u8, u8),
+    }
+    use State::*;
+    use ZeroOneTwo::*;
+    let mut state = State::Start;
+    let mut contents = [b' '; 16];
+    let mut i = 0;
+    while let Some(c) = field.next() {
+        let (s, c) = match (state, c, i) {
+            (Start, b' ', _) => (Start, Zero),
+            (Start, c @ b'A'..=b'Z', _) => (Alpha, One(c)),
+            (Start, b'+', _) => (PlusMinus, Zero),
+            (Start, c @ b'-', _) => (PlusMinus, One(c)),
+            (Start, c @ b'.', _) => (Period, One(c)),
+            (Start, c @ b'0'..=b'9', _) => (Digits, One(c)),
+            (Digits, c @ b'0'..=b'9', _) => (Digits, One(c)),
+            (Digits, c @ b'.', _) => (FloatPeriod, One(c)),
+            (Digits, b' ', _) => (EndInt, Zero),
+            // Can't remember if these are valid
+            // (Digits, c @ b'E', _) => (FloatPeriod, [*c].iter()),
+            // (Digits, c @ b'+', _) => (FloatPeriod, [*c].iter()),
+            // (Digits, c @ b'-', _) => (FloatPeriod, [*c].iter()),
+            (PlusMinus, c @ b'0'..=b'9', _) => (Digits, One(c)),
+            // Can't remember if this is valid
+            // (PlusMinus, c @ b'.', _) => (FloatPeriod, [*c].iter()),
+            (Period, c @ b'0'..=b'9', _) => (FloatPeriod, One(c)),
+            (FloatPeriod, c @ b'0'..=b'9', _) => (FloatPeriod, One(c)),
+            (FloatPeriod, b'D', _) => (DoubleExponent, One(b'E')),
+            (FloatPeriod, c @ b'E', _) => (FloatExponent, One(c)),
+            (FloatPeriod, c @ b'+', _) => (FloatSignedExponent, Two(b'E', c)),
+            (FloatPeriod, c @ b'-', _) => (FloatSignedExponent, Two(b'E', c)),
+            (FloatPeriod, b' ', _) => (EndFloat, Zero),
+            (FloatSignedExponent, c @ b'0'..=b'9', _) => (FloatSignedExponentValue, One(c)),
+            (DoubleSignedExponent, c @ b'0'..=b'9', _) => (DoubleSignedExponentValue, One(c)),
+            (FloatSignedExponentValue, c @ b'0'..=b'9', _) => (FloatSignedExponentValue, One(c)),
+            (DoubleSignedExponentValue, c @ b'0'..=b'9', _) => (DoubleSignedExponentValue, One(c)),
+            (FloatSignedExponentValue, b' ', _) => (EndFloat, Zero),
+            (DoubleSignedExponentValue, b' ', _) => (EndDouble, Zero),
+            (Alpha, c @ b'A'..=b'Z', 0..=7) => (Alpha, One(c)),
+            (Alpha, c @ b'0'..=b'9', 0..=7) => (Alpha, One(c)),
+            (Alpha, b' ', _) => (EndText, Zero),
+            (Alpha, _, 8..=usize::MAX) => return Err(Error::TextTooLong),
+            (EndInt, b' ', _) => (EndInt, Zero),
+            (EndFloat, b' ', _) => (EndFloat, Zero),
+            (EndDouble, b' ', _) => (EndDouble, Zero),
+            (EndText, b' ', _) => (EndText, Zero),
+            (EndInt, _, _) => return Err(Error::EmbeddedSpace),
+            (EndFloat, _, _) => return Err(Error::EmbeddedSpace),
+            (EndDouble, _, _) => return Err(Error::EmbeddedSpace),
+            (EndText, _, _) => return Err(Error::EmbeddedSpace),
+            (_, c, _) => return Err(Error::UnexpectedChar(c)),
+        };
+        state = s;
+        match c {
+            Zero => {}
+            One(c1) => {
+                contents[i] = c1;
+                i += 1;
+            }
+            Two(c1, c2) => {
+                contents[i] = c1;
+                i += 1;
+                contents[i] = c2;
+                i += 1;
+            }
+        }
+    }
+    match state {
+        Start => Ok(Field::Blank),
+        PlusMinus | Period | FloatExponent | FloatSignedExponent | DoubleExponent
+        | DoubleSignedExponent => Err(Error::InvalidField),
+        Digits | EndInt => {
+            if i <= 8 {
+                Ok(Field::Int(
+                    unsafe { std::str::from_utf8_unchecked(&contents[..i]) }
+                        .parse()
+                        .unwrap(),
+                ))
+            } else {
+                Err(Error::InvalidField)
+            }
+        }
+        FloatPeriod | EndFloat | FloatSignedExponentValue => Ok(Field::Float(
+            unsafe { std::str::from_utf8_unchecked(&contents[..i]) }
+                .parse()
+                .unwrap(),
+        )),
+        EndDouble | DoubleSignedExponentValue => Ok(Field::Double(
+            unsafe { std::str::from_utf8_unchecked(&contents[..i]) }
+                .parse()
+                .unwrap(),
+        )),
+        Alpha | EndText => Ok(Field::Text(contents[..8].try_into().unwrap())),
+    }
+}
+
+impl std::convert::TryFrom<&UnparsedSingleField> for Field {
+    type Error = Error;
+    fn try_from(field: &UnparsedSingleField) -> Result<Self> {
+        parse_field(&mut field.0.iter().cloned())
+    }
+}
+
+impl std::convert::TryFrom<&UnparsedDoubleField> for Field {
+    type Error = Error;
+    fn try_from(field: &UnparsedDoubleField) -> Result<Self> {
+        parse_field(&mut field.0.iter().cloned())
+    }
+}
+
+impl std::convert::TryFrom<UnparsedBulkCard> for BulkCard {
+    type Error = Error;
+    fn try_from(unparsed: UnparsedBulkCard) -> Result<Self> {
+        use std::convert::TryInto;
+        let UnparsedBulkCard { original, data } = unparsed;
+        let data = match data {
+            UnparsedFieldData::Blank => FieldData::Blank,
+            UnparsedFieldData::Single(first, fields, trailing) => FieldData::Single(
+                first,
+                [
+                    (&fields[0]).try_into()?,
+                    (&fields[1]).try_into()?,
+                    (&fields[2]).try_into()?,
+                    (&fields[3]).try_into()?,
+                    (&fields[4]).try_into()?,
+                    (&fields[5]).try_into()?,
+                    (&fields[6]).try_into()?,
+                    (&fields[7]).try_into()?,
+                ],
+                trailing,
+            ),
+            UnparsedFieldData::Double(first, fields, trailing) => FieldData::Double(
+                first,
+                [
+                    (&fields[0]).try_into()?,
+                    (&fields[1]).try_into()?,
+                    (&fields[2]).try_into()?,
+                    (&fields[3]).try_into()?,
+                ],
+                trailing,
+            ),
+        };
+        Ok(BulkCard { original, data })
+    }
+}
+
+pub fn parse_bytes<I>(iter: I) -> Result<Vec<BulkCard>>
 where
     I: Iterator<Item = io::Result<u8>>,
 {
-    BulkCardIter::new(iter).collect()
+    BulkCardIter::new(iter)
+        .map(|r| r.and_then(std::convert::TryInto::try_into))
+        .collect()
 }
