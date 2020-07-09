@@ -173,22 +173,24 @@ impl Iterator for NastranLineIter {
 
 #[derive(Debug)]
 pub struct UnparsedFirstField([u8; 8]);
+#[derive(Debug)]
 pub struct UnparsedSingleField([u8; 8]);
+#[derive(Debug)]
 pub struct UnparsedDoubleField([u8; 16]);
 #[derive(Debug)]
-pub struct UnparsedTraiingField([u8; 8]);
+pub struct UnparsedTrailingField([u8; 8]);
 
 pub enum UnparsedFieldData {
     Blank,
     Single(
         UnparsedFirstField,
         [UnparsedSingleField; 8],
-        UnparsedTraiingField,
+        UnparsedTrailingField,
     ),
     Double(
         UnparsedFirstField,
         [UnparsedDoubleField; 4],
-        UnparsedTraiingField,
+        UnparsedTrailingField,
     ),
 }
 
@@ -266,7 +268,7 @@ where
                             UnparsedDoubleField(field3),
                             UnparsedDoubleField(field4),
                         ],
-                        UnparsedTraiingField(trailing),
+                        UnparsedTrailingField(trailing),
                     ),
                 }))
             } else {
@@ -293,7 +295,7 @@ where
                             UnparsedSingleField(field7),
                             UnparsedSingleField(field8),
                         ],
-                        UnparsedTraiingField(trailing),
+                        UnparsedTrailingField(trailing),
                     ),
                 }))
             }
@@ -302,6 +304,22 @@ where
         }
     }
 }
+
+#[derive(Debug)]
+pub enum FirstFieldKind {
+    Blank,
+    Text([u8; 8]),
+    Continuation([u8; 8]),
+}
+
+#[derive(Debug)]
+pub struct FirstField {
+    kind: FirstFieldKind,
+    double: bool,
+}
+
+#[derive(Debug)]
+pub struct TrailingField([u8; 8]);
 
 #[derive(Debug)]
 pub enum Field {
@@ -315,8 +333,8 @@ pub enum Field {
 #[derive(Debug)]
 pub enum FieldData {
     Blank,
-    Single(UnparsedFirstField, [Field; 8], UnparsedTraiingField),
-    Double(UnparsedFirstField, [Field; 4], UnparsedTraiingField),
+    Single(FirstField, [Field; 8], UnparsedTrailingField),
+    Double(FirstField, [Field; 4], UnparsedTrailingField),
 }
 
 pub struct BulkCard {
@@ -324,7 +342,82 @@ pub struct BulkCard {
     pub data: FieldData,
 }
 
-fn parse_field<I>(field: &mut I) -> Result<Field>
+fn parse_first_field<I>(field: &mut I) -> Result<FirstField>
+where
+    I: Iterator<Item = u8>,
+{
+    enum State {
+        Start,
+        Blank,
+        Alpha,
+        Continuation,
+        EndAlpha,
+        EndContinuation,
+    }
+    enum ZeroOneTwo {
+        Zero,
+        One(u8),
+        Two(u8, u8),
+    }
+    use State::*;
+    use ZeroOneTwo::*;
+    let mut state = State::Start;
+    let mut contents = [b' '; 16];
+    let mut i = 0;
+    let mut double = false;
+    while let Some(c) = field.next() {
+        let (s, c) = match (state, c, i) {
+            (Start, b' ', _) => (Blank, Zero),
+            (Start, c @ b'A'..=b'Z', _) => (Alpha, One(c)),
+            (Start, b'+', _) => (Continuation, One(b'+')),
+            (Start, b'*', _) => {
+                double = true;
+                (Continuation, One(b'+'))
+            }
+            (Blank, b' ', _) => (Blank, Zero),
+            (Alpha, c @ b'A'..=b'Z', _) => (Alpha, One(c)),
+            (Alpha, c @ b'0'..=b'9', _) => (Alpha, One(c)),
+            (Alpha, c @ b' ', _) => (EndAlpha, One(c)),
+            (Continuation, c @ b'A'..=b'Z', _) => (Continuation, One(c)),
+            (Continuation, c @ b'0'..=b'9', _) => (Continuation, One(c)),
+            (Continuation, c @ b' ', 0..=7) => (Continuation, One(c)),
+            (Continuation, b' ', 8..=usize::MAX) => (Continuation, Zero),
+            (EndAlpha, b' ', _) => (EndAlpha, Zero),
+            (EndAlpha, b'*', _) => {
+                double = true;
+                (EndAlpha, Zero)
+            }
+            (_, c, _) => return Err(Error::UnexpectedChar(c)),
+        };
+        state = s;
+        match c {
+            Zero => {}
+            One(c1) => {
+                contents[i] = c1;
+                i += 1;
+            }
+            Two(c1, c2) => {
+                contents[i] = c1;
+                i += 1;
+                contents[i] = c2;
+                i += 1;
+            }
+        }
+    }
+    if i > 8 {
+        return Err(Error::TextTooLong);
+    }
+    let mut result = [b' '; 8];
+    result[..i].copy_from_slice(&contents[..i]);
+    let kind = match state {
+        Start | Blank => FirstFieldKind::Blank,
+        Alpha | EndAlpha => FirstFieldKind::Text(result),
+        Continuation | EndContinuation => FirstFieldKind::Continuation(result),
+    };
+    Ok(FirstField { kind, double })
+}
+
+fn parse_inner_field<I>(field: &mut I) -> Result<Field>
 where
     I: Iterator<Item = u8>,
 {
@@ -446,17 +539,83 @@ where
     }
 }
 
+fn parse_trailing_field<I>(field: &mut I) -> Result<TrailingField>
+where
+    I: Iterator<Item = u8>,
+{
+    enum State {
+        Start,
+        Middle,
+        Blank,
+    }
+    enum ZeroOneTwo {
+        Zero,
+        One(u8),
+        Two(u8, u8),
+    }
+    use State::*;
+    use ZeroOneTwo::*;
+    let mut state = State::Start;
+    let mut contents = [b' '; 16];
+    let mut i = 0;
+    while let Some(c) = field.next() {
+        let (s, c) = match (state, c, i) {
+            (Start, b' ', _) => (Blank, Zero),
+            (Start, c @ b'A'..=b'Z', _) => (Middle, Two(b'+', c)),
+            (Start, c @ b'0'..=b'9', _) => (Middle, Two(b'+', c)),
+            (Middle, c @ b'A'..=b'Z', _) => (Middle, One(c)),
+            (Middle, c @ b'0'..=b'9', _) => (Middle, One(c)),
+            (Blank, b' ', _) => (Blank, Zero),
+            (_, c, _) => return Err(Error::UnexpectedChar(c)),
+        };
+        state = s;
+        match c {
+            Zero => {}
+            One(c1) => {
+                contents[i] = c1;
+                i += 1;
+            }
+            Two(c1, c2) => {
+                contents[i] = c1;
+                i += 1;
+                contents[i] = c2;
+                i += 1;
+            }
+        }
+    }
+    if i > 8 {
+        return Err(Error::TextTooLong);
+    }
+    let mut result = [b' '; 8];
+    result[..i].copy_from_slice(&contents[..i]);
+    Ok(TrailingField(result))
+}
+
+impl std::convert::TryFrom<&UnparsedFirstField> for FirstField {
+    type Error = Error;
+    fn try_from(field: &UnparsedFirstField) -> Result<Self> {
+        parse_first_field(&mut field.0.iter().cloned())
+    }
+}
+
 impl std::convert::TryFrom<&UnparsedSingleField> for Field {
     type Error = Error;
     fn try_from(field: &UnparsedSingleField) -> Result<Self> {
-        parse_field(&mut field.0.iter().cloned())
+        parse_inner_field(&mut field.0.iter().cloned())
     }
 }
 
 impl std::convert::TryFrom<&UnparsedDoubleField> for Field {
     type Error = Error;
     fn try_from(field: &UnparsedDoubleField) -> Result<Self> {
-        parse_field(&mut field.0.iter().cloned())
+        parse_inner_field(&mut field.0.iter().cloned())
+    }
+}
+
+impl std::convert::TryFrom<&UnparsedTrailingField> for TrailingField {
+    type Error = Error;
+    fn try_from(field: &UnparsedTrailingField) -> Result<Self> {
+        parse_trailing_field(&mut field.0.iter().cloned())
     }
 }
 
@@ -468,7 +627,7 @@ impl std::convert::TryFrom<UnparsedBulkCard> for BulkCard {
         let data = match data {
             UnparsedFieldData::Blank => FieldData::Blank,
             UnparsedFieldData::Single(first, fields, trailing) => FieldData::Single(
-                first,
+                (&first).try_into()?,
                 [
                     (&fields[0]).try_into()?,
                     (&fields[1]).try_into()?,
@@ -482,7 +641,7 @@ impl std::convert::TryFrom<UnparsedBulkCard> for BulkCard {
                 trailing,
             ),
             UnparsedFieldData::Double(first, fields, trailing) => FieldData::Double(
-                first,
+                (&first).try_into()?,
                 [
                     (&fields[0]).try_into()?,
                     (&fields[1]).try_into()?,
