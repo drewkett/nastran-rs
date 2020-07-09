@@ -141,6 +141,91 @@ impl NastranLine {
         }
         field
     }
+
+    fn remaining(&mut self) -> Vec<u8> {
+        (&mut self.iter).collect()
+    }
+}
+
+impl From<NastranLine> for UnparsedBulkCard {
+    fn from(mut line: NastranLine) -> UnparsedBulkCard {
+        let first = line.take8();
+        let double = first.contains(&b'*');
+        if double {
+            let field1 = line.take16();
+            let field2 = line.take16();
+            let field3 = line.take16();
+            let field4 = line.take16();
+            let trailing = line.take8();
+            let comment = line.remaining();
+            UnparsedBulkCard {
+                original: line.original,
+                comment,
+                data: UnparsedFieldData::Double(
+                    UnparsedFirstField(first),
+                    [
+                        UnparsedDoubleField(field1),
+                        UnparsedDoubleField(field2),
+                        UnparsedDoubleField(field3),
+                        UnparsedDoubleField(field4),
+                    ],
+                    UnparsedTrailingField(trailing),
+                ),
+            }
+        } else {
+            let field1 = line.take8();
+            let field2 = line.take8();
+            let field3 = line.take8();
+            let field4 = line.take8();
+            let field5 = line.take8();
+            let field6 = line.take8();
+            let field7 = line.take8();
+            let field8 = line.take8();
+            let trailing = line.take8();
+            let comment = line.remaining();
+            UnparsedBulkCard {
+                original: line.original,
+                comment,
+                data: UnparsedFieldData::Single(
+                    UnparsedFirstField(first),
+                    [
+                        UnparsedSingleField(field1),
+                        UnparsedSingleField(field2),
+                        UnparsedSingleField(field3),
+                        UnparsedSingleField(field4),
+                        UnparsedSingleField(field5),
+                        UnparsedSingleField(field6),
+                        UnparsedSingleField(field7),
+                        UnparsedSingleField(field8),
+                    ],
+                    UnparsedTrailingField(trailing),
+                ),
+            }
+        }
+    }
+}
+
+struct NastranCommaLine {
+    original: Vec<u8>,
+    iter: NastranLineIter,
+}
+
+impl NastranCommaLine {
+    fn new(line: Vec<u8>) -> Self {
+        // Add comma check here?
+        NastranCommaLine {
+            original: line.clone(),
+            iter: NastranLineIter::new(line.into_iter()),
+        }
+    }
+}
+
+impl Iterator for NastranCommaLine {
+    type Item = UnparsedBulkCard;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        None
+    }
 }
 
 struct NastranLineIter {
@@ -196,6 +281,7 @@ pub enum UnparsedFieldData {
 
 pub struct UnparsedBulkCard {
     pub original: Vec<u8>,
+    comment: Vec<u8>,
     data: UnparsedFieldData,
 }
 
@@ -223,6 +309,7 @@ impl fmt::Display for UnparsedBulkCard {
 
 struct BulkCardIter<I> {
     iter: SplitLines<I>,
+    comma_line: Option<NastranCommaLine>,
 }
 
 impl<I> BulkCardIter<I>
@@ -232,6 +319,7 @@ where
     fn new(iter: I) -> Self {
         Self {
             iter: iter.split_lines(),
+            comma_line: None,
         }
     }
 }
@@ -243,61 +331,27 @@ where
     type Item = Result<UnparsedBulkCard>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        let result = self.comma_line.as_mut().and_then(|cl| cl.next()).map(Ok);
+        match result {
+            Some(r) => return Some(r),
+            None => {
+                self.comma_line = None;
+            }
+        }
         if let Some(line) = self.iter.next() {
             let line = match line {
                 Ok(l) => l,
                 Err(e) => return Some(Err(e)),
             };
             let original = line.clone();
-            let mut line = NastranLine::new(line);
-            let first = line.take8();
-            let double = first.contains(&b'*');
-            if double {
-                let field1 = line.take16();
-                let field2 = line.take16();
-                let field3 = line.take16();
-                let field4 = line.take16();
-                let trailing = line.take8();
-                Some(Ok(UnparsedBulkCard {
-                    original,
-                    data: UnparsedFieldData::Double(
-                        UnparsedFirstField(first),
-                        [
-                            UnparsedDoubleField(field1),
-                            UnparsedDoubleField(field2),
-                            UnparsedDoubleField(field3),
-                            UnparsedDoubleField(field4),
-                        ],
-                        UnparsedTrailingField(trailing),
-                    ),
-                }))
+            let n = std::cmp::min(original.len(), 10);
+            if original[..n].contains(&b',') {
+                let mut comma_line = NastranCommaLine::new(line);
+                let line = comma_line.next().map(Ok);
+                self.comma_line = Some(comma_line);
+                line
             } else {
-                let field1 = line.take8();
-                let field2 = line.take8();
-                let field3 = line.take8();
-                let field4 = line.take8();
-                let field5 = line.take8();
-                let field6 = line.take8();
-                let field7 = line.take8();
-                let field8 = line.take8();
-                let trailing = line.take8();
-                Some(Ok(UnparsedBulkCard {
-                    original,
-                    data: UnparsedFieldData::Single(
-                        UnparsedFirstField(first),
-                        [
-                            UnparsedSingleField(field1),
-                            UnparsedSingleField(field2),
-                            UnparsedSingleField(field3),
-                            UnparsedSingleField(field4),
-                            UnparsedSingleField(field5),
-                            UnparsedSingleField(field6),
-                            UnparsedSingleField(field7),
-                            UnparsedSingleField(field8),
-                        ],
-                        UnparsedTrailingField(trailing),
-                    ),
-                }))
+                Some(Ok(NastranLine::new(line).into()))
             }
         } else {
             None
@@ -339,6 +393,7 @@ pub enum FieldData {
 
 pub struct BulkCard {
     pub original: Vec<u8>,
+    pub comment: Vec<u8>,
     pub data: FieldData,
 }
 
@@ -623,7 +678,11 @@ impl std::convert::TryFrom<UnparsedBulkCard> for BulkCard {
     type Error = Error;
     fn try_from(unparsed: UnparsedBulkCard) -> Result<Self> {
         use std::convert::TryInto;
-        let UnparsedBulkCard { original, data } = unparsed;
+        let UnparsedBulkCard {
+            original,
+            comment,
+            data,
+        } = unparsed;
         let data = match data {
             UnparsedFieldData::Blank => FieldData::Blank,
             UnparsedFieldData::Single(first, fields, trailing) => FieldData::Single(
@@ -651,7 +710,11 @@ impl std::convert::TryFrom<UnparsedBulkCard> for BulkCard {
                 trailing,
             ),
         };
-        Ok(BulkCard { original, data })
+        Ok(BulkCard {
+            original,
+            comment,
+            data,
+        })
     }
 }
 
