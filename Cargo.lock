@@ -388,6 +388,7 @@ dependencies = [
  "criterion",
  "dtoa",
  "memmap",
+ "smallvec",
  "thiserror",
 ]
 

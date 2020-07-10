@@ -1,4 +1,6 @@
 use bstr::ByteSlice;
+use smallvec::SmallVec;
+use std::convert::{TryFrom, TryInto};
 use std::fmt;
 use std::io;
 use thiserror::Error;
@@ -13,6 +15,8 @@ pub enum Error {
     TextTooLong,
     #[error("Field is not valid")]
     InvalidField,
+    #[error("Whole line not parsed")]
+    UnparsedChars,
     #[error("Error reading datfile : {0}")]
     IO(#[from] io::Error),
 }
@@ -142,7 +146,7 @@ impl NastranLine {
         field
     }
 
-    fn remaining(&mut self) -> Vec<u8> {
+    fn comment(&mut self) -> SmallVec<[u8; 8]> {
         (&mut self.iter).collect()
     }
 }
@@ -157,7 +161,7 @@ impl From<NastranLine> for UnparsedBulkCard {
             let field3 = line.take16();
             let field4 = line.take16();
             let trailing = line.take8();
-            let comment = line.remaining();
+            let comment = line.comment();
             UnparsedBulkCard {
                 original: line.original,
                 comment,
@@ -182,7 +186,7 @@ impl From<NastranLine> for UnparsedBulkCard {
             let field7 = line.take8();
             let field8 = line.take8();
             let trailing = line.take8();
-            let comment = line.remaining();
+            let comment = line.comment();
             UnparsedBulkCard {
                 original: line.original,
                 comment,
@@ -205,6 +209,64 @@ impl From<NastranLine> for UnparsedBulkCard {
     }
 }
 
+struct CommaField(SmallVec<[u8; 16]>);
+
+impl TryFrom<CommaField> for [u8; 8] {
+    type Error = Error;
+    fn try_from(field: CommaField) -> Result<Self> {
+        if field.0.len() > 8 {
+            Err(Error::TextTooLong)
+        } else {
+            let mut out = [b' '; 8];
+            let n = std::cmp::min(field.0.len(), 8);
+            out[..n].copy_from_slice(&field.0[..n]);
+            Ok(out)
+        }
+    }
+}
+
+impl TryFrom<CommaField> for [u8; 16] {
+    type Error = Error;
+    fn try_from(field: CommaField) -> Result<Self> {
+        if field.0.len() > 16 {
+            Err(Error::TextTooLong)
+        } else {
+            let mut out = [b' '; 16];
+            let n = std::cmp::min(field.0.len(), 16);
+            out[..n].copy_from_slice(&field.0[..n]);
+            Ok(out)
+        }
+    }
+}
+
+impl TryFrom<CommaField> for UnparsedFirstField {
+    type Error = Error;
+    fn try_from(field: CommaField) -> Result<Self> {
+        field.try_into().map(Self)
+    }
+}
+
+impl TryFrom<CommaField> for UnparsedSingleField {
+    type Error = Error;
+    fn try_from(field: CommaField) -> Result<Self> {
+        field.try_into().map(Self)
+    }
+}
+
+impl TryFrom<CommaField> for UnparsedDoubleField {
+    type Error = Error;
+    fn try_from(field: CommaField) -> Result<Self> {
+        field.try_into().map(Self)
+    }
+}
+
+impl TryFrom<CommaField> for UnparsedTrailingField {
+    type Error = Error;
+    fn try_from(field: CommaField) -> Result<Self> {
+        field.try_into().map(Self)
+    }
+}
+
 struct NastranCommaLine {
     original: Vec<u8>,
     iter: NastranLineIter,
@@ -218,25 +280,141 @@ impl NastranCommaLine {
             iter: NastranLineIter::new(line.into_iter()),
         }
     }
+
+    fn next_field(&mut self) -> Option<CommaField> {
+        use std::iter::FromIterator;
+        let field = SmallVec::from_iter(
+            (&mut self.iter)
+                .skip_while(|c| *c == b' ')
+                .take_while(|c| *c != b','),
+        );
+        if field.is_empty() {
+            None
+        } else {
+            Some(CommaField(field))
+        }
+    }
+
+    fn next_first_field(&mut self) -> Option<Result<UnparsedFirstField>> {
+        self.next_field().map(TryInto::try_into)
+    }
+
+    fn next_single_field(&mut self) -> Result<UnparsedSingleField> {
+        self.next_field()
+            .map(TryInto::try_into)
+            .unwrap_or(Ok(UnparsedSingleField([b' '; 8])))
+    }
+
+    fn next_double_field(&mut self) -> Result<UnparsedDoubleField> {
+        self.next_field()
+            .map(TryInto::try_into)
+            .unwrap_or(Ok(UnparsedDoubleField([b' '; 16])))
+    }
+
+    fn next_trailing_field(&mut self) -> Result<UnparsedTrailingField> {
+        match self.iter.peek() {
+            Some(b'+') => self
+                .next_field()
+                .map(TryInto::try_into)
+                .unwrap_or(Ok(UnparsedTrailingField([b' '; 8]))),
+            _ => Ok(UnparsedTrailingField([b' '; 8])),
+        }
+    }
+
+    fn next_comment(&mut self) -> Option<SmallVec<[u8; 8]>> {
+        self.iter.comment()
+    }
 }
 
 impl Iterator for NastranCommaLine {
-    type Item = UnparsedBulkCard;
+    type Item = Result<UnparsedBulkCard>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        None
+        let first = self.next_field();
+        if first.is_none() {
+            return None;
+        }
+        let res = move || -> Self::Item {
+            let first: UnparsedFirstField = first.unwrap().try_into()?;
+            let double = first.0.contains(&b'*');
+            if double {
+                let field1 = self.next_double_field()?;
+                let field2 = self.next_double_field()?;
+                let field3 = self.next_double_field()?;
+                let field4 = self.next_double_field()?;
+                let trailing = self.next_trailing_field()?;
+                let comment = self.next_comment();
+                let mut original = vec![];
+                if comment.is_some() {
+                    std::mem::swap(&mut original, &mut self.original);
+                }
+                let comment = comment.unwrap_or_else(|| SmallVec::new());
+
+                Ok(UnparsedBulkCard {
+                    original,
+                    comment,
+                    data: UnparsedFieldData::Double(
+                        first,
+                        [field1, field2, field3, field4],
+                        trailing,
+                    ),
+                })
+            } else {
+                let field1 = self.next_single_field()?;
+                let field2 = self.next_single_field()?;
+                let field3 = self.next_single_field()?;
+                let field4 = self.next_single_field()?;
+                let field5 = self.next_single_field()?;
+                let field6 = self.next_single_field()?;
+                let field7 = self.next_single_field()?;
+                let field8 = self.next_single_field()?;
+                let trailing = self.next_trailing_field()?;
+                let comment = self.next_comment();
+                let mut original = vec![];
+                if comment.is_some() {
+                    std::mem::swap(&mut original, &mut self.original);
+                }
+                let comment = comment.unwrap_or_else(|| SmallVec::new());
+                Ok(UnparsedBulkCard {
+                    original,
+                    comment,
+                    data: UnparsedFieldData::Single(
+                        first,
+                        [
+                            field1, field2, field3, field4, field5, field6, field7, field8,
+                        ],
+                        trailing,
+                    ),
+                })
+            }
+        }();
+        Some(res)
     }
 }
 
 struct NastranLineIter {
-    iter: std::iter::Fuse<std::iter::Enumerate<ExpandTabs<std::vec::IntoIter<u8>>>>,
+    iter: std::iter::Peekable<std::iter::Enumerate<ExpandTabs<std::vec::IntoIter<u8>>>>,
+    comment: Option<SmallVec<[u8; 8]>>,
 }
 
 impl NastranLineIter {
     fn new(iter: std::vec::IntoIter<u8>) -> Self {
         Self {
-            iter: ExpandTabs::new(iter).enumerate().fuse(),
+            iter: ExpandTabs::new(iter).enumerate().peekable(),
+            comment: None,
         }
+    }
+
+    fn peek(&mut self) -> Option<u8> {
+        self.iter.peek().map(|c| c.1)
+    }
+
+    fn comment(&mut self) -> Option<SmallVec<[u8; 8]>> {
+        self.comment.take()
+    }
+
+    fn to_comment(&mut self) -> Result<SmallVec<[u8; 8]>> {
+        self.comment.take().ok_or(Error::UnparsedChars)
     }
 }
 
@@ -244,14 +422,29 @@ impl Iterator for NastranLineIter {
     type Item = u8;
 
     fn next(&mut self) -> Option<Self::Item> {
-        match self.iter.next() {
-            Some((_, b'$')) => None,
-            Some((_, b'\n')) => None,
-            Some((_, b'\r')) => None,
-            Some((80, _)) => None,
-            Some((_, c @ b'a'..=b'z')) => Some(c - 32),
-            Some((_, c)) => Some(c),
-            None => None,
+        if self.comment.is_none() {
+            return None;
+        }
+        let result = match self.iter.next() {
+            Some((_, b'$')) => Err(b'$'),
+            Some((_, b'\n')) => Err(b'\n'),
+            Some((_, b'\r')) => Err(b'\r'),
+            Some((80, c)) => Err(c),
+            Some((_, c @ b'a'..=b'z')) => Ok(c - 32),
+            Some((_, c)) => Ok(c),
+            None => return None,
+        };
+        match result {
+            Ok(c) => Some(c),
+            Err(c) => {
+                let mut comment = SmallVec::new();
+                comment.push(c);
+                while let Some((_, c)) = self.iter.next() {
+                    comment.push(c)
+                }
+                self.comment = Some(comment);
+                None
+            }
         }
     }
 }
@@ -281,7 +474,7 @@ pub enum UnparsedFieldData {
 
 pub struct UnparsedBulkCard {
     pub original: Vec<u8>,
-    comment: Vec<u8>,
+    comment: SmallVec<[u8; 8]>,
     data: UnparsedFieldData,
 }
 
@@ -331,7 +524,7 @@ where
     type Item = Result<UnparsedBulkCard>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let result = self.comma_line.as_mut().and_then(|cl| cl.next()).map(Ok);
+        let result = self.comma_line.as_mut().and_then(|cl| cl.next());
         match result {
             Some(r) => return Some(r),
             None => {
@@ -347,7 +540,7 @@ where
             let n = std::cmp::min(original.len(), 10);
             if original[..n].contains(&b',') {
                 let mut comma_line = NastranCommaLine::new(line);
-                let line = comma_line.next().map(Ok);
+                let line = comma_line.next();
                 self.comma_line = Some(comma_line);
                 line
             } else {
@@ -393,7 +586,7 @@ pub enum FieldData {
 
 pub struct BulkCard {
     pub original: Vec<u8>,
-    pub comment: Vec<u8>,
+    pub comment: SmallVec<[u8; 8]>,
     pub data: FieldData,
 }
 
