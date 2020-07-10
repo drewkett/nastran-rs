@@ -16,6 +16,7 @@ members = [
 bstr = "0.2"
 dtoa = "0.4"
 memmap = "0.7"
+smallvec = "1.4"
 thiserror = "1.0"
 
 [dev-dependencies]
