@@ -146,8 +146,11 @@ impl NastranLine {
         field
     }
 
-    fn comment(&mut self) -> SmallVec<[u8; 8]> {
-        (&mut self.iter).collect()
+    fn comment(&mut self) -> Result<SmallVec<[u8; 8]>> {
+        match self.iter.comment.take() {
+            Some(comment) => Ok(comment),
+            None => Err(Error::UnparsedChars),
+        }
     }
 }
 
@@ -161,7 +164,7 @@ impl TryFrom<NastranLine> for UnparsedBulkCard {
             let field3 = line.take16();
             let field4 = line.take16();
             let trailing = parse_trailing_field(line.take8())?;
-            let comment = line.comment();
+            let comment = line.comment()?;
             Ok(UnparsedBulkCard {
                 original: line.original,
                 comment,
@@ -186,7 +189,7 @@ impl TryFrom<NastranLine> for UnparsedBulkCard {
             let field7 = line.take8();
             let field8 = line.take8();
             let trailing = parse_trailing_field(line.take8())?;
-            let comment = line.comment();
+            let comment = line.comment()?;
             Ok(UnparsedBulkCard {
                 original: line.original,
                 comment,
@@ -640,6 +643,94 @@ pub enum Field {
     Text([u8; 8]),
 }
 
+impl fmt::Display for Field {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let width = match f.width() {
+            Some(8) | None => 8,
+            Some(16) => 16,
+            Some(_) => return Err(fmt::Error),
+        };
+        if width == 8 {
+            match *self {
+                Field::Blank => write!(f, "        "),
+                Field::Int(i) => write!(f, "{:8}", i),
+                Field::Float(d) => write!(f, "{:>8}", float_to_8(d)),
+                Field::Double(d) => write!(f, "{:>8}", float_to_8(d)),
+                Field::Text(s) => write!(f, "{:8}", s.as_bstr()),
+            }
+        } else if width == 16 {
+            match *self {
+                Field::Blank => write!(f, "                "),
+                Field::Int(i) => write!(f, "{:16}", i),
+                Field::Float(d) => write!(f, "{:>16}", float_to_16(d)),
+                Field::Double(d) => write!(f, "{:>16}", float_to_16(d)),
+                Field::Text(s) => write!(f, "{:16}", s.as_bstr()),
+            }
+        } else {
+            unreachable!()
+        }
+    }
+}
+
+fn float_to_8<T>(f: T) -> String
+where
+    T: Into<f64> + Copy + fmt::Display + fmt::LowerExp + dtoa::Floating + std::cmp::PartialOrd,
+{
+    // FIXME: can be improved
+    let mut buf = vec![b' '; 8];
+    let f = f.into();
+    if let Ok(_n) = dtoa::write(&mut buf[..], f) {
+        unsafe { String::from_utf8_unchecked(buf) }
+    } else {
+        let s = if f <= -1e+100 {
+            format!("{:<8.1e}", f)
+        } else if f < -1e+10 {
+            format!("{:<8.2e}", f)
+        } else if f < -1e+0 {
+            format!("{:<8.3e}", f)
+        } else if f < -1e-9 {
+            format!("{:<8.2e}", f)
+        } else if f < -1e-99 {
+            format!("{:<8.1e}", f)
+        } else if f < 0.0 {
+            format!("{:<8.0e}", f)
+        } else if f <= 1e-99 {
+            format!("{:<8.1e}", f)
+        } else if f <= 1e-9 {
+            format!("{:<8.2e}", f)
+        } else if f < 1e+0 {
+            format!("{:<8.3e}", f)
+        } else if f < 1e+10 {
+            format!("{:<8.4e}", f)
+        } else if f < 1e+100 {
+            format!("{:<8.3e}", f)
+        } else {
+            format!("{:<8.2e}", f)
+        };
+        if s.len() > 8 {
+            panic!("help '{}'", s)
+        }
+        s
+    }
+}
+
+fn float_to_16<T>(f: T) -> String
+where
+    T: Copy + fmt::Display + fmt::LowerExp + dtoa::Floating,
+{
+    // FIXME: can be improved
+    let mut buf = [b' '; 16];
+    if let Ok(n) = dtoa::write(&mut buf[..], f) {
+        unsafe { String::from_utf8_unchecked(buf[..n].to_vec()) }
+    } else {
+        let s = format!("{:16.8e}", f);
+        if s.len() > 16 {
+            panic!("Couldn't write {} in less than 16 chars '{}'", f, s)
+        }
+        s
+    }
+}
+
 #[derive(Debug)]
 pub enum FieldData {
     Blank,
@@ -651,6 +742,29 @@ pub struct BulkCard {
     pub original: Vec<u8>,
     pub comment: SmallVec<[u8; 8]>,
     pub data: FieldData,
+}
+
+impl fmt::Display for BulkCard {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.data {
+            FieldData::Blank => {}
+            FieldData::Single(first, fields, trailing) => {
+                write!(f, "{}", first)?;
+                for field in fields.iter() {
+                    write!(f, "{:8}", field)?;
+                }
+                write!(f, "{}", trailing)?;
+            }
+            FieldData::Double(first, fields, trailing) => {
+                write!(f, "{}", first)?;
+                for field in fields.iter() {
+                    write!(f, "{:16}", field)?;
+                }
+                write!(f, "{}", trailing)?;
+            }
+        }
+        write!(f, "{}", self.comment.as_bstr())
+    }
 }
 
 enum ZeroOneTwo {

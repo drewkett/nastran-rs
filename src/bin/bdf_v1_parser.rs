@@ -23,7 +23,7 @@ pub fn main() -> Result<()> {
         } else {
             print!("original = {}", card.original.as_bstr());
         }
-        println!("result   = {:?}", card.data);
+        print!("result   = {}", card);
     }
     Ok(())
 }

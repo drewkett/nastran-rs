@@ -25,6 +25,7 @@ The op2 reader is written against NX Nastran 11 currently.
   - Needs a header parser
   - Add documentation
   - Should be split up across multiple files
+  - Verify card display code is working
 
 ### op2
 
