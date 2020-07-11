@@ -1,5 +1,5 @@
 use bstr::ByteSlice;
-use nastran::bdf::v1::parser::{parse_bytes, Result};
+use nastran::bdf::v1::parser::{parse_bytes_iter, Result};
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
@@ -15,8 +15,9 @@ pub fn main() -> Result<()> {
     println!("{}", filename);
     let f = File::open(filename)?;
     let bytes = std::io::BufReader::new(f).bytes();
-    let deck = parse_bytes(bytes)?;
-    for card in deck {
+    let mut iter = parse_bytes_iter(bytes);
+    while let Some(card) = iter.next() {
+        let card = card?;
         print!("original = {}", card.original.as_bstr());
         println!("result   = {:?}", card.data);
     }
