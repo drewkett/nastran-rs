@@ -11,8 +11,8 @@ pub enum Error {
     EmbeddedSpace,
     #[error("Unexpected character {}",(&[*.0][..]).as_bstr())]
     UnexpectedChar(u8),
-    #[error("Text field greater than 8 chars")]
-    TextTooLong,
+    #[error("Text field greater than 8 chars '{}'",.0.as_bstr())]
+    TextTooLong(Vec<u8>),
     #[error("Field is not valid")]
     InvalidField,
     #[error("Whole line not parsed")]
@@ -209,13 +209,14 @@ impl From<NastranLine> for UnparsedBulkCard {
     }
 }
 
+#[derive(Debug)]
 struct CommaField(SmallVec<[u8; 16]>);
 
 impl TryFrom<CommaField> for [u8; 8] {
     type Error = Error;
     fn try_from(field: CommaField) -> Result<Self> {
         if field.0.len() > 8 {
-            Err(Error::TextTooLong)
+            Err(Error::TextTooLong(field.0.into_vec()))
         } else {
             let mut out = [b' '; 8];
             let n = std::cmp::min(field.0.len(), 8);
@@ -229,7 +230,7 @@ impl TryFrom<CommaField> for [u8; 16] {
     type Error = Error;
     fn try_from(field: CommaField) -> Result<Self> {
         if field.0.len() > 16 {
-            Err(Error::TextTooLong)
+            Err(Error::TextTooLong(field.0.into_vec()))
         } else {
             let mut out = [b' '; 16];
             let n = std::cmp::min(field.0.len(), 16);
@@ -283,7 +284,7 @@ impl NastranCommaLine {
 
     fn next_field(&mut self) -> Option<CommaField> {
         use std::iter::FromIterator;
-        let field = SmallVec::from_iter(
+        let mut field = SmallVec::from_iter(
             (&mut self.iter)
                 .skip_while(|c| *c == b' ')
                 .take_while(|c| *c != b','),
@@ -291,13 +292,18 @@ impl NastranCommaLine {
         if field.is_empty() {
             None
         } else {
+            let mut j = field.len();
+            while j > 0 && field[j - 1] == b' ' {
+                j -= 1;
+            }
+            field.truncate(j);
             Some(CommaField(field))
         }
     }
 
-    fn next_first_field(&mut self) -> Option<Result<UnparsedFirstField>> {
-        self.next_field().map(TryInto::try_into)
-    }
+    //fn next_first_field(&mut self) -> Option<Result<UnparsedFirstField>> {
+    //    self.next_field().map(TryInto::try_into)
+    //}
 
     fn next_single_field(&mut self) -> Result<UnparsedSingleField> {
         self.next_field()
@@ -332,7 +338,17 @@ impl Iterator for NastranCommaLine {
     fn next(&mut self) -> Option<Self::Item> {
         let first = self.next_field();
         if first.is_none() {
-            return None;
+            if let Some(comment) = self.next_comment() {
+                let mut original = vec![];
+                std::mem::swap(&mut original, &mut self.original);
+                return Some(Ok(UnparsedBulkCard {
+                    original,
+                    comment,
+                    data: UnparsedFieldData::Blank,
+                }));
+            } else {
+                return None;
+            }
         }
         let res = move || -> Self::Item {
             let first: UnparsedFirstField = first.unwrap().try_into()?;
@@ -413,18 +429,15 @@ impl NastranLineIter {
         self.comment.take()
     }
 
-    fn to_comment(&mut self) -> Result<SmallVec<[u8; 8]>> {
-        self.comment.take().ok_or(Error::UnparsedChars)
-    }
+    //fn to_comment(&mut self) -> Result<SmallVec<[u8; 8]>> {
+    //    self.comment.take().ok_or(Error::UnparsedChars)
+    //}
 }
 
 impl Iterator for NastranLineIter {
     type Item = u8;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.comment.is_none() {
-            return None;
-        }
         let result = match self.iter.next() {
             Some((_, b'$')) => Err(b'$'),
             Some((_, b'\n')) => Err(b'\n'),
@@ -458,6 +471,7 @@ pub struct UnparsedDoubleField([u8; 16]);
 #[derive(Debug)]
 pub struct UnparsedTrailingField([u8; 8]);
 
+#[derive(Debug)]
 pub enum UnparsedFieldData {
     Blank,
     Single(
@@ -472,6 +486,7 @@ pub enum UnparsedFieldData {
     ),
 }
 
+#[derive(Debug)]
 pub struct UnparsedBulkCard {
     pub original: Vec<u8>,
     comment: SmallVec<[u8; 8]>,
@@ -524,11 +539,17 @@ where
     type Item = Result<UnparsedBulkCard>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let result = self.comma_line.as_mut().and_then(|cl| cl.next());
-        match result {
-            Some(r) => return Some(r),
-            None => {
-                self.comma_line = None;
+        // TODO This either needs to be wrapped in a loop so that if
+        // an internal iterator returns None, it goes to the next line
+        if let Some(mut comma_line) = self.comma_line.take() {
+            match comma_line.next() {
+                Some(r) => {
+                    self.comma_line = Some(comma_line);
+                    return Some(r);
+                }
+                None => {
+                    self.comma_line = None;
+                }
             }
         }
         if let Some(line) = self.iter.next() {
@@ -539,6 +560,7 @@ where
             let original = line.clone();
             let n = std::cmp::min(original.len(), 10);
             if original[..n].contains(&b',') {
+                // NastranCommaLine maybe shouldn't be an iterator
                 let mut comma_line = NastranCommaLine::new(line);
                 let line = comma_line.next();
                 self.comma_line = Some(comma_line);
@@ -590,6 +612,12 @@ pub struct BulkCard {
     pub data: FieldData,
 }
 
+enum ZeroOneTwo {
+    Zero,
+    One(u8),
+    Two(u8, u8),
+}
+
 fn parse_first_field<I>(field: &mut I) -> Result<FirstField>
 where
     I: Iterator<Item = u8>,
@@ -601,11 +629,6 @@ where
         Continuation,
         EndAlpha,
         EndContinuation,
-    }
-    enum ZeroOneTwo {
-        Zero,
-        One(u8),
-        Two(u8, u8),
     }
     use State::*;
     use ZeroOneTwo::*;
@@ -626,6 +649,10 @@ where
             (Alpha, c @ b'A'..=b'Z', _) => (Alpha, One(c)),
             (Alpha, c @ b'0'..=b'9', _) => (Alpha, One(c)),
             (Alpha, c @ b' ', _) => (EndAlpha, One(c)),
+            (Alpha, b'*', _) => {
+                double = true;
+                (EndAlpha, Zero)
+            }
             (Continuation, c @ b'A'..=b'Z', _) => (Continuation, One(c)),
             (Continuation, c @ b'0'..=b'9', _) => (Continuation, One(c)),
             (Continuation, c @ b' ', 0..=7) => (Continuation, One(c)),
@@ -653,7 +680,7 @@ where
         }
     }
     if i > 8 {
-        return Err(Error::TextTooLong);
+        return Err(Error::TextTooLong(contents[..i].to_vec()));
     }
     let mut result = [b' '; 8];
     result[..i].copy_from_slice(&contents[..i]);
@@ -669,14 +696,14 @@ fn parse_inner_field<I>(field: &mut I) -> Result<Field>
 where
     I: Iterator<Item = u8>,
 {
-    use std::convert::TryInto;
     enum State {
         Start,
-        PlusMinus,   // Seen starting '+' or '-'
-        Period,      // Seen starting numbers
-        FloatPeriod, // Seen starting numbers
-        Digits,      // Seen starting '.'
-        Alpha,       // Seen starting 'A' to 'Z'
+        PlusMinus,
+        Period,
+        PlusMinusPeriod,
+        FloatPeriod,
+        Digits,
+        Alpha,
         FloatExponent,
         DoubleExponent,
         FloatSignedExponent,
@@ -687,11 +714,6 @@ where
         EndInt,
         EndFloat,
         EndDouble,
-    }
-    enum ZeroOneTwo {
-        Zero,
-        One(u8),
-        Two(u8, u8),
     }
     use State::*;
     use ZeroOneTwo::*;
@@ -710,12 +732,12 @@ where
             (Digits, c @ b'.', _) => (FloatPeriod, One(c)),
             (Digits, b' ', _) => (EndInt, Zero),
             // Can't remember if these are valid
-            // (Digits, c @ b'E', _) => (FloatPeriod, [*c].iter()),
+            (Digits, c @ b'E', _) => (FloatExponent, One(c)),
             // (Digits, c @ b'+', _) => (FloatPeriod, [*c].iter()),
             // (Digits, c @ b'-', _) => (FloatPeriod, [*c].iter()),
             (PlusMinus, c @ b'0'..=b'9', _) => (Digits, One(c)),
-            // Can't remember if this is valid
-            // (PlusMinus, c @ b'.', _) => (FloatPeriod, [*c].iter()),
+            (PlusMinus, c @ b'.', _) => (PlusMinusPeriod, One(c)),
+            (PlusMinusPeriod, c @ b'0'..=b'9', _) => (FloatPeriod, One(c)),
             (Period, c @ b'0'..=b'9', _) => (FloatPeriod, One(c)),
             (FloatPeriod, c @ b'0'..=b'9', _) => (FloatPeriod, One(c)),
             (FloatPeriod, b'D', _) => (DoubleExponent, One(b'E')),
@@ -723,6 +745,9 @@ where
             (FloatPeriod, c @ b'+', _) => (FloatSignedExponent, Two(b'E', c)),
             (FloatPeriod, c @ b'-', _) => (FloatSignedExponent, Two(b'E', c)),
             (FloatPeriod, b' ', _) => (EndFloat, Zero),
+            (FloatExponent, c @ b'+', _) => (FloatSignedExponent, One(c)),
+            (FloatExponent, c @ b'-', _) => (FloatSignedExponent, One(c)),
+            (FloatExponent, c @ b'0'..=b'9', _) => (FloatSignedExponentValue, One(c)),
             (FloatSignedExponent, c @ b'0'..=b'9', _) => (FloatSignedExponentValue, One(c)),
             (DoubleSignedExponent, c @ b'0'..=b'9', _) => (DoubleSignedExponentValue, One(c)),
             (FloatSignedExponentValue, c @ b'0'..=b'9', _) => (FloatSignedExponentValue, One(c)),
@@ -732,7 +757,7 @@ where
             (Alpha, c @ b'A'..=b'Z', 0..=7) => (Alpha, One(c)),
             (Alpha, c @ b'0'..=b'9', 0..=7) => (Alpha, One(c)),
             (Alpha, b' ', _) => (EndText, Zero),
-            (Alpha, _, 8..=usize::MAX) => return Err(Error::TextTooLong),
+            //(Alpha, _, 8..=usize::MAX) => return Err(Error::TextTooLong(),
             (EndInt, b' ', _) => (EndInt, Zero),
             (EndFloat, b' ', _) => (EndFloat, Zero),
             (EndDouble, b' ', _) => (EndDouble, Zero),
@@ -760,8 +785,8 @@ where
     }
     match state {
         Start => Ok(Field::Blank),
-        PlusMinus | Period | FloatExponent | FloatSignedExponent | DoubleExponent
-        | DoubleSignedExponent => Err(Error::InvalidField),
+        PlusMinus | PlusMinusPeriod | Period | FloatExponent | FloatSignedExponent
+        | DoubleExponent | DoubleSignedExponent => Err(Error::InvalidField),
         Digits | EndInt => {
             if i <= 8 {
                 Ok(Field::Int(
@@ -783,7 +808,13 @@ where
                 .parse()
                 .unwrap(),
         )),
-        Alpha | EndText => Ok(Field::Text(contents[..8].try_into().unwrap())),
+        Alpha | EndText => {
+            if i > 8 {
+                Err(Error::TextTooLong(contents[..i].to_vec()))
+            } else {
+                Ok(Field::Text(contents[..8].try_into().unwrap()))
+            }
+        }
     }
 }
 
@@ -795,11 +826,6 @@ where
         Start,
         Middle,
         Blank,
-    }
-    enum ZeroOneTwo {
-        Zero,
-        One(u8),
-        Two(u8, u8),
     }
     use State::*;
     use ZeroOneTwo::*;
@@ -832,7 +858,8 @@ where
         }
     }
     if i > 8 {
-        return Err(Error::TextTooLong);
+        println!("Here");
+        return Err(Error::TextTooLong(contents[..i].to_vec()));
     }
     let mut result = [b' '; 8];
     result[..i].copy_from_slice(&contents[..i]);
@@ -870,7 +897,6 @@ impl std::convert::TryFrom<&UnparsedTrailingField> for TrailingField {
 impl std::convert::TryFrom<UnparsedBulkCard> for BulkCard {
     type Error = Error;
     fn try_from(unparsed: UnparsedBulkCard) -> Result<Self> {
-        use std::convert::TryInto;
         let UnparsedBulkCard {
             original,
             comment,
@@ -909,6 +935,13 @@ impl std::convert::TryFrom<UnparsedBulkCard> for BulkCard {
             data,
         })
     }
+}
+
+pub fn parse_bytes_iter<I>(iter: I) -> impl Iterator<Item = Result<BulkCard>>
+where
+    I: Iterator<Item = io::Result<u8>>,
+{
+    BulkCardIter::new(iter).map(|r| r.and_then(std::convert::TryInto::try_into))
 }
 
 pub fn parse_bytes<I>(iter: I) -> Result<Vec<BulkCard>>
