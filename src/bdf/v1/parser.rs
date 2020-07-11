@@ -290,7 +290,11 @@ impl NastranCommaLine {
                 .take_while(|c| *c != b','),
         );
         if field.is_empty() {
-            None
+            if self.iter.peek().is_none() {
+                None
+            } else {
+                Some(CommaField(SmallVec::new()))
+            }
         } else {
             let mut j = field.len();
             while j > 0 && field[j - 1] == b' ' {
@@ -319,7 +323,7 @@ impl NastranCommaLine {
 
     fn next_trailing_field(&mut self) -> Result<UnparsedTrailingField> {
         match self.iter.peek() {
-            Some(b'+') => self
+            Some(b'+') | Some(b'\r') | Some(b'\n') => self
                 .next_field()
                 .map(TryInto::try_into)
                 .unwrap_or(Ok(UnparsedTrailingField([b' '; 8]))),
@@ -438,18 +442,36 @@ impl Iterator for NastranLineIter {
     type Item = u8;
 
     fn next(&mut self) -> Option<Self::Item> {
+        #[derive(Debug)]
+        enum Res {
+            Char(u8),
+            CharAndEOL(u8),
+            EOL(u8),
+        }
+        use Res::*;
+        // Be careful here. The ordering matters so that the EOL is processed
         let result = match self.iter.next() {
-            Some((_, b'$')) => Err(b'$'),
-            Some((_, b'\n')) => Err(b'\n'),
-            Some((_, b'\r')) => Err(b'\r'),
-            Some((80, c)) => Err(c),
-            Some((_, c @ b'a'..=b'z')) => Ok(c - 32),
-            Some((_, c)) => Ok(c),
+            Some((_, b'$')) => EOL(b'$'),
+            Some((_, b'\n')) => EOL(b'\n'),
+            Some((_, b'\r')) => EOL(b'\r'),
+            Some((79, c @ b'a'..=b'z')) => CharAndEOL(c - 32),
+            Some((79, c)) => CharAndEOL(c),
+            Some((_, c @ b'a'..=b'z')) => Char(c - 32),
+            Some((_, c)) => Char(c),
             None => return None,
         };
+        // There's probably a better way to handle this
         match result {
-            Ok(c) => Some(c),
-            Err(c) => {
+            Char(c) => Some(c),
+            CharAndEOL(c) => {
+                let mut comment = SmallVec::new();
+                while let Some((_, c)) = self.iter.next() {
+                    comment.push(c)
+                }
+                self.comment = Some(comment);
+                Some(c)
+            }
+            EOL(c) => {
                 let mut comment = SmallVec::new();
                 comment.push(c);
                 while let Some((_, c)) = self.iter.next() {
