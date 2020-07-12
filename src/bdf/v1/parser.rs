@@ -155,34 +155,33 @@ impl NastranLine {
             None => Err(Error::UnparsedChars),
         }
     }
+
+    fn end_of_data(&mut self) -> bool {
+        self.iter.comment.is_some() || self.iter.peek().is_none()
+}
 }
 
 impl TryFrom<NastranLine> for UnparsedBulkLine {
     type Error = Error;
     fn try_from(mut line: NastranLine) -> Result<UnparsedBulkLine> {
         let first = parse_first_field(line.take8())?;
-        if first.double {
-            let field1 = line.take16();
-            let field2 = line.take16();
-            let field3 = line.take16();
-            let field4 = line.take16();
-            let trailing = parse_trailing_field(line.take8())?;
+        let first = match first {
+            Some(field) => field,
+            None => {
+                if line.end_of_data() {
             let comment = line.comment()?;
-            Ok(UnparsedBulkLine {
+                    return Ok(UnparsedBulkLine {
                 original: line.original,
                 comment,
-                data: UnparsedFieldData::Double(
-                    first,
-                    [
-                        UnparsedDoubleField(field1),
-                        UnparsedDoubleField(field2),
-                        UnparsedDoubleField(field3),
-                        UnparsedDoubleField(field4),
-                    ],
-                    trailing,
-                ),
-            })
+                        data: None,
+                    });
         } else {
+                    FirstField::Text(*b"       ", false)
+                }
+            }
+        };
+        match first {
+            FirstField::Continuation(_, false) | FirstField::Text(_, false) => {
             let field1 = line.take8();
             let field2 = line.take8();
             let field3 = line.take8();
@@ -196,7 +195,7 @@ impl TryFrom<NastranLine> for UnparsedBulkLine {
             Ok(UnparsedBulkLine {
                 original: line.original,
                 comment,
-                data: UnparsedFieldData::Single(
+                    data: Some(UnparsedFieldData::Single(
                     first,
                     [
                         UnparsedSingleField(field1),
@@ -209,9 +208,32 @@ impl TryFrom<NastranLine> for UnparsedBulkLine {
                         UnparsedSingleField(field8),
                     ],
                     trailing,
-                ),
+                    )),
             })
         }
+            FirstField::Continuation(_, true) | FirstField::Text(_, true) => {
+                let field1 = line.take16();
+                let field2 = line.take16();
+                let field3 = line.take16();
+                let field4 = line.take16();
+                let trailing = parse_trailing_field(line.take8())?;
+                let comment = line.comment()?;
+                Ok(UnparsedBulkLine {
+                    original: line.original,
+                    comment,
+                    data: Some(UnparsedFieldData::Double(
+                        first,
+                        [
+                            UnparsedDoubleField(field1),
+                            UnparsedDoubleField(field2),
+                            UnparsedDoubleField(field3),
+                            UnparsedDoubleField(field4),
+                        ],
+                        trailing,
+                    )),
+                })
+    }
+}
     }
 }
 
@@ -246,7 +268,7 @@ impl TryFrom<CommaField> for [u8; 16] {
     }
 }
 
-impl TryFrom<CommaField> for FirstField {
+impl TryFrom<CommaField> for Option<FirstField> {
     type Error = Error;
     fn try_from(field: CommaField) -> Result<Self> {
         if field.0.len() > 8 {
@@ -368,15 +390,17 @@ impl Iterator for NastranCommaLine {
                 return Some(Ok(UnparsedBulkLine {
                     original,
                     comment,
-                    data: UnparsedFieldData::Blank,
+                    data: None,
                 }));
             } else {
                 return None;
             }
         }
         let res = move || -> Self::Item {
-            let first: FirstField = first.unwrap().try_into()?;
-            if first.double {
+            let first: Option<FirstField> = first.unwrap().try_into()?;
+            let first = first.unwrap_or_else(|| FirstField::Text(*b"       ", false));
+            match first {
+                FirstField::Text(_, true) | FirstField::Continuation(_, true) => {
                 let field1 = self.next_double_field()?;
                 let field2 = self.next_double_field()?;
                 let field3 = self.next_double_field()?;
@@ -392,13 +416,14 @@ impl Iterator for NastranCommaLine {
                 Ok(UnparsedBulkLine {
                     original,
                     comment,
-                    data: UnparsedFieldData::Double(
+                        data: Some(UnparsedFieldData::Double(
                         first,
                         [field1, field2, field3, field4],
                         trailing,
-                    ),
+                        )),
                 })
-            } else {
+                }
+                FirstField::Text(_, false) | FirstField::Continuation(_, false) => {
                 let field1 = self.next_single_field()?;
                 let field2 = self.next_single_field()?;
                 let field3 = self.next_single_field()?;
@@ -417,14 +442,15 @@ impl Iterator for NastranCommaLine {
                 Ok(UnparsedBulkLine {
                     original,
                     comment,
-                    data: UnparsedFieldData::Single(
+                        data: Some(UnparsedFieldData::Single(
                         first,
                         [
                             field1, field2, field3, field4, field5, field6, field7, field8,
                         ],
                         trailing,
-                    ),
+                        )),
                 })
+            }
             }
         }();
         Some(res)
@@ -510,36 +536,67 @@ pub struct UnparsedDoubleField([u8; 16]);
 
 #[derive(Debug)]
 pub enum UnparsedFieldData {
-    Blank,
     Single(FirstField, [UnparsedSingleField; 8], TrailingField),
     Double(FirstField, [UnparsedDoubleField; 4], TrailingField),
+}
+
+impl std::convert::TryFrom<UnparsedFieldData> for FieldData {
+    type Error = Error;
+    fn try_from(field: UnparsedFieldData) -> Result<Self> {
+        match field {
+            UnparsedFieldData::Single(first, fields, trailing) => Ok(FieldData::Single(
+                first,
+                [
+                    (&fields[0]).try_into()?,
+                    (&fields[1]).try_into()?,
+                    (&fields[2]).try_into()?,
+                    (&fields[3]).try_into()?,
+                    (&fields[4]).try_into()?,
+                    (&fields[5]).try_into()?,
+                    (&fields[6]).try_into()?,
+                    (&fields[7]).try_into()?,
+                ],
+                trailing,
+            )),
+            UnparsedFieldData::Double(first, fields, trailing) => Ok(FieldData::Double(
+                first,
+                [
+                    (&fields[0]).try_into()?,
+                    (&fields[1]).try_into()?,
+                    (&fields[2]).try_into()?,
+                    (&fields[3]).try_into()?,
+                ],
+                trailing,
+            )),
+        }
+    }
 }
 
 #[derive(Debug)]
 pub struct UnparsedBulkLine {
     pub original: Vec<u8>,
     comment: Comment,
-    data: UnparsedFieldData,
+    data: Option<UnparsedFieldData>,
 }
 
 impl fmt::Display for UnparsedBulkLine {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.data {
-            UnparsedFieldData::Blank => write!(f, "\n"),
-            UnparsedFieldData::Single(first, fields, trailing) => {
+            Some(UnparsedFieldData::Single(first, fields, trailing)) => {
                 write!(f, "{}", first)?;
                 for field in fields.iter() {
                     write!(f, "{}", field.0.as_bstr())?;
                 }
                 write!(f, "{}", trailing)
             }
-            UnparsedFieldData::Double(first, fields, trailing) => {
+            Some(UnparsedFieldData::Double(first, fields, trailing)) => {
                 write!(f, "{}", first)?;
                 for field in fields.iter() {
                     write!(f, "{}", field.0.as_bstr())?;
                 }
                 write!(f, "{}", trailing)
             }
+            None => write!(f, "\n"),
         }
     }
 }
@@ -604,31 +661,23 @@ where
 }
 
 #[derive(Debug)]
-pub enum FirstFieldKind {
-    Blank,
-    Text([u8; 7]),
-    Continuation([u8; 7]),
-}
-
-#[derive(Debug)]
-pub struct FirstField {
-    kind: FirstFieldKind,
-    double: bool,
+pub enum FirstField {
+    Text([u8; 7], bool),
+    Continuation([u8; 7], bool),
 }
 
 impl fmt::Display for FirstField {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match (&self.kind, self.double) {
-            (FirstFieldKind::Blank, _) => write!(f, "       "),
-            (FirstFieldKind::Text(t), false) => write!(f, "{} ", t.as_bstr()),
-            (FirstFieldKind::Text(t), true) => write!(f, "{}*", t.as_bstr()),
-            (FirstFieldKind::Continuation(t), false) => write!(f, "+{}", t.as_bstr()),
-            (FirstFieldKind::Continuation(t), true) => write!(f, "*{}", t.as_bstr()),
+        match &self {
+            FirstField::Text(t, false) => write!(f, "{} ", t.as_bstr()),
+            FirstField::Text(t, true) => write!(f, "{}*", t.as_bstr()),
+            FirstField::Continuation(t, false) => write!(f, "+{}", t.as_bstr()),
+            FirstField::Continuation(t, true) => write!(f, "*{}", t.as_bstr()),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Hash)]
 pub struct TrailingField([u8; 7]);
 
 impl Default for TrailingField {
@@ -742,7 +791,6 @@ where
 
 #[derive(Debug)]
 pub enum FieldData {
-    Blank,
     Single(FirstField, [Field; 8], TrailingField),
     Double(FirstField, [Field; 4], TrailingField),
 }
@@ -750,27 +798,27 @@ pub enum FieldData {
 pub struct BulkLine {
     pub original: Vec<u8>,
     pub comment: Comment,
-    pub data: FieldData,
+    pub data: Option<FieldData>,
 }
 
 impl fmt::Display for BulkLine {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.data {
-            FieldData::Blank => {}
-            FieldData::Single(first, fields, trailing) => {
+            Some(FieldData::Single(first, fields, trailing)) => {
                 write!(f, "{}", first)?;
                 for field in fields.iter() {
                     write!(f, "{:8}", field)?;
                 }
                 write!(f, "{}", trailing)?;
             }
-            FieldData::Double(first, fields, trailing) => {
+            Some(FieldData::Double(first, fields, trailing)) => {
                 write!(f, "{}", first)?;
                 for field in fields.iter() {
                     write!(f, "{:16}", field)?;
                 }
                 write!(f, "{}", trailing)?;
             }
+            None => {}
         }
         write!(f, "{}", self.comment.0.as_bstr())
     }
@@ -782,7 +830,7 @@ enum ZeroOneTwo {
     Two(u8, u8),
 }
 
-fn parse_first_field(field: [u8; 8]) -> Result<FirstField> {
+fn parse_first_field(field: [u8; 8]) -> Result<Option<FirstField>> {
     enum State {
         Start,
         Blank,
@@ -846,12 +894,11 @@ fn parse_first_field(field: [u8; 8]) -> Result<FirstField> {
     }
     let mut result = [b' '; 7];
     result[..i].copy_from_slice(&contents[..i]);
-    let kind = match state {
-        Start | Blank => FirstFieldKind::Blank,
-        Alpha | EndAlpha => FirstFieldKind::Text(result),
-        Continuation | EndContinuation => FirstFieldKind::Continuation(result),
-    };
-    Ok(FirstField { kind, double })
+    match state {
+        Start | Blank => Ok(None),
+        Alpha | EndAlpha => Ok(Some(FirstField::Text(result, double))),
+        Continuation | EndContinuation => Ok(Some(FirstField::Continuation(result, double))),
+    }
 }
 
 fn parse_inner_field<I>(field: &mut I) -> Result<Field>
@@ -1057,31 +1104,8 @@ impl std::convert::TryFrom<UnparsedBulkLine> for BulkLine {
             data,
         } = unparsed;
         let data = match data {
-            UnparsedFieldData::Blank => FieldData::Blank,
-            UnparsedFieldData::Single(first, fields, trailing) => FieldData::Single(
-                first,
-                [
-                    (&fields[0]).try_into()?,
-                    (&fields[1]).try_into()?,
-                    (&fields[2]).try_into()?,
-                    (&fields[3]).try_into()?,
-                    (&fields[4]).try_into()?,
-                    (&fields[5]).try_into()?,
-                    (&fields[6]).try_into()?,
-                    (&fields[7]).try_into()?,
-                ],
-                trailing,
-            ),
-            UnparsedFieldData::Double(first, fields, trailing) => FieldData::Double(
-                first,
-                [
-                    (&fields[0]).try_into()?,
-                    (&fields[1]).try_into()?,
-                    (&fields[2]).try_into()?,
-                    (&fields[3]).try_into()?,
-                ],
-                trailing,
-            ),
+            None => None,
+            Some(field) => Some(field.try_into()?),
         };
         Ok(BulkLine {
             original,
