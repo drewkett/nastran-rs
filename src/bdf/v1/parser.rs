@@ -179,7 +179,7 @@ impl TryFrom<NastranLine> for UnparsedBulkLine {
                         data: None,
                     });
                 } else {
-                    FirstField::Text(*b"       ", false)
+                    FirstField::Text(CardType(*b"       "), false)
                 }
             }
         };
@@ -401,7 +401,7 @@ impl Iterator for NastranCommaLine {
         }
         let res = move || -> Self::Item {
             let first: Option<FirstField> = first.unwrap().try_into()?;
-            let first = first.unwrap_or_else(|| FirstField::Text(*b"       ", false));
+            let first = first.unwrap_or_else(|| FirstField::Text(CardType(*b"       "), false));
             match first {
                 FirstField::Text(_, true) | FirstField::Continuation(_, true) => {
                     let field1 = self.next_double_field()?;
@@ -665,16 +665,19 @@ where
 }
 
 #[derive(Debug)]
+pub struct CardType([u8; 7]);
+
+#[derive(Debug)]
 pub enum FirstField {
-    Text([u8; 7], bool),
+    Text(CardType, bool),
     Continuation(ContinuationField, bool),
 }
 
 impl fmt::Display for FirstField {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self {
-            FirstField::Text(t, false) => write!(f, "{} ", t.as_bstr()),
-            FirstField::Text(t, true) => write!(f, "{}*", t.as_bstr()),
+            FirstField::Text(CardType(t), false) => write!(f, "{} ", t.as_bstr()),
+            FirstField::Text(CardType(t), true) => write!(f, "{}*", t.as_bstr()),
             FirstField::Continuation(ContinuationField(t), false) => write!(f, "+{}", t.as_bstr()),
             FirstField::Continuation(ContinuationField(t), true) => write!(f, "*{}", t.as_bstr()),
         }
@@ -900,7 +903,7 @@ fn parse_first_field(field: [u8; 8]) -> Result<Option<FirstField>> {
     result[..i].copy_from_slice(&contents[..i]);
     match state {
         Start | Blank => Ok(None),
-        Alpha | EndAlpha => Ok(Some(FirstField::Text(result, double))),
+        Alpha | EndAlpha => Ok(Some(FirstField::Text(CardType(result), double))),
         Continuation | EndContinuation => Ok(Some(FirstField::Continuation(
             ContinuationField(result),
             double,
@@ -1123,7 +1126,7 @@ impl std::convert::TryFrom<UnparsedBulkLine> for BulkLine {
 }
 
 pub struct BulkCardData {
-    first: FirstField,
+    first: CardType,
     fields: SmallVec<[Field; 16]>,
     has_double: bool,
 }
@@ -1148,7 +1151,6 @@ impl fmt::Display for BulkCard {
                 has_double,
             }) => {
                 let mut first = first;
-                write!(f, "{}", first)?;
                 let mut i = 0;
                 loop {
                     let next8 = &fields[..std::cmp::min(8, fields.len())];
@@ -1165,7 +1167,7 @@ impl fmt::Display for BulkCard {
 }
 
 struct PartialBulkCard {
-    first: FirstField,
+    first: CardType,
     fields: SmallVec<[Field; 16]>,
     trailing: ContinuationField,
     original: Vec<u8>,
@@ -1224,7 +1226,7 @@ where
             } = line;
             match data {
                 Some(FieldData::Single(first, fields, trailing)) => match first {
-                    FirstField::Text(_, _) => {
+                    FirstField::Text(first, _) => {
                         let existing = self.continuations.insert(
                             trailing,
                             PartialBulkCard {
@@ -1252,7 +1254,7 @@ where
                     }
                 },
                 Some(FieldData::Double(first, fields, trailing)) => match first {
-                    FirstField::Text(field, double) => {
+                    FirstField::Text(first, double) => {
                         let existing = self.continuations.insert(
                             trailing,
                             PartialBulkCard {
