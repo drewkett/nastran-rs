@@ -179,63 +179,60 @@ impl TryFrom<NastranLine> for UnparsedBulkLine {
                         data: None,
                     });
                 } else {
-                    FirstField::Text(CardType(*b"       "), false)
+                    FirstField::default()
                 }
             }
         };
-        match first {
-            FirstField::Continuation(_, false) | FirstField::Text(_, false) => {
-                let field1 = line.take8();
-                let field2 = line.take8();
-                let field3 = line.take8();
-                let field4 = line.take8();
-                let field5 = line.take8();
-                let field6 = line.take8();
-                let field7 = line.take8();
-                let field8 = line.take8();
-                let trailing = parse_trailing_field(line.take8())?;
-                let comment = line.comment()?;
-                Ok(UnparsedBulkLine {
-                    original: line.original,
-                    comment,
-                    data: Some(UnparsedFieldData::Single(
-                        first,
-                        [
-                            UnparsedSingleField(field1),
-                            UnparsedSingleField(field2),
-                            UnparsedSingleField(field3),
-                            UnparsedSingleField(field4),
-                            UnparsedSingleField(field5),
-                            UnparsedSingleField(field6),
-                            UnparsedSingleField(field7),
-                            UnparsedSingleField(field8),
-                        ],
-                        trailing,
-                    )),
-                })
-            }
-            FirstField::Continuation(_, true) | FirstField::Text(_, true) => {
-                let field1 = line.take16();
-                let field2 = line.take16();
-                let field3 = line.take16();
-                let field4 = line.take16();
-                let trailing = parse_trailing_field(line.take8())?;
-                let comment = line.comment()?;
-                Ok(UnparsedBulkLine {
-                    original: line.original,
-                    comment,
-                    data: Some(UnparsedFieldData::Double(
-                        first,
-                        [
-                            UnparsedDoubleField(field1),
-                            UnparsedDoubleField(field2),
-                            UnparsedDoubleField(field3),
-                            UnparsedDoubleField(field4),
-                        ],
-                        trailing,
-                    )),
-                })
-            }
+        if first.double {
+            let field1 = line.take16();
+            let field2 = line.take16();
+            let field3 = line.take16();
+            let field4 = line.take16();
+            let trailing = parse_trailing_field(line.take8())?;
+            let comment = line.comment()?;
+            Ok(UnparsedBulkLine {
+                original: line.original,
+                comment,
+                data: Some(UnparsedFieldData::Double(
+                    first,
+                    [
+                        UnparsedDoubleField(field1),
+                        UnparsedDoubleField(field2),
+                        UnparsedDoubleField(field3),
+                        UnparsedDoubleField(field4),
+                    ],
+                    trailing,
+                )),
+            })
+        } else {
+            let field1 = line.take8();
+            let field2 = line.take8();
+            let field3 = line.take8();
+            let field4 = line.take8();
+            let field5 = line.take8();
+            let field6 = line.take8();
+            let field7 = line.take8();
+            let field8 = line.take8();
+            let trailing = parse_trailing_field(line.take8())?;
+            let comment = line.comment()?;
+            Ok(UnparsedBulkLine {
+                original: line.original,
+                comment,
+                data: Some(UnparsedFieldData::Single(
+                    first,
+                    [
+                        UnparsedSingleField(field1),
+                        UnparsedSingleField(field2),
+                        UnparsedSingleField(field3),
+                        UnparsedSingleField(field4),
+                        UnparsedSingleField(field5),
+                        UnparsedSingleField(field6),
+                        UnparsedSingleField(field7),
+                        UnparsedSingleField(field8),
+                    ],
+                    trailing,
+                )),
+            })
         }
     }
 }
@@ -401,59 +398,56 @@ impl Iterator for NastranCommaLine {
         }
         let res = move || -> Self::Item {
             let first: Option<FirstField> = first.unwrap().try_into()?;
-            let first = first.unwrap_or_else(|| FirstField::Text(CardType(*b"       "), false));
-            match first {
-                FirstField::Text(_, true) | FirstField::Continuation(_, true) => {
-                    let field1 = self.next_double_field()?;
-                    let field2 = self.next_double_field()?;
-                    let field3 = self.next_double_field()?;
-                    let field4 = self.next_double_field()?;
-                    let trailing = self.next_trailing_field()?;
-                    let comment = self.next_comment();
-                    let mut original = vec![];
-                    if comment.is_some() {
-                        std::mem::swap(&mut original, &mut self.original);
-                    }
-                    let comment = comment.unwrap_or_default();
+            let first = first.unwrap_or_default();
+            if first.double {
+                let field1 = self.next_single_field()?;
+                let field2 = self.next_single_field()?;
+                let field3 = self.next_single_field()?;
+                let field4 = self.next_single_field()?;
+                let field5 = self.next_single_field()?;
+                let field6 = self.next_single_field()?;
+                let field7 = self.next_single_field()?;
+                let field8 = self.next_single_field()?;
+                let trailing = self.next_trailing_field()?;
+                let comment = self.next_comment();
+                let mut original = vec![];
+                if comment.is_some() {
+                    std::mem::swap(&mut original, &mut self.original);
+                }
+                let comment = comment.unwrap_or_default();
+                Ok(UnparsedBulkLine {
+                    original,
+                    comment,
+                    data: Some(UnparsedFieldData::Single(
+                        first,
+                        [
+                            field1, field2, field3, field4, field5, field6, field7, field8,
+                        ],
+                        trailing,
+                    )),
+                })
+            } else {
+                let field1 = self.next_double_field()?;
+                let field2 = self.next_double_field()?;
+                let field3 = self.next_double_field()?;
+                let field4 = self.next_double_field()?;
+                let trailing = self.next_trailing_field()?;
+                let comment = self.next_comment();
+                let mut original = vec![];
+                if comment.is_some() {
+                    std::mem::swap(&mut original, &mut self.original);
+                }
+                let comment = comment.unwrap_or_default();
 
-                    Ok(UnparsedBulkLine {
-                        original,
-                        comment,
-                        data: Some(UnparsedFieldData::Double(
-                            first,
-                            [field1, field2, field3, field4],
-                            trailing,
-                        )),
-                    })
-                }
-                FirstField::Text(_, false) | FirstField::Continuation(_, false) => {
-                    let field1 = self.next_single_field()?;
-                    let field2 = self.next_single_field()?;
-                    let field3 = self.next_single_field()?;
-                    let field4 = self.next_single_field()?;
-                    let field5 = self.next_single_field()?;
-                    let field6 = self.next_single_field()?;
-                    let field7 = self.next_single_field()?;
-                    let field8 = self.next_single_field()?;
-                    let trailing = self.next_trailing_field()?;
-                    let comment = self.next_comment();
-                    let mut original = vec![];
-                    if comment.is_some() {
-                        std::mem::swap(&mut original, &mut self.original);
-                    }
-                    let comment = comment.unwrap_or_default();
-                    Ok(UnparsedBulkLine {
-                        original,
-                        comment,
-                        data: Some(UnparsedFieldData::Single(
-                            first,
-                            [
-                                field1, field2, field3, field4, field5, field6, field7, field8,
-                            ],
-                            trailing,
-                        )),
-                    })
-                }
+                Ok(UnparsedBulkLine {
+                    original,
+                    comment,
+                    data: Some(UnparsedFieldData::Double(
+                        first,
+                        [field1, field2, field3, field4],
+                        trailing,
+                    )),
+                })
             }
         }();
         Some(res)
@@ -664,22 +658,100 @@ where
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct CardType([u8; 7]);
 
-#[derive(Debug)]
-pub enum FirstField {
-    Text(CardType, bool),
-    Continuation(ContinuationField, bool),
+impl Default for CardType {
+    fn default() -> Self {
+        Self(*b"       ")
+    }
+}
+// TODO this should be an implementation detail and not exposed because its
+// a bit weird to use display width like this
+impl fmt::Display for CardType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let width = match f.width() {
+            Some(8) | None => 8,
+            Some(16) => 16,
+            Some(_) => return Err(fmt::Error),
+        };
+        if width == 8 {
+            write!(f, "{} ", self.0.as_bstr())
+        } else if width == 16 {
+            write!(f, "{}*", self.0.as_bstr())
+        } else {
+            unreachable!()
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum FirstFieldKind {
+    Text(CardType),
+    Continuation(ContinuationField),
+}
+
+impl Default for FirstFieldKind {
+    fn default() -> Self {
+        FirstFieldKind::Text(CardType::default())
+    }
+}
+
+// TODO this should be an implementation detail and not exposed because its
+// a bit weird to use display width like this
+impl fmt::Display for FirstFieldKind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let width = match f.width() {
+            Some(8) | None => 8,
+            Some(16) => 16,
+            Some(_) => return Err(fmt::Error),
+        };
+        if width == 8 {
+            match *self {
+                FirstFieldKind::Text(text) => write!(f, "{} ", text.0.as_bstr()),
+                FirstFieldKind::Continuation(continuation) => {
+                    write!(f, "+{}", continuation.0.as_bstr())
+                }
+            }
+        } else if width == 16 {
+            match *self {
+                FirstFieldKind::Text(text) => write!(f, "{}*", text.0.as_bstr()),
+                FirstFieldKind::Continuation(continuation) => {
+                    write!(f, "*{}", continuation.0.as_bstr())
+                }
+            }
+        } else {
+            unreachable!()
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FirstField {
+    kind: FirstFieldKind,
+    double: bool,
 }
 
 impl fmt::Display for FirstField {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use FirstFieldKind::*;
         match &self {
-            FirstField::Text(CardType(t), false) => write!(f, "{} ", t.as_bstr()),
-            FirstField::Text(CardType(t), true) => write!(f, "{}*", t.as_bstr()),
-            FirstField::Continuation(ContinuationField(t), false) => write!(f, "+{}", t.as_bstr()),
-            FirstField::Continuation(ContinuationField(t), true) => write!(f, "*{}", t.as_bstr()),
+            FirstField {
+                kind: Text(CardType(t)),
+                double: false,
+            } => write!(f, "{} ", t.as_bstr()),
+            FirstField {
+                kind: Text(CardType(t)),
+                double: true,
+            } => write!(f, "{} ", t.as_bstr()),
+            FirstField {
+                kind: Continuation(ContinuationField(t)),
+                double: false,
+            } => write!(f, "+{}", t.as_bstr()),
+            FirstField {
+                kind: Continuation(ContinuationField(t)),
+                double: true,
+            } => write!(f, "*{}", t.as_bstr()),
         }
     }
 }
@@ -693,9 +765,22 @@ impl Default for ContinuationField {
     }
 }
 
+// TODO this should be an implementation detail and not exposed because its
+// a bit weird to use display width like this
 impl fmt::Display for ContinuationField {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "+{}", self.0.as_bstr())
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let width = match f.width() {
+            Some(8) | None => 8,
+            Some(16) => 16,
+            Some(_) => return Err(fmt::Error),
+        };
+        if width == 8 {
+            write!(f, "+{}", self.0.as_bstr())
+        } else if width == 16 {
+            write!(f, "*{}", self.0.as_bstr())
+        } else {
+            unreachable!()
+        }
     }
 }
 
@@ -718,18 +803,18 @@ impl fmt::Display for Field {
         if width == 8 {
             match *self {
                 Field::Blank => write!(f, "        "),
-                Field::Int(i) => write!(f, "{:8}", i),
-                Field::Float(d) => write!(f, "{:>8}", float_to_8(d)),
-                Field::Double(d) => write!(f, "{:>8}", float_to_8(d)),
-                Field::Text(s) => write!(f, "{:8}", s.as_bstr()),
+                Field::Int(i) => write!(f, "{:<8}", i),
+                Field::Float(d) => write!(f, "{:8}", float_to_8(d)),
+                Field::Double(d) => write!(f, "{:8}", float_to_8(d)),
+                Field::Text(s) => write!(f, "{:<8}", s.as_bstr()),
             }
         } else if width == 16 {
             match *self {
                 Field::Blank => write!(f, "                "),
-                Field::Int(i) => write!(f, "{:16}", i),
-                Field::Float(d) => write!(f, "{:>16}", float_to_16(d)),
-                Field::Double(d) => write!(f, "{:>16}", float_to_16(d)),
-                Field::Text(s) => write!(f, "{:16}", s.as_bstr()),
+                Field::Int(i) => write!(f, "{:<16}", i),
+                Field::Float(d) => write!(f, "{:16}", float_to_16(d)),
+                Field::Double(d) => write!(f, "{:16}", float_to_16(d)),
+                Field::Text(s) => write!(f, "{:<16}", s.as_bstr()),
             }
         } else {
             unreachable!()
@@ -901,14 +986,12 @@ fn parse_first_field(field: [u8; 8]) -> Result<Option<FirstField>> {
     }
     let mut result = [b' '; 7];
     result[..i].copy_from_slice(&contents[..i]);
-    match state {
-        Start | Blank => Ok(None),
-        Alpha | EndAlpha => Ok(Some(FirstField::Text(CardType(result), double))),
-        Continuation | EndContinuation => Ok(Some(FirstField::Continuation(
-            ContinuationField(result),
-            double,
-        ))),
-    }
+    let kind = match state {
+        Start | Blank => return Ok(None),
+        Alpha | EndAlpha => FirstFieldKind::Text(CardType(result)),
+        Continuation | EndContinuation => FirstFieldKind::Continuation(ContinuationField(result)),
+    };
+    Ok(Some(FirstField { kind, double }))
 }
 
 fn parse_inner_field<I>(field: &mut I) -> Result<Field>
@@ -1128,7 +1211,6 @@ impl std::convert::TryFrom<UnparsedBulkLine> for BulkLine {
 pub struct BulkCardData {
     first: CardType,
     fields: SmallVec<[Field; 16]>,
-    has_double: bool,
 }
 
 pub struct BulkCard {
@@ -1145,20 +1227,44 @@ impl BulkCard {
 impl fmt::Display for BulkCard {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.data {
-            Some(BulkCardData {
-                first,
-                fields,
-                has_double,
-            }) => {
-                let mut first = first;
-                let mut i = 0;
+            Some(BulkCardData { first, fields }) => {
+                let mut first = FirstFieldKind::Text(*first);
+                let mut fields = &fields[..];
                 loop {
-                    let next8 = &fields[..std::cmp::min(8, fields.len())];
+                    let n8 = std::cmp::min(8, fields.len());
+                    let (next8, fields_) = fields.split_at(n8);
+                    fields = fields_;
                     if next8.iter().any(|f| matches!(f, Field::Double(_))) {
-                        unimplemented!()
+                        let n4 = std::cmp::min(4, n8);
+                        write!(f, "{:16}", first)?;
+                        for i in 0..n4 {
+                            write!(f, "{:16}", next8[i])?;
+                        }
+                        if n8 > 4 {
+                            // Using 8 here makes it output a plus
+                            write!(f, "{:8}\n", ContinuationField::default())?;
+                            write!(f, "{:16}\n", ContinuationField::default())?;
+                            for i in 4..n8 {
+                                write!(f, "{:16}", next8[i])?;
+                            }
+                            if fields.is_empty() {
+                                break write!(f, "\n");
+                            } else {
+                                write!(f, "{:8}\n", ContinuationField::default())?;
+                            }
+                        }
                     } else {
-                        unimplemented!()
+                        write!(f, "{:8}", first)?;
+                        for i in 0..n8 {
+                            write!(f, "{:8}", next8[i])?;
+                        }
+                        if fields.is_empty() {
+                            break write!(f, "\n");
+                        } else {
+                            write!(f, "{:8}\n", ContinuationField::default())?;
+                        }
                     }
+                    first = FirstFieldKind::Continuation(ContinuationField::default());
                 }
             }
             None => write!(f, "\n"),
@@ -1171,7 +1277,6 @@ struct PartialBulkCard {
     fields: SmallVec<[Field; 16]>,
     trailing: ContinuationField,
     original: Vec<u8>,
-    has_double: bool,
 }
 
 impl From<PartialBulkCard> for BulkCard {
@@ -1179,16 +1284,11 @@ impl From<PartialBulkCard> for BulkCard {
         let PartialBulkCard {
             first,
             fields,
-            has_double,
             original,
             ..
         } = partial;
         Self {
-            data: Some(BulkCardData {
-                first,
-                fields,
-                has_double,
-            }),
+            data: Some(BulkCardData { first, fields }),
             original,
         }
     }
@@ -1219,20 +1319,15 @@ where
                 Ok(line) => line,
                 Err(e) => return Some(Err(e)),
             };
-            let BulkLine {
-                data,
-                original,
-                comment,
-            } = line;
+            let BulkLine { data, original, .. } = line;
             match data {
-                Some(FieldData::Single(first, fields, trailing)) => match first {
-                    FirstField::Text(first, _) => {
+                Some(FieldData::Single(first, fields, trailing)) => match first.kind {
+                    FirstFieldKind::Text(first) => {
                         let existing = self.continuations.insert(
                             trailing,
                             PartialBulkCard {
                                 first,
                                 fields: SmallVec::from_slice(&fields),
-                                has_double: false,
                                 trailing,
                                 original,
                             },
@@ -1241,10 +1336,9 @@ where
                             return Some(Ok(existing.into()));
                         }
                     }
-                    FirstField::Continuation(field, double) => {
+                    FirstFieldKind::Continuation(field) => {
                         let card = match self.continuations.remove(&field) {
                             Some(mut card) => {
-                                card.has_double |= double;
                                 card.fields.extend_from_slice(&fields);
                                 card
                             }
@@ -1253,14 +1347,13 @@ where
                         self.continuations.insert(card.trailing, card);
                     }
                 },
-                Some(FieldData::Double(first, fields, trailing)) => match first {
-                    FirstField::Text(first, double) => {
+                Some(FieldData::Double(first, fields, trailing)) => match first.kind {
+                    FirstFieldKind::Text(first) => {
                         let existing = self.continuations.insert(
                             trailing,
                             PartialBulkCard {
                                 first,
                                 fields: SmallVec::from_slice(&fields),
-                                has_double: true,
                                 trailing,
                                 original,
                             },
@@ -1269,10 +1362,9 @@ where
                             return Some(Ok(existing.into()));
                         }
                     }
-                    FirstField::Continuation(field, double) => {
+                    FirstFieldKind::Continuation(field) => {
                         let card = match self.continuations.remove(&field) {
                             Some(mut card) => {
-                                card.has_double |= double;
                                 card.fields.extend_from_slice(&fields);
                                 card
                             }
