@@ -11,7 +11,6 @@ The op2 reader is written against NX Nastran 11 currently.
 ### datfile
 
 - v1 Parser
-  - Needs continuation merging
   - Start implementing a few basic card types
   - I'm not confident comma line parsing is correct. It currently can get
     through a file without error, but I think there are edge cases that can be
