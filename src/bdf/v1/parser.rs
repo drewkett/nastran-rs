@@ -1,5 +1,6 @@
 use bstr::ByteSlice;
 use smallvec::SmallVec;
+use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
 use std::io;
@@ -17,6 +18,8 @@ pub enum Error {
     InvalidField,
     #[error("Whole line not parsed")]
     UnparsedChars,
+    #[error("Unmatched continuation")]
+    UnmatchedContinuation(ContinuationField),
     #[error("Error reading datfile : {0}")]
     IO(#[from] io::Error),
 }
@@ -158,7 +161,7 @@ impl NastranLine {
 
     fn end_of_data(&mut self) -> bool {
         self.iter.comment.is_some() || self.iter.peek().is_none()
-}
+    }
 }
 
 impl TryFrom<NastranLine> for UnparsedBulkLine {
@@ -169,48 +172,48 @@ impl TryFrom<NastranLine> for UnparsedBulkLine {
             Some(field) => field,
             None => {
                 if line.end_of_data() {
-            let comment = line.comment()?;
+                    let comment = line.comment()?;
                     return Ok(UnparsedBulkLine {
-                original: line.original,
-                comment,
+                        original: line.original,
+                        comment,
                         data: None,
                     });
-        } else {
+                } else {
                     FirstField::Text(*b"       ", false)
                 }
             }
         };
         match first {
             FirstField::Continuation(_, false) | FirstField::Text(_, false) => {
-            let field1 = line.take8();
-            let field2 = line.take8();
-            let field3 = line.take8();
-            let field4 = line.take8();
-            let field5 = line.take8();
-            let field6 = line.take8();
-            let field7 = line.take8();
-            let field8 = line.take8();
-            let trailing = parse_trailing_field(line.take8())?;
-            let comment = line.comment()?;
-            Ok(UnparsedBulkLine {
-                original: line.original,
-                comment,
+                let field1 = line.take8();
+                let field2 = line.take8();
+                let field3 = line.take8();
+                let field4 = line.take8();
+                let field5 = line.take8();
+                let field6 = line.take8();
+                let field7 = line.take8();
+                let field8 = line.take8();
+                let trailing = parse_trailing_field(line.take8())?;
+                let comment = line.comment()?;
+                Ok(UnparsedBulkLine {
+                    original: line.original,
+                    comment,
                     data: Some(UnparsedFieldData::Single(
-                    first,
-                    [
-                        UnparsedSingleField(field1),
-                        UnparsedSingleField(field2),
-                        UnparsedSingleField(field3),
-                        UnparsedSingleField(field4),
-                        UnparsedSingleField(field5),
-                        UnparsedSingleField(field6),
-                        UnparsedSingleField(field7),
-                        UnparsedSingleField(field8),
-                    ],
-                    trailing,
+                        first,
+                        [
+                            UnparsedSingleField(field1),
+                            UnparsedSingleField(field2),
+                            UnparsedSingleField(field3),
+                            UnparsedSingleField(field4),
+                            UnparsedSingleField(field5),
+                            UnparsedSingleField(field6),
+                            UnparsedSingleField(field7),
+                            UnparsedSingleField(field8),
+                        ],
+                        trailing,
                     )),
-            })
-        }
+                })
+            }
             FirstField::Continuation(_, true) | FirstField::Text(_, true) => {
                 let field1 = line.take16();
                 let field2 = line.take16();
@@ -232,8 +235,8 @@ impl TryFrom<NastranLine> for UnparsedBulkLine {
                         trailing,
                     )),
                 })
-    }
-}
+            }
+        }
     }
 }
 
@@ -296,7 +299,7 @@ impl TryFrom<CommaField> for UnparsedDoubleField {
     }
 }
 
-impl TryFrom<CommaField> for TrailingField {
+impl TryFrom<CommaField> for ContinuationField {
     type Error = Error;
     fn try_from(field: CommaField) -> Result<Self> {
         if field.0.len() > 8 {
@@ -363,13 +366,13 @@ impl NastranCommaLine {
             .unwrap_or(Ok(UnparsedDoubleField([b' '; 16])))
     }
 
-    fn next_trailing_field(&mut self) -> Result<TrailingField> {
+    fn next_trailing_field(&mut self) -> Result<ContinuationField> {
         match self.iter.peek() {
             Some(b'+') | Some(b'\r') | Some(b'\n') => self
                 .next_field()
                 .map(TryInto::try_into)
-                .unwrap_or(Ok(TrailingField([b' '; 7]))),
-            _ => Ok(TrailingField([b' '; 7])),
+                .unwrap_or(Ok(ContinuationField([b' '; 7]))),
+            _ => Ok(ContinuationField([b' '; 7])),
         }
     }
 
@@ -401,56 +404,56 @@ impl Iterator for NastranCommaLine {
             let first = first.unwrap_or_else(|| FirstField::Text(*b"       ", false));
             match first {
                 FirstField::Text(_, true) | FirstField::Continuation(_, true) => {
-                let field1 = self.next_double_field()?;
-                let field2 = self.next_double_field()?;
-                let field3 = self.next_double_field()?;
-                let field4 = self.next_double_field()?;
-                let trailing = self.next_trailing_field()?;
-                let comment = self.next_comment();
-                let mut original = vec![];
-                if comment.is_some() {
-                    std::mem::swap(&mut original, &mut self.original);
-                }
-                let comment = comment.unwrap_or_default();
+                    let field1 = self.next_double_field()?;
+                    let field2 = self.next_double_field()?;
+                    let field3 = self.next_double_field()?;
+                    let field4 = self.next_double_field()?;
+                    let trailing = self.next_trailing_field()?;
+                    let comment = self.next_comment();
+                    let mut original = vec![];
+                    if comment.is_some() {
+                        std::mem::swap(&mut original, &mut self.original);
+                    }
+                    let comment = comment.unwrap_or_default();
 
-                Ok(UnparsedBulkLine {
-                    original,
-                    comment,
+                    Ok(UnparsedBulkLine {
+                        original,
+                        comment,
                         data: Some(UnparsedFieldData::Double(
-                        first,
-                        [field1, field2, field3, field4],
-                        trailing,
+                            first,
+                            [field1, field2, field3, field4],
+                            trailing,
                         )),
-                })
+                    })
                 }
                 FirstField::Text(_, false) | FirstField::Continuation(_, false) => {
-                let field1 = self.next_single_field()?;
-                let field2 = self.next_single_field()?;
-                let field3 = self.next_single_field()?;
-                let field4 = self.next_single_field()?;
-                let field5 = self.next_single_field()?;
-                let field6 = self.next_single_field()?;
-                let field7 = self.next_single_field()?;
-                let field8 = self.next_single_field()?;
-                let trailing = self.next_trailing_field()?;
-                let comment = self.next_comment();
-                let mut original = vec![];
-                if comment.is_some() {
-                    std::mem::swap(&mut original, &mut self.original);
-                }
-                let comment = comment.unwrap_or_default();
-                Ok(UnparsedBulkLine {
-                    original,
-                    comment,
+                    let field1 = self.next_single_field()?;
+                    let field2 = self.next_single_field()?;
+                    let field3 = self.next_single_field()?;
+                    let field4 = self.next_single_field()?;
+                    let field5 = self.next_single_field()?;
+                    let field6 = self.next_single_field()?;
+                    let field7 = self.next_single_field()?;
+                    let field8 = self.next_single_field()?;
+                    let trailing = self.next_trailing_field()?;
+                    let comment = self.next_comment();
+                    let mut original = vec![];
+                    if comment.is_some() {
+                        std::mem::swap(&mut original, &mut self.original);
+                    }
+                    let comment = comment.unwrap_or_default();
+                    Ok(UnparsedBulkLine {
+                        original,
+                        comment,
                         data: Some(UnparsedFieldData::Single(
-                        first,
-                        [
-                            field1, field2, field3, field4, field5, field6, field7, field8,
-                        ],
-                        trailing,
+                            first,
+                            [
+                                field1, field2, field3, field4, field5, field6, field7, field8,
+                            ],
+                            trailing,
                         )),
-                })
-            }
+                    })
+                }
             }
         }();
         Some(res)
@@ -536,8 +539,8 @@ pub struct UnparsedDoubleField([u8; 16]);
 
 #[derive(Debug)]
 pub enum UnparsedFieldData {
-    Single(FirstField, [UnparsedSingleField; 8], TrailingField),
-    Double(FirstField, [UnparsedDoubleField; 4], TrailingField),
+    Single(FirstField, [UnparsedSingleField; 8], ContinuationField),
+    Double(FirstField, [UnparsedDoubleField; 4], ContinuationField),
 }
 
 impl std::convert::TryFrom<UnparsedFieldData> for FieldData {
@@ -622,7 +625,7 @@ impl<I> Iterator for BulkLineIter<I>
 where
     I: Iterator<Item = io::Result<u8>>,
 {
-    type Item = Result<UnparsedBulkLine>;
+    type Item = Result<BulkLine>;
 
     fn next(&mut self) -> Option<Self::Item> {
         // TODO This either needs to be wrapped in a loop so that if
@@ -631,7 +634,7 @@ where
             match comma_line.next() {
                 Some(r) => {
                     self.comma_line = Some(comma_line);
-                    return Some(r);
+                    return Some(r.and_then(TryInto::try_into));
                 }
                 None => {
                     self.comma_line = None;
@@ -650,9 +653,10 @@ where
                 let mut comma_line = NastranCommaLine::new(line);
                 let line = comma_line.next();
                 self.comma_line = Some(comma_line);
-                line
+                line.map(|r| r.and_then(TryInto::try_into))
             } else {
-                Some(NastranLine::new(line).try_into())
+                let line: Result<UnparsedBulkLine> = NastranLine::new(line).try_into();
+                Some(line.and_then(TryInto::try_into))
             }
         } else {
             None
@@ -663,7 +667,7 @@ where
 #[derive(Debug)]
 pub enum FirstField {
     Text([u8; 7], bool),
-    Continuation([u8; 7], bool),
+    Continuation(ContinuationField, bool),
 }
 
 impl fmt::Display for FirstField {
@@ -671,28 +675,28 @@ impl fmt::Display for FirstField {
         match &self {
             FirstField::Text(t, false) => write!(f, "{} ", t.as_bstr()),
             FirstField::Text(t, true) => write!(f, "{}*", t.as_bstr()),
-            FirstField::Continuation(t, false) => write!(f, "+{}", t.as_bstr()),
-            FirstField::Continuation(t, true) => write!(f, "*{}", t.as_bstr()),
+            FirstField::Continuation(ContinuationField(t), false) => write!(f, "+{}", t.as_bstr()),
+            FirstField::Continuation(ContinuationField(t), true) => write!(f, "*{}", t.as_bstr()),
         }
     }
 }
 
-#[derive(Debug, Hash)]
-pub struct TrailingField([u8; 7]);
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
+pub struct ContinuationField([u8; 7]);
 
-impl Default for TrailingField {
+impl Default for ContinuationField {
     fn default() -> Self {
         Self([b' '; 7])
     }
 }
 
-impl fmt::Display for TrailingField {
+impl fmt::Display for ContinuationField {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "+{}", self.0.as_bstr())
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum Field {
     Blank,
     Int(i32),
@@ -791,8 +795,8 @@ where
 
 #[derive(Debug)]
 pub enum FieldData {
-    Single(FirstField, [Field; 8], TrailingField),
-    Double(FirstField, [Field; 4], TrailingField),
+    Single(FirstField, [Field; 8], ContinuationField),
+    Double(FirstField, [Field; 4], ContinuationField),
 }
 
 pub struct BulkLine {
@@ -897,7 +901,10 @@ fn parse_first_field(field: [u8; 8]) -> Result<Option<FirstField>> {
     match state {
         Start | Blank => Ok(None),
         Alpha | EndAlpha => Ok(Some(FirstField::Text(result, double))),
-        Continuation | EndContinuation => Ok(Some(FirstField::Continuation(result, double))),
+        Continuation | EndContinuation => Ok(Some(FirstField::Continuation(
+            ContinuationField(result),
+            double,
+        ))),
     }
 }
 
@@ -1027,7 +1034,7 @@ where
     }
 }
 
-fn parse_trailing_field(field: [u8; 8]) -> Result<TrailingField> {
+fn parse_trailing_field(field: [u8; 8]) -> Result<ContinuationField> {
     enum State {
         Start,
         Middle,
@@ -1078,7 +1085,7 @@ fn parse_trailing_field(field: [u8; 8]) -> Result<TrailingField> {
     }
     let mut result = [b' '; 7];
     result[..i].copy_from_slice(&contents[..i]);
-    Ok(TrailingField(result))
+    Ok(ContinuationField(result))
 }
 
 impl std::convert::TryFrom<&UnparsedSingleField> for Field {
@@ -1115,18 +1122,185 @@ impl std::convert::TryFrom<UnparsedBulkLine> for BulkLine {
     }
 }
 
-pub fn parse_bytes_iter<I>(iter: I) -> impl Iterator<Item = Result<BulkLine>>
-where
-    I: Iterator<Item = io::Result<u8>>,
-{
-    BulkLineIter::new(iter).map(|r| r.and_then(std::convert::TryInto::try_into))
+pub struct BulkCardData {
+    first: FirstField,
+    fields: SmallVec<[Field; 16]>,
+    has_double: bool,
 }
 
-pub fn parse_bytes<I>(iter: I) -> Result<Vec<BulkLine>>
+pub struct BulkCard {
+    data: Option<BulkCardData>,
+    original: Vec<u8>,
+}
+
+impl BulkCard {
+    pub fn original(&self) -> &[u8] {
+        &self.original
+    }
+}
+
+impl fmt::Display for BulkCard {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.data {
+            Some(BulkCardData {
+                first,
+                fields,
+                has_double,
+            }) => {
+                let mut first = first;
+                write!(f, "{}", first)?;
+                let mut i = 0;
+                loop {
+                    let next8 = &fields[..std::cmp::min(8, fields.len())];
+                    if next8.iter().any(|f| matches!(f, Field::Double(_))) {
+                        unimplemented!()
+                    } else {
+                        unimplemented!()
+                    }
+                }
+            }
+            None => write!(f, "\n"),
+        }
+    }
+}
+
+struct PartialBulkCard {
+    first: FirstField,
+    fields: SmallVec<[Field; 16]>,
+    trailing: ContinuationField,
+    original: Vec<u8>,
+    has_double: bool,
+}
+
+impl From<PartialBulkCard> for BulkCard {
+    fn from(partial: PartialBulkCard) -> Self {
+        let PartialBulkCard {
+            first,
+            fields,
+            has_double,
+            original,
+            ..
+        } = partial;
+        Self {
+            data: Some(BulkCardData {
+                first,
+                fields,
+                has_double,
+            }),
+            original,
+        }
+    }
+}
+
+struct BulkCardIter<I> {
+    lines: I,
+    continuations: HashMap<ContinuationField, PartialBulkCard>,
+}
+
+impl<I> BulkCardIter<I> {
+    fn new(lines: I) -> Self {
+        Self {
+            lines,
+            continuations: HashMap::new(),
+        }
+    }
+}
+
+impl<I> Iterator for BulkCardIter<I>
+where
+    I: Iterator<Item = Result<BulkLine>>,
+{
+    type Item = Result<BulkCard>;
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some(line) = self.lines.next() {
+            let line = match line {
+                Ok(line) => line,
+                Err(e) => return Some(Err(e)),
+            };
+            let BulkLine {
+                data,
+                original,
+                comment,
+            } = line;
+            match data {
+                Some(FieldData::Single(first, fields, trailing)) => match first {
+                    FirstField::Text(_, _) => {
+                        let existing = self.continuations.insert(
+                            trailing,
+                            PartialBulkCard {
+                                first,
+                                fields: SmallVec::from_slice(&fields),
+                                has_double: false,
+                                trailing,
+                                original,
+                            },
+                        );
+                        if let Some(existing) = existing {
+                            return Some(Ok(existing.into()));
+                        }
+                    }
+                    FirstField::Continuation(field, double) => {
+                        let card = match self.continuations.remove(&field) {
+                            Some(mut card) => {
+                                card.has_double |= double;
+                                card.fields.extend_from_slice(&fields);
+                                card
+                            }
+                            None => return Some(Err(Error::UnmatchedContinuation(field))),
+                        };
+                        self.continuations.insert(card.trailing, card);
+                    }
+                },
+                Some(FieldData::Double(first, fields, trailing)) => match first {
+                    FirstField::Text(field, double) => {
+                        let existing = self.continuations.insert(
+                            trailing,
+                            PartialBulkCard {
+                                first,
+                                fields: SmallVec::from_slice(&fields),
+                                has_double: true,
+                                trailing,
+                                original,
+                            },
+                        );
+                        if let Some(existing) = existing {
+                            return Some(Ok(existing.into()));
+                        }
+                    }
+                    FirstField::Continuation(field, double) => {
+                        let card = match self.continuations.remove(&field) {
+                            Some(mut card) => {
+                                card.has_double |= double;
+                                card.fields.extend_from_slice(&fields);
+                                card
+                            }
+                            None => return Some(Err(Error::UnmatchedContinuation(field))),
+                        };
+                        self.continuations.insert(card.trailing, card);
+                    }
+                },
+                None => {
+                    return Some(Ok(BulkCard {
+                        data: None,
+                        original,
+                    }))
+                }
+            }
+        }
+        None
+    }
+}
+
+pub fn parse_bytes_iter<I>(iter: I) -> impl Iterator<Item = Result<BulkCard>>
 where
     I: Iterator<Item = io::Result<u8>>,
 {
-    BulkLineIter::new(iter)
-        .map(|r| r.and_then(std::convert::TryInto::try_into))
-        .collect()
+    BulkCardIter::new(BulkLineIter::new(iter))
+}
+
+pub fn parse_bytes<I>(iter: I) -> Result<Vec<BulkCard>>
+where
+    I: Iterator<Item = io::Result<u8>>,
+{
+    parse_bytes_iter(iter).collect()
 }

@@ -18,12 +18,12 @@ pub fn main() -> Result<()> {
     let mut iter = parse_bytes_iter(bytes);
     while let Some(card) = iter.next() {
         let card = card?;
-        if card.original.is_empty() {
+        if card.original().is_empty() {
             println!("original = ");
         } else {
-            print!("original = {}", card.original.as_bstr());
+            print!("original = {}", card.original().as_bstr());
         }
-        print!("result   = {}", card);
+        print!("result  = {}", card);
     }
     Ok(())
 }
