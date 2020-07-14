@@ -400,6 +400,28 @@ impl Iterator for NastranCommaLine {
             let first: Option<FirstField> = first.unwrap().try_into()?;
             let first = first.unwrap_or_default();
             if first.double {
+                let field1 = self.next_double_field()?;
+                let field2 = self.next_double_field()?;
+                let field3 = self.next_double_field()?;
+                let field4 = self.next_double_field()?;
+                let trailing = self.next_trailing_field()?;
+                let comment = self.next_comment();
+                let mut original = vec![];
+                if comment.is_some() {
+                    std::mem::swap(&mut original, &mut self.original);
+                }
+                let comment = comment.unwrap_or_default();
+
+                Ok(UnparsedBulkLine {
+                    original,
+                    comment,
+                    data: Some(UnparsedFieldData::Double(
+                        first,
+                        [field1, field2, field3, field4],
+                        trailing,
+                    )),
+                })
+            } else {
                 let field1 = self.next_single_field()?;
                 let field2 = self.next_single_field()?;
                 let field3 = self.next_single_field()?;
@@ -423,28 +445,6 @@ impl Iterator for NastranCommaLine {
                         [
                             field1, field2, field3, field4, field5, field6, field7, field8,
                         ],
-                        trailing,
-                    )),
-                })
-            } else {
-                let field1 = self.next_double_field()?;
-                let field2 = self.next_double_field()?;
-                let field3 = self.next_double_field()?;
-                let field4 = self.next_double_field()?;
-                let trailing = self.next_trailing_field()?;
-                let comment = self.next_comment();
-                let mut original = vec![];
-                if comment.is_some() {
-                    std::mem::swap(&mut original, &mut self.original);
-                }
-                let comment = comment.unwrap_or_default();
-
-                Ok(UnparsedBulkLine {
-                    original,
-                    comment,
-                    data: Some(UnparsedFieldData::Double(
-                        first,
-                        [field1, field2, field3, field4],
                         trailing,
                     )),
                 })
@@ -998,6 +998,7 @@ fn parse_inner_field<I>(field: &mut I) -> Result<Field>
 where
     I: Iterator<Item = u8>,
 {
+    #[derive(Debug)]
     enum State {
         Start,
         PlusMinus,
@@ -1340,6 +1341,7 @@ where
                         let card = match self.continuations.remove(&field) {
                             Some(mut card) => {
                                 card.fields.extend_from_slice(&fields);
+                                card.trailing = trailing;
                                 card
                             }
                             None => return Some(Err(Error::UnmatchedContinuation(field))),
@@ -1381,7 +1383,10 @@ where
                 }
             }
         }
-        None
+        match self.continuations.drain().next() {
+            Some((_, card)) => Some(Ok(card.into())),
+            None => None,
+        }
     }
 }
 
