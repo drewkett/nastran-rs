@@ -9,8 +9,6 @@
 - FirstField interface is awkward. Could use better names too
 - Make new line detectable or settable with a builder
 - Comment writing not implemented
-  - When comment writing is added, need to maintain ordering between comments
-    and cards
 - I'm not confident comma line parsing is correct. It currently can get through
   a file without error, but I think there are edge cases that can be wrong. It
   probably needs another pass at it where the state of the parser is properly
