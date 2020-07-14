@@ -1273,31 +1273,22 @@ impl fmt::Display for BulkCard {
     }
 }
 
-struct PartialBulkCard {
-    first: CardType,
-    fields: SmallVec<[Field; 16]>,
-    trailing: ContinuationField,
-    original: Vec<u8>,
+struct CardState {
+    card: BulkCard,
+    complete: bool,
 }
 
-impl From<PartialBulkCard> for BulkCard {
-    fn from(partial: PartialBulkCard) -> Self {
-        let PartialBulkCard {
-            first,
-            fields,
-            original,
-            ..
-        } = partial;
-        Self {
-            data: Some(BulkCardData { first, fields }),
-            original,
-        }
+impl CardState {
+    fn complete(&mut self) {
+        self.complete = true
     }
 }
 
 struct BulkCardIter<I> {
     lines: I,
-    continuations: HashMap<ContinuationField, PartialBulkCard>,
+    counter: usize,
+    continuations: HashMap<ContinuationField, usize>,
+    deque: std::collections::VecDeque<CardState>,
 }
 
 impl<I> BulkCardIter<I> {
@@ -1305,6 +1296,97 @@ impl<I> BulkCardIter<I> {
         Self {
             lines,
             continuations: HashMap::new(),
+            counter: 0,
+            deque: std::collections::VecDeque::new(),
+        }
+    }
+
+    fn next_counter(&mut self) -> usize {
+        let c = self.counter;
+        self.counter += 1;
+        c
+    }
+
+    fn mark_complete(&mut self, i: usize) {
+        match self.deque.get_mut(i - (self.counter - self.deque.len())) {
+            Some(c) => c.complete = true,
+            _ => unreachable!(),
+        }
+    }
+
+    fn append_partial(&mut self, card: BulkCard) -> usize {
+        self.deque.push_back(CardState {
+            complete: false,
+            card,
+        });
+        self.next_counter()
+    }
+
+    fn append_continuation(
+        &mut self,
+        continuation: ContinuationField,
+        new_fields: &[Field],
+        trailing: ContinuationField,
+    ) -> Result<()> {
+        match self.continuations.remove(&continuation) {
+            Some(i) => {
+                match self.deque.get_mut(i - (self.counter - self.deque.len())) {
+                    Some(CardState {
+                        card:
+                            BulkCard {
+                                data: Some(BulkCardData { fields, .. }),
+                                ..
+                            },
+                        ..
+                    }) => fields.extend_from_slice(new_fields),
+                    _ => unreachable!(),
+                }
+                match self.continuations.insert(trailing, i) {
+                    Some(i) => self.mark_complete(i),
+                    None => {}
+                }
+                Ok(())
+            }
+            None => Err(Error::UnmatchedContinuation(continuation)),
+        }
+    }
+
+    fn insert(&mut self, continuation: ContinuationField, partial: BulkCard) {
+        let i = self.append_partial(partial);
+        match self.continuations.insert(continuation, i) {
+            Some(i) => self.mark_complete(i),
+            None => {}
+        }
+    }
+
+    fn insert_blank(&mut self, original: Vec<u8>) {
+        self.deque.push_back(CardState {
+            card: BulkCard {
+                data: None,
+                original,
+            },
+            complete: true,
+        });
+        self.next_counter();
+    }
+
+    fn complete(&mut self) {
+        for c in &mut self.deque {
+            c.complete();
+        }
+    }
+
+    fn next_complete(&mut self) -> Option<BulkCard> {
+        match self.deque.pop_front() {
+            Some(CardState {
+                card,
+                complete: true,
+            }) => Some(card),
+            Some(c) => {
+                self.deque.push_front(c);
+                None
+            }
+            None => None,
         }
     }
 }
@@ -1315,6 +1397,9 @@ where
 {
     type Item = Result<BulkCard>;
     fn next(&mut self) -> Option<Self::Item> {
+        if let Some(c) = self.next_complete() {
+            return Some(Ok(c));
+        }
         while let Some(line) = self.lines.next() {
             let line = match line {
                 Ok(line) => line,
@@ -1323,70 +1408,44 @@ where
             let BulkLine { data, original, .. } = line;
             match data {
                 Some(FieldData::Single(first, fields, trailing)) => match first.kind {
-                    FirstFieldKind::Text(first) => {
-                        let existing = self.continuations.insert(
-                            trailing,
-                            PartialBulkCard {
+                    FirstFieldKind::Text(first) => self.insert(
+                        trailing,
+                        BulkCard {
+                            data: Some(BulkCardData {
                                 first,
                                 fields: SmallVec::from_slice(&fields),
-                                trailing,
-                                original,
-                            },
-                        );
-                        if let Some(existing) = existing {
-                            return Some(Ok(existing.into()));
-                        }
-                    }
+                            }),
+                            original,
+                        },
+                    ),
                     FirstFieldKind::Continuation(field) => {
-                        let card = match self.continuations.remove(&field) {
-                            Some(mut card) => {
-                                card.fields.extend_from_slice(&fields);
-                                card.trailing = trailing;
-                                card
-                            }
-                            None => return Some(Err(Error::UnmatchedContinuation(field))),
-                        };
-                        self.continuations.insert(card.trailing, card);
+                        if let Err(e) = self.append_continuation(field, &fields, trailing) {
+                            return Some(Err(e));
+                        }
                     }
                 },
                 Some(FieldData::Double(first, fields, trailing)) => match first.kind {
-                    FirstFieldKind::Text(first) => {
-                        let existing = self.continuations.insert(
-                            trailing,
-                            PartialBulkCard {
+                    FirstFieldKind::Text(first) => self.insert(
+                        trailing,
+                        BulkCard {
+                            data: Some(BulkCardData {
                                 first,
                                 fields: SmallVec::from_slice(&fields),
-                                trailing,
-                                original,
-                            },
-                        );
-                        if let Some(existing) = existing {
-                            return Some(Ok(existing.into()));
+                            }),
+                            original,
+                        },
+                    ),
+                    FirstFieldKind::Continuation(field) => {
+                        if let Err(e) = self.append_continuation(field, &fields, trailing) {
+                            return Some(Err(e));
                         }
                     }
-                    FirstFieldKind::Continuation(field) => {
-                        let card = match self.continuations.remove(&field) {
-                            Some(mut card) => {
-                                card.fields.extend_from_slice(&fields);
-                                card
-                            }
-                            None => return Some(Err(Error::UnmatchedContinuation(field))),
-                        };
-                        self.continuations.insert(card.trailing, card);
-                    }
                 },
-                None => {
-                    return Some(Ok(BulkCard {
-                        data: None,
-                        original,
-                    }))
-                }
+                None => self.insert_blank(original),
             }
         }
-        match self.continuations.drain().next() {
-            Some((_, card)) => Some(Ok(card.into())),
-            None => None,
-        }
+        self.complete();
+        self.next_complete().map(Ok)
     }
 }
 
