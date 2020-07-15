@@ -890,6 +890,7 @@ impl fmt::Display for ContinuationField {
 pub enum Field {
     Blank,
     Int(i32),
+    IntOrId(u32),
     Float(f32),
     Double(f64),
     Text([u8; 8]),
@@ -906,6 +907,7 @@ impl fmt::Display for Field {
             match *self {
                 Field::Blank => write!(f, "        "),
                 Field::Int(i) => write!(f, "{:<8}", i),
+                Field::IntOrId(i) => write!(f, "{:<8}", i),
                 Field::Float(d) => write!(f, "{:8}", float_to_8(d)),
                 Field::Double(d) => write!(f, "{:8}", float_to_8(d)),
                 Field::Text(s) => write!(f, "{:<8}", s.as_bstr()),
@@ -914,6 +916,7 @@ impl fmt::Display for Field {
             match *self {
                 Field::Blank => write!(f, "                "),
                 Field::Int(i) => write!(f, "{:<16}", i),
+                Field::IntOrId(i) => write!(f, "{:<16}", i),
                 Field::Float(d) => write!(f, "{:16}", float_to_16(d)),
                 Field::Double(d) => write!(f, "{:16}", float_to_16(d)),
                 Field::Text(s) => write!(f, "{:<16}", s.as_bstr()),
@@ -930,24 +933,119 @@ impl Default for Field {
     }
 }
 
-impl TryFrom<Field> for i32 {
-    type Error = Error;
-    fn try_from(field: Field) -> Result<Self> {
-        if let Field::Int(v) = field {
-            Ok(v)
-        } else {
-            Err(Error::UnexpectedField("i32", field))
+pub trait FieldConv {
+    fn int(&self) -> Result<i32>;
+    fn int_or(&self, value: i32) -> Result<i32>;
+    fn id(&self) -> Result<u32>;
+    fn id_or(&self, value: u32) -> Result<u32>;
+    fn maybe_float(&self) -> Result<Option<f64>>;
+    fn float(&self) -> Result<f64>;
+    fn float_or(&self, value: f64) -> Result<f64>;
+    fn dof(&self) -> Result<[bool; 6]>;
+}
+
+impl FieldConv for Field {
+    fn int(&self) -> Result<i32> {
+        match self {
+            Field::Int(v) => Ok(*v),
+            Field::IntOrId(v) => Ok(*v as i32),
+            _ => Err(Error::UnexpectedField("i32", *self)),
         }
+    }
+    fn int_or(&self, value: i32) -> Result<i32> {
+        match self {
+            Field::Int(v) => Ok(*v),
+            Field::IntOrId(v) => Ok(*v as i32),
+            Field::Blank => Ok(value),
+            _ => Err(Error::UnexpectedField("i32", *self)),
+        }
+    }
+    fn id(&self) -> Result<u32> {
+        match self {
+            Field::IntOrId(v) => Ok(*v as u32),
+            _ => Err(Error::UnexpectedField("id", *self)),
+        }
+    }
+    fn id_or(&self, value: u32) -> Result<u32> {
+        match self {
+            Field::IntOrId(v) => Ok(*v),
+            Field::Blank => Ok(value),
+            _ => Err(Error::UnexpectedField("id", *self)),
+        }
+    }
+    fn maybe_float(&self) -> Result<Option<f64>> {
+        match self {
+            Field::Blank => Ok(None),
+            Field::Float(f) => Ok(Some(*f as f64)),
+            Field::Double(d) => Ok(Some(*d)),
+            _ => Err(Error::UnexpectedField("maybe_f64", *self)),
+        }
+    }
+    fn float(&self) -> Result<f64> {
+        match self {
+            Field::Float(f) => Ok(*f as f64),
+            Field::Double(d) => Ok(*d),
+            _ => Err(Error::UnexpectedField("f64", *self)),
+        }
+    }
+    fn float_or(&self, value: f64) -> Result<f64> {
+        match self {
+            Field::Float(f) => Ok(*f as f64),
+            Field::Double(d) => Ok(*d),
+            Field::Blank => Ok(value),
+            _ => Err(Error::UnexpectedField("f64", *self)),
+        }
+    }
+    fn dof(&self) -> Result<[bool; 6]> {
+        let mut res = [false; 6];
+        match self {
+            Field::IntOrId(v) => {
+                let mut v = *v;
+                while v > 0 {
+                    let i = (v % 10) as usize;
+                    v /= 10;
+                    if i == 0 || i > 6 {
+                        return Err(Error::UnexpectedDOF(*self));
+                    }
+                    res[i - 1] = true;
+                }
+            }
+            Field::Blank => {}
+            _ => return Err(Error::UnexpectedDOF(*self)),
+        }
+        Ok(res)
     }
 }
 
-impl TryFrom<Field> for f64 {
-    type Error = Error;
-    fn try_from(field: Field) -> Result<Self> {
-        match field {
-            Field::Float(f) => Ok(f as f64),
-            Field::Double(d) => Ok(d),
-            _ => Err(Error::UnexpectedField("f64", field)),
+impl FieldConv for Option<Field> {
+    fn int(&self) -> Result<i32> {
+        self.unwrap_or_default().int()
+    }
+    fn int_or(&self, value: i32) -> Result<i32> {
+        self.unwrap_or_default().int_or(value)
+    }
+    fn id(&self) -> Result<u32> {
+        self.unwrap_or_default().id()
+    }
+    fn id_or(&self, value: u32) -> Result<u32> {
+        self.unwrap_or_default().id_or(value)
+    }
+    fn maybe_float(&self) -> Result<Option<f64>> {
+        match self {
+            Some(f) => f.maybe_float(),
+            None => Ok(None),
+        }
+    }
+    fn float(&self) -> Result<f64> {
+        self.unwrap_or_default().float()
+    }
+    fn float_or(&self, value: f64) -> Result<f64> {
+        self.unwrap_or_default().float_or(value)
+    }
+    fn dof(&self) -> Result<[bool; 6]> {
+        match self {
+            Some(f) => f.dof(),
+            None => Ok(Default::default()),
         }
     }
 }
@@ -1136,7 +1234,8 @@ where
         Period,
         PlusMinusPeriod,
         FloatPeriod,
-        Digits,
+        IntOrId,
+        Int,
         Alpha,
         FloatExponent,
         DoubleExponent,
@@ -1146,6 +1245,7 @@ where
         DoubleSignedExponentValue,
         EndText,
         EndInt,
+        EndIntOrId,
         EndFloat,
         EndDouble,
     }
@@ -1161,15 +1261,19 @@ where
             (Start, b'+', _) => (PlusMinus, Zero),
             (Start, c @ b'-', _) => (PlusMinus, One(c)),
             (Start, c @ b'.', _) => (Period, One(c)),
-            (Start, c @ b'0'..=b'9', _) => (Digits, One(c)),
-            (Digits, c @ b'0'..=b'9', _) => (Digits, One(c)),
-            (Digits, c @ b'.', _) => (FloatPeriod, One(c)),
-            (Digits, b' ', _) => (EndInt, Zero),
+            (Start, c @ b'0'..=b'9', _) => (IntOrId, One(c)),
+            (Int, c @ b'0'..=b'9', _) => (Int, One(c)),
+            (Int, c @ b'.', _) => (FloatPeriod, One(c)),
+            (Int, b' ', _) => (EndInt, Zero),
+            (Int, c @ b'E', _) => (FloatExponent, One(c)),
+            (IntOrId, c @ b'0'..=b'9', _) => (IntOrId, One(c)),
+            (IntOrId, c @ b'.', _) => (FloatPeriod, One(c)),
+            (IntOrId, b' ', _) => (EndIntOrId, Zero),
             // Can't remember if these are valid
-            (Digits, c @ b'E', _) => (FloatExponent, One(c)),
+            (IntOrId, c @ b'E', _) => (FloatExponent, One(c)),
             // (Digits, c @ b'+', _) => (FloatPeriod, [*c].iter()),
             // (Digits, c @ b'-', _) => (FloatPeriod, [*c].iter()),
-            (PlusMinus, c @ b'0'..=b'9', _) => (Digits, One(c)),
+            (PlusMinus, c @ b'0'..=b'9', _) => (Int, One(c)),
             (PlusMinus, c @ b'.', _) => (PlusMinusPeriod, One(c)),
             (PlusMinusPeriod, c @ b'0'..=b'9', _) => (FloatPeriod, One(c)),
             (Period, c @ b'0'..=b'9', _) => (FloatPeriod, One(c)),
@@ -1193,6 +1297,7 @@ where
             (Alpha, b' ', _) => (EndText, Zero),
             //(Alpha, _, 8..=usize::MAX) => return Err(Error::TextTooLong(),
             (EndInt, b' ', _) => (EndInt, Zero),
+            (EndIntOrId, b' ', _) => (EndIntOrId, Zero),
             (EndFloat, b' ', _) => (EndFloat, Zero),
             (EndDouble, b' ', _) => (EndDouble, Zero),
             (EndText, b' ', _) => (EndText, Zero),
@@ -1221,9 +1326,20 @@ where
         Start => Ok(Field::Blank),
         PlusMinus | PlusMinusPeriod | Period | FloatExponent | FloatSignedExponent
         | DoubleExponent | DoubleSignedExponent => Err(Error::InvalidField),
-        Digits | EndInt => {
+        Int | EndInt => {
             if i <= 8 {
                 Ok(Field::Int(
+                    unsafe { std::str::from_utf8_unchecked(&contents[..i]) }
+                        .parse()
+                        .unwrap(),
+                ))
+            } else {
+                Err(Error::InvalidField)
+            }
+        }
+        IntOrId | EndIntOrId => {
+            if i <= 8 {
+                Ok(Field::IntOrId(
                     unsafe { std::str::from_utf8_unchecked(&contents[..i]) }
                         .parse()
                         .unwrap(),

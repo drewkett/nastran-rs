@@ -23,6 +23,10 @@ pub enum Error {
     UnexpectedCardType([u8; 7], [u8; 7]),
     #[error("Unexpected Card Type. Expected '{0}' Found '{1:?}'")]
     UnexpectedField(&'static str, Field),
+    #[error("Unexpected field for dof. Found '{0:?}'")]
+    UnexpectedDOF(Field),
+    #[error("Invalid specification of e ({0}),g ({1}) and nu ({2}) for material card ")]
+    InvalidMaterialCard(Field, Field, Field),
     #[error("Error reading datfile : {0}")]
     IO(#[from] io::Error),
 }
