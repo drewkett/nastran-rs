@@ -27,6 +27,18 @@ pub enum Error {
 #[derive(Debug, Default)]
 pub struct Comment(SmallVec<[u8; 8]>);
 
+impl fmt::Display for Comment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.0.is_empty() {
+            Ok(())
+        } else if self.0[0] == b'$' {
+            write!(f, "{}", self.0.as_bstr())
+        } else {
+            write!(f, "${}", self.0.as_bstr())
+        }
+    }
+}
+
 pub type Result<T> = std::result::Result<T, Error>;
 
 struct SplitLines<I> {
@@ -152,9 +164,9 @@ impl NastranLine {
         field
     }
 
-    fn comment(&mut self) -> Result<Comment> {
+    fn comment_and_eol(&mut self) -> Result<(Comment, Option<EOL>)> {
         match self.iter.comment.take() {
-            Some(comment) => Ok(comment),
+            Some(comment) => Ok((comment, self.iter.eol)),
             None => Err(Error::UnparsedChars),
         }
     }
@@ -172,10 +184,11 @@ impl TryFrom<NastranLine> for UnparsedBulkLine {
             Some(field) => field,
             None => {
                 if line.end_of_data() {
-                    let comment = line.comment()?;
+                    let (comment, eol) = line.comment_and_eol()?;
                     return Ok(UnparsedBulkLine {
                         original: line.original,
                         comment,
+                        eol,
                         data: None,
                     });
                 } else {
@@ -189,10 +202,11 @@ impl TryFrom<NastranLine> for UnparsedBulkLine {
             let field3 = line.take16();
             let field4 = line.take16();
             let trailing = parse_trailing_field(line.take8())?;
-            let comment = line.comment()?;
+            let (comment, eol) = line.comment_and_eol()?;
             Ok(UnparsedBulkLine {
                 original: line.original,
                 comment,
+                eol,
                 data: Some(UnparsedFieldData::Double(
                     first,
                     [
@@ -214,10 +228,11 @@ impl TryFrom<NastranLine> for UnparsedBulkLine {
             let field7 = line.take8();
             let field8 = line.take8();
             let trailing = parse_trailing_field(line.take8())?;
-            let comment = line.comment()?;
+            let (comment, eol) = line.comment_and_eol()?;
             Ok(UnparsedBulkLine {
                 original: line.original,
                 comment,
+                eol,
                 data: Some(UnparsedFieldData::Single(
                     first,
                     [
@@ -373,8 +388,8 @@ impl NastranCommaLine {
         }
     }
 
-    fn next_comment(&mut self) -> Option<Comment> {
-        self.iter.comment()
+    fn comment_and_eol(&mut self) -> (Option<Comment>, Option<EOL>) {
+        self.iter.comment_and_eol()
     }
 }
 
@@ -384,12 +399,13 @@ impl Iterator for NastranCommaLine {
     fn next(&mut self) -> Option<Self::Item> {
         let first = self.next_field();
         if first.is_none() {
-            if let Some(comment) = self.next_comment() {
-                let mut original = vec![];
-                std::mem::swap(&mut original, &mut self.original);
+            let (comment, eol) = self.comment_and_eol();
+            if let Some(comment) = comment {
+                let original = std::mem::take(&mut self.original);
                 return Some(Ok(UnparsedBulkLine {
                     original,
                     comment,
+                    eol,
                     data: None,
                 }));
             } else {
@@ -405,7 +421,7 @@ impl Iterator for NastranCommaLine {
                 let field3 = self.next_double_field()?;
                 let field4 = self.next_double_field()?;
                 let trailing = self.next_trailing_field()?;
-                let comment = self.next_comment();
+                let (comment, eol) = self.comment_and_eol();
                 let mut original = vec![];
                 if comment.is_some() {
                     std::mem::swap(&mut original, &mut self.original);
@@ -415,6 +431,7 @@ impl Iterator for NastranCommaLine {
                 Ok(UnparsedBulkLine {
                     original,
                     comment,
+                    eol,
                     data: Some(UnparsedFieldData::Double(
                         first,
                         [field1, field2, field3, field4],
@@ -431,7 +448,7 @@ impl Iterator for NastranCommaLine {
                 let field7 = self.next_single_field()?;
                 let field8 = self.next_single_field()?;
                 let trailing = self.next_trailing_field()?;
-                let comment = self.next_comment();
+                let (comment, eol) = self.comment_and_eol();
                 let mut original = vec![];
                 if comment.is_some() {
                     std::mem::swap(&mut original, &mut self.original);
@@ -440,6 +457,7 @@ impl Iterator for NastranCommaLine {
                 Ok(UnparsedBulkLine {
                     original,
                     comment,
+                    eol,
                     data: Some(UnparsedFieldData::Single(
                         first,
                         [
@@ -454,9 +472,31 @@ impl Iterator for NastranCommaLine {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum EOL {
+    CRLF,
+    LF,
+}
+
+impl Default for EOL {
+    fn default() -> Self {
+        EOL::CRLF
+    }
+}
+
+impl fmt::Display for EOL {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::CRLF => write!(f, "\r\n"),
+            Self::LF => write!(f, "\n"),
+        }
+    }
+}
+
 struct NastranLineIter {
     iter: std::iter::Peekable<std::iter::Enumerate<ExpandTabs<std::vec::IntoIter<u8>>>>,
     comment: Option<Comment>,
+    eol: Option<EOL>,
 }
 
 impl NastranLineIter {
@@ -464,6 +504,7 @@ impl NastranLineIter {
         Self {
             iter: ExpandTabs::new(iter).enumerate().peekable(),
             comment: None,
+            eol: None,
         }
     }
 
@@ -471,8 +512,8 @@ impl NastranLineIter {
         self.iter.peek().map(|c| c.1)
     }
 
-    fn comment(&mut self) -> Option<Comment> {
-        self.comment.take()
+    fn comment_and_eol(&mut self) -> (Option<Comment>, Option<EOL>) {
+        (self.comment.take(), self.eol)
     }
 
     //fn to_comment(&mut self) -> Result<SmallVec<[u8; 8]>> {
@@ -488,14 +529,16 @@ impl Iterator for NastranLineIter {
         enum Res {
             Char(u8),
             CharAndEOL(u8),
-            EOL(u8),
+            DollarSign(u8),
+            CRLF,
+            LF,
         }
         use Res::*;
         // Be careful here. The ordering matters so that the EOL is processed
         let result = match self.iter.next() {
-            Some((_, b'$')) => EOL(b'$'),
-            Some((_, b'\n')) => EOL(b'\n'),
-            Some((_, b'\r')) => EOL(b'\r'),
+            Some((_, b'$')) => DollarSign(b'$'),
+            Some((_, b'\n')) => LF,
+            Some((_, b'\r')) => CRLF,
             Some((79, c @ b'a'..=b'z')) => CharAndEOL(c - 32),
             Some((79, c)) => CharAndEOL(c),
             Some((_, c @ b'a'..=b'z')) => Char(c - 32),
@@ -508,18 +551,50 @@ impl Iterator for NastranLineIter {
             CharAndEOL(c) => {
                 let mut comment = SmallVec::new();
                 while let Some((_, c)) = self.iter.next() {
-                    comment.push(c)
+                    match c {
+                        b'\r' => {
+                            self.eol = Some(self::EOL::CRLF);
+                            break;
+                        }
+                        b'\n' => {
+                            self.eol = Some(self::EOL::LF);
+                            break;
+                        }
+                        _ => comment.push(c),
+                    }
                 }
                 self.comment = Some(Comment(comment));
                 Some(c)
             }
-            EOL(c) => {
+            DollarSign(c) => {
                 let mut comment = SmallVec::new();
                 comment.push(c);
                 while let Some((_, c)) = self.iter.next() {
-                    comment.push(c)
+                    match c {
+                        b'\r' => {
+                            self.eol = Some(self::EOL::CRLF);
+                            break;
+                        }
+                        b'\n' => {
+                            self.eol = Some(self::EOL::LF);
+                            break;
+                        }
+                        _ => comment.push(c),
+                    }
                 }
                 self.comment = Some(Comment(comment));
+                None
+            }
+            CRLF => {
+                let comment = SmallVec::new();
+                self.comment = Some(Comment(comment));
+                self.eol = Some(self::EOL::CRLF);
+                None
+            }
+            LF => {
+                let comment = SmallVec::new();
+                self.comment = Some(Comment(comment));
+                self.eol = Some(self::EOL::LF);
                 None
             }
         }
@@ -573,6 +648,7 @@ impl std::convert::TryFrom<UnparsedFieldData> for FieldData {
 pub struct UnparsedBulkLine {
     pub original: Vec<u8>,
     comment: Comment,
+    eol: Option<EOL>,
     data: Option<UnparsedFieldData>,
 }
 
@@ -890,6 +966,7 @@ pub enum FieldData {
 pub struct BulkLine {
     pub original: Vec<u8>,
     pub comment: Comment,
+    pub eol: Option<EOL>,
     pub data: Option<FieldData>,
 }
 
@@ -912,7 +989,7 @@ impl fmt::Display for BulkLine {
             }
             None => {}
         }
-        write!(f, "{}", self.comment.0.as_bstr())
+        write!(f, "{}", self.comment)
     }
 }
 
@@ -1195,6 +1272,7 @@ impl std::convert::TryFrom<UnparsedBulkLine> for BulkLine {
         let UnparsedBulkLine {
             original,
             comment,
+            eol,
             data,
         } = unparsed;
         let data = match data {
@@ -1204,6 +1282,7 @@ impl std::convert::TryFrom<UnparsedBulkLine> for BulkLine {
         Ok(BulkLine {
             original,
             comment,
+            eol,
             data,
         })
     }
@@ -1216,6 +1295,8 @@ pub struct BulkCardData {
 
 pub struct BulkCard {
     data: Option<BulkCardData>,
+    comment: Comment,
+    eol: EOL,
     original: Vec<u8>,
 }
 
@@ -1243,15 +1324,15 @@ impl fmt::Display for BulkCard {
                         }
                         if n8 > 4 {
                             // Using 8 here makes it output a plus
-                            write!(f, "{:8}\n", ContinuationField::default())?;
-                            write!(f, "{:16}\n", ContinuationField::default())?;
+                            write!(f, "{:8}{}", ContinuationField::default(), self.eol)?;
+                            write!(f, "{:16}{}", ContinuationField::default(), self.eol)?;
                             for i in 4..n8 {
                                 write!(f, "{:16}", next8[i])?;
                             }
                             if fields.is_empty() {
-                                break write!(f, "\n");
+                                break write!(f, "{:8}{}{}", "", self.comment, self.eol);
                             } else {
-                                write!(f, "{:8}\n", ContinuationField::default())?;
+                                write!(f, "{:8}{}", ContinuationField::default(), self.eol)?;
                             }
                         }
                     } else {
@@ -1260,15 +1341,15 @@ impl fmt::Display for BulkCard {
                             write!(f, "{:8}", next8[i])?;
                         }
                         if fields.is_empty() {
-                            break write!(f, "\n");
+                            break write!(f, "{:8}{}{}", "", self.comment, self.eol);
                         } else {
-                            write!(f, "{:8}\n", ContinuationField::default())?;
+                            write!(f, "{:8}{}", ContinuationField::default(), self.eol)?;
                         }
                     }
                     first = FirstFieldKind::Continuation(ContinuationField::default());
                 }
             }
-            None => write!(f, "\n"),
+            None => write!(f, "{}{}", self.comment, self.eol),
         }
     }
 }
@@ -1359,11 +1440,13 @@ impl<I> BulkCardIter<I> {
         }
     }
 
-    fn insert_blank(&mut self, original: Vec<u8>) {
+    fn insert_blank(&mut self, original: Vec<u8>, comment: Comment, eol: Option<EOL>) {
         self.deque.push_back(CardState {
             card: BulkCard {
                 data: None,
                 original,
+                comment,
+                eol: eol.unwrap_or_default(),
             },
             complete: true,
         });
@@ -1405,7 +1488,12 @@ where
                 Ok(line) => line,
                 Err(e) => return Some(Err(e)),
             };
-            let BulkLine { data, original, .. } = line;
+            let BulkLine {
+                data,
+                original,
+                comment,
+                eol,
+            } = line;
             match data {
                 Some(FieldData::Single(first, fields, trailing)) => match first.kind {
                     FirstFieldKind::Text(first) => self.insert(
@@ -1416,6 +1504,8 @@ where
                                 fields: SmallVec::from_slice(&fields),
                             }),
                             original,
+                            comment,
+                            eol: eol.unwrap_or_default(),
                         },
                     ),
                     FirstFieldKind::Continuation(field) => {
@@ -1433,6 +1523,8 @@ where
                                 fields: SmallVec::from_slice(&fields),
                             }),
                             original,
+                            comment,
+                            eol: eol.unwrap_or_default(),
                         },
                     ),
                     FirstFieldKind::Continuation(field) => {
@@ -1441,7 +1533,7 @@ where
                         }
                     }
                 },
-                None => self.insert_blank(original),
+                None => self.insert_blank(original, comment, eol),
             }
         }
         self.complete();
