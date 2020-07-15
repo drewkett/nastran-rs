@@ -19,6 +19,13 @@
 - Add documentation
 - Should be split up across multiple files
 - Verify card display code is working
+- Implement macro for card automating conversion of BulkCard to Card
+- Field maybe shouldn't be parsed immediately since some cards can be chars or
+  int
+- Consider making a wrapping type for id numbers to validate they are betweeen 1
+  and 99999999
+- Need new data structure for maintaining the card order for a deck, thats also
+  COW
 
 ## OP2
 
