@@ -4,25 +4,8 @@ use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
 use std::io;
-use thiserror::Error;
 
-#[derive(Debug, Error)]
-pub enum Error {
-    #[error("Embedded Space in field")]
-    EmbeddedSpace,
-    #[error("Unexpected character {}",(&[*.0][..]).as_bstr())]
-    UnexpectedChar(u8),
-    #[error("Text field greater than 8 chars '{}'",.0.as_bstr())]
-    TextTooLong(Vec<u8>),
-    #[error("Field is not valid")]
-    InvalidField,
-    #[error("Whole line not parsed")]
-    UnparsedChars,
-    #[error("Unmatched continuation")]
-    UnmatchedContinuation(ContinuationField),
-    #[error("Error reading datfile : {0}")]
-    IO(#[from] io::Error),
-}
+use crate::bdf::Error;
 
 #[derive(Debug, Default, PartialEq)]
 pub struct Comment(SmallVec<[u8; 8]>);
@@ -941,6 +924,34 @@ impl fmt::Display for Field {
     }
 }
 
+impl Default for Field {
+    fn default() -> Self {
+        Field::Blank
+    }
+}
+
+impl TryFrom<Field> for i32 {
+    type Error = Error;
+    fn try_from(field: Field) -> Result<Self> {
+        if let Field::Int(v) = field {
+            Ok(v)
+        } else {
+            Err(Error::UnexpectedField("i32", field))
+        }
+    }
+}
+
+impl TryFrom<Field> for f64 {
+    type Error = Error;
+    fn try_from(field: Field) -> Result<Self> {
+        match field {
+            Field::Float(f) => Ok(f as f64),
+            Field::Double(d) => Ok(d),
+            _ => Err(Error::UnexpectedField("f64", field)),
+        }
+    }
+}
+
 fn float_to_8<T>(f: T) -> String
 where
     T: Into<f64> + Copy + fmt::Display + fmt::LowerExp + dtoa::Floating + std::cmp::PartialOrd,
@@ -1349,6 +1360,17 @@ impl BulkCard {
     pub fn original(&self) -> &[u8] {
         &self.original
     }
+
+    pub fn card_type(&self) -> Option<[u8; 7]> {
+        self.data.as_ref().map(|d| d.first.0)
+    }
+
+    pub fn fields(&self) -> &[Field] {
+        match self.data.as_ref() {
+            Some(data) => data.fields.as_slice(),
+            None => &[],
+        }
+    }
 }
 
 impl fmt::Display for BulkCard {
@@ -1480,7 +1502,7 @@ impl<I> BulkCardIter<I> {
                 }
                 Ok(())
             }
-            None => Err(Error::UnmatchedContinuation(continuation)),
+            None => Err(Error::UnmatchedContinuation(continuation.0)),
         }
     }
 
