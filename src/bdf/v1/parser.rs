@@ -1324,15 +1324,18 @@ impl fmt::Display for BulkCard {
                         }
                         if n8 > 4 {
                             // Using 8 here makes it output a plus
-                            write!(f, "{:8}{}", ContinuationField::default(), self.eol)?;
-                            write!(f, "{:16}{}", ContinuationField::default(), self.eol)?;
+                            // write!(f, "{:8}{}", ContinuationField::default(), self.eol)?;
+                            writeln!(f, "{:8}", ContinuationField::default())?;
+                            write!(f, "{:16}", ContinuationField::default())?;
                             for i in 4..n8 {
                                 write!(f, "{:16}", next8[i])?;
                             }
                             if fields.is_empty() {
-                                break write!(f, "{:8}{}{}", "", self.comment, self.eol);
+                                // break write!(f, "{:8}{}{}", "", self.comment, self.eol);
+                                break writeln!(f, "{:8}{}", "", self.comment);
                             } else {
-                                write!(f, "{:8}{}", ContinuationField::default(), self.eol)?;
+                                // write!(f, "{:8}{}", ContinuationField::default(), self.eol)?;
+                                write!(f, "{:8}", ContinuationField::default())?;
                             }
                         }
                     } else {
@@ -1341,15 +1344,18 @@ impl fmt::Display for BulkCard {
                             write!(f, "{:8}", next8[i])?;
                         }
                         if fields.is_empty() {
-                            break write!(f, "{:8}{}{}", "", self.comment, self.eol);
+                            // break write!(f, "{:8}{}{}", "", self.comment, self.eol);
+                            break writeln!(f, "{:8}{}", "", self.comment);
                         } else {
-                            write!(f, "{:8}{}", ContinuationField::default(), self.eol)?;
+                            // write!(f, "{:8}{}", ContinuationField::default(), self.eol)?;
+                            writeln!(f, "{:8}", ContinuationField::default())?;
                         }
                     }
                     first = FirstFieldKind::Continuation(ContinuationField::default());
                 }
             }
-            None => write!(f, "{}{}", self.comment, self.eol),
+            // None => write!(f, "{}{}", self.comment, self.eol),
+            None => writeln!(f, "{}", self.comment),
         }
     }
 }
