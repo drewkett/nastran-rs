@@ -1,5 +1,5 @@
 extern crate nastran;
-use nastran::bdf::parser::{parse_bytes_iter, BulkCard, BulkCardData, Comment, Field, EOL};
+use nastran::bdf::parser::parse_bytes_iter;
 
 const DATFILE: &'static [u8] = b"\
 PARAM,POST , 1 $ABC
