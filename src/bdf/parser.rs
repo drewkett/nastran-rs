@@ -24,8 +24,14 @@ pub enum Error {
     IO(#[from] io::Error),
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq)]
 pub struct Comment(SmallVec<[u8; 8]>);
+
+impl From<&[u8]> for Comment {
+    fn from(buf: &[u8]) -> Self {
+        Self(SmallVec::from_slice(buf))
+    }
+}
 
 impl fmt::Display for Comment {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -328,6 +334,7 @@ impl TryFrom<CommaField> for ContinuationField {
 struct NastranCommaLine {
     original: Vec<u8>,
     iter: NastranLineIter,
+    secondline: bool,
 }
 
 impl NastranCommaLine {
@@ -336,6 +343,7 @@ impl NastranCommaLine {
         NastranCommaLine {
             original: line.clone(),
             iter: NastranLineIter::new(line.into_iter()),
+            secondline: false,
         }
     }
 
@@ -413,33 +421,12 @@ impl Iterator for NastranCommaLine {
             }
         }
         let res = move || -> Self::Item {
-            let first: Option<FirstField> = first.unwrap().try_into()?;
-            let first = first.unwrap_or_default();
-            if first.double {
-                let field1 = self.next_double_field()?;
-                let field2 = self.next_double_field()?;
-                let field3 = self.next_double_field()?;
-                let field4 = self.next_double_field()?;
-                let trailing = self.next_trailing_field()?;
-                let (comment, eol) = self.comment_and_eol();
-                let mut original = vec![];
-                if comment.is_some() {
-                    std::mem::swap(&mut original, &mut self.original);
-                }
-                let comment = comment.unwrap_or_default();
-
-                Ok(UnparsedBulkLine {
-                    original,
-                    comment,
-                    eol,
-                    data: Some(UnparsedFieldData::Double(
-                        first,
-                        [field1, field2, field3, field4],
-                        trailing,
-                    )),
-                })
-            } else {
-                let field1 = self.next_single_field()?;
+            if self.secondline {
+                let field1 = first.unwrap().try_into()?;
+                let first = FirstField {
+                    kind: FirstFieldKind::Continuation(Default::default()),
+                    double: false,
+                };
                 let field2 = self.next_single_field()?;
                 let field3 = self.next_single_field()?;
                 let field4 = self.next_single_field()?;
@@ -466,13 +453,69 @@ impl Iterator for NastranCommaLine {
                         trailing,
                     )),
                 })
+            } else {
+                self.secondline = true;
+                let first: Option<FirstField> = first.unwrap().try_into()?;
+                let first = first.unwrap_or_default();
+                if first.double {
+                    let field1 = self.next_double_field()?;
+                    let field2 = self.next_double_field()?;
+                    let field3 = self.next_double_field()?;
+                    let field4 = self.next_double_field()?;
+                    let trailing = self.next_trailing_field()?;
+                    let (comment, eol) = self.comment_and_eol();
+                    let mut original = vec![];
+                    if comment.is_some() {
+                        std::mem::swap(&mut original, &mut self.original);
+                    }
+                    let comment = comment.unwrap_or_default();
+
+                    Ok(UnparsedBulkLine {
+                        original,
+                        comment,
+                        eol,
+                        data: Some(UnparsedFieldData::Double(
+                            first,
+                            [field1, field2, field3, field4],
+                            trailing,
+                        )),
+                    })
+                } else {
+                    let field1 = self.next_single_field()?;
+                    let field2 = self.next_single_field()?;
+                    let field3 = self.next_single_field()?;
+                    let field4 = self.next_single_field()?;
+                    let field5 = self.next_single_field()?;
+                    let field6 = self.next_single_field()?;
+                    let field7 = self.next_single_field()?;
+                    let field8 = self.next_single_field()?;
+                    let trailing = self.next_trailing_field()?;
+                    let (comment, eol) = self.comment_and_eol();
+                    let mut original = vec![];
+                    if comment.is_some() {
+                        std::mem::swap(&mut original, &mut self.original);
+                    }
+                    let comment = comment.unwrap_or_default();
+                    Ok(UnparsedBulkLine {
+                        original,
+                        comment,
+                        eol,
+                        data: Some(UnparsedFieldData::Single(
+                            first,
+                            [
+                                field1, field2, field3, field4, field5, field6, field7, field8,
+                            ],
+                            trailing,
+                        )),
+                    })
+                }
             }
         }();
         Some(res)
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum EOL {
     CRLF,
     LF,
@@ -734,7 +777,7 @@ where
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CardType([u8; 7]);
 
 impl Default for CardType {
@@ -769,7 +812,7 @@ pub enum FirstFieldKind {
 
 impl Default for FirstFieldKind {
     fn default() -> Self {
-        FirstFieldKind::Text(CardType::default())
+        FirstFieldKind::Continuation(Default::default())
     }
 }
 
@@ -860,7 +903,7 @@ impl fmt::Display for ContinuationField {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Field {
     Blank,
     Int(i32),
@@ -1288,11 +1331,13 @@ impl std::convert::TryFrom<UnparsedBulkLine> for BulkLine {
     }
 }
 
+#[derive(Debug, PartialEq)]
 pub struct BulkCardData {
     first: CardType,
     fields: SmallVec<[Field; 16]>,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct BulkCard {
     data: Option<BulkCardData>,
     comment: Comment,
@@ -1308,6 +1353,7 @@ impl BulkCard {
 
 impl fmt::Display for BulkCard {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        dbg!(&self);
         match &self.data {
             Some(BulkCardData { first, fields }) => {
                 let mut first = FirstFieldKind::Text(*first);
