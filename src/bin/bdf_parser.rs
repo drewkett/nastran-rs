@@ -1,4 +1,4 @@
-use nastran::bdf::v1::parser::{parse_bytes_iter, Result};
+use nastran::bdf::parser::{parse_bytes_iter, Result};
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;
@@ -12,9 +12,9 @@ pub fn main() -> Result<()> {
         .next()
         .ok_or(io::Error::new(io::ErrorKind::NotFound, "missing argument"))?;
     println!("{}", filename);
-    // let f = File::open(filename)?;
-    // let bytes = std::io::BufReader::new(f).bytes();
-    let bytes = std::fs::read(filename)?.into_iter().map(Ok);
+    let f = File::open(filename)?;
+    let bytes = std::io::BufReader::new(f).bytes();
+    // let bytes = std::fs::read(filename)?.into_iter().map(Ok);
     let mut iter = parse_bytes_iter(bytes);
     while let Some(card) = iter.next() {
         let card = card?;
