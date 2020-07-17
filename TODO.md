@@ -2,7 +2,9 @@
 
 ## bdf
 
-- Start implementing a few basic card types
+- Add more card types
+- Consider whether traits as implemented are a good idea
+- Consider exactly what the goals/non-goals with these structures
 
 ### parser
 
@@ -15,6 +17,7 @@
 - Needs Testing
 - Add better error messages. Should at least point to line that error occured on
 - Needs INCLUDE support
+  - Make sure end data works better
 - Needs a header parser
 - Add documentation
 - Should be split up across multiple files
