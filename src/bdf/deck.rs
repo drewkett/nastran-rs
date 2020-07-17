@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::io;
 
@@ -6,7 +7,7 @@ use crate::bdf::{
     Error, Result,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GRID {
     id: u32,
     cp: u32,
@@ -16,6 +17,12 @@ pub struct GRID {
     cd: u32,
     ps: [bool; 6],
     seid: u32,
+}
+
+impl GRID {
+    fn xyz(&self) -> XYZ {
+        XYZ(euclid::Point3D::new(self.x, self.y, self.z))
+    }
 }
 
 impl TryFrom<BulkCard> for GRID {
@@ -49,7 +56,7 @@ impl TryFrom<BulkCard> for GRID {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CORD2R {
     id: u32,
     rid: u32,
@@ -62,6 +69,37 @@ pub struct CORD2R {
     x2: f64,
     y2: f64,
     z2: f64,
+}
+
+impl CORD2R {
+    fn rotation_matrix(&self) -> RotationMat {
+        let Self {
+            x0,
+            y0,
+            z0,
+            x1,
+            y1,
+            z1,
+            x2,
+            y2,
+            z2,
+            ..
+        } = *self;
+        let g0 = euclid::Point3D::<_, U>::new(x0, y0, z0);
+        let g1 = euclid::Point3D::<_, U>::new(x1, y1, z1);
+        let g2 = euclid::Point3D::<_, U>::new(x2, y2, z2);
+        let z = (g1 - g0).normalize();
+        let x = g2 - g0;
+        let y = z.cross(x).normalize();
+        let x = y.cross(z);
+        let x = x.to_array();
+        let y = y.to_array();
+        let z = z.to_array();
+
+        RotationMat(euclid::Transform3D::row_major(
+            x[0], x[1], x[2], 0., y[0], y[1], y[2], 0., z[0], z[1], z[2], 0., x0, y0, z0, 1.,
+        ))
+    }
 }
 
 impl TryFrom<BulkCard> for CORD2R {
@@ -100,7 +138,7 @@ impl TryFrom<BulkCard> for CORD2R {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CTETRA {
     eid: u32,
     pid: u32,
@@ -136,7 +174,7 @@ impl TryFrom<BulkCard> for CTETRA {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PSOLID {
     pid: u32,
     mid: u32,
@@ -174,7 +212,7 @@ impl TryFrom<BulkCard> for PSOLID {
         })
     }
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MAT1 {
     mid: u32,
     e: f64,
@@ -244,6 +282,26 @@ impl TryFrom<BulkCard> for MAT1 {
     }
 }
 
+struct U();
+pub struct XYZ(euclid::Point3D<f64, U>);
+
+pub struct RotationMat(euclid::Transform3D<f64, U, U>);
+
+impl RotationMat {
+    fn forward(&self, xyz: XYZ) -> XYZ {
+        XYZ(self.0.transform_point3d(xyz.0).unwrap())
+    }
+
+    fn reverse(&self, xyz: XYZ) -> XYZ {
+        XYZ(self.0.inverse().unwrap().transform_point3d(xyz.0).unwrap())
+    }
+}
+
+pub struct GlobalLocation {
+    xyz: HashMap<u32, XYZ>,
+    csys: HashMap<u32, RotationMat>,
+}
+
 #[derive(Debug, Default)]
 pub struct Deck {
     grid: Vec<GRID>,
@@ -273,5 +331,41 @@ impl Deck {
             }
         }
         Ok(deck)
+    }
+
+    fn global_locations(&self) -> GlobalLocation {
+        let n_grid = self.grid.len();
+        let mut xyz = HashMap::with_capacity(n_grid);
+        let n_cord = self.cord2r.len();
+        let mut csys = HashMap::with_capacity(n_cord);
+        let mut grid = self.grid.clone();
+        let mut cord2r = self.cord2r.clone();
+        grid.retain(|g| {
+            if g.cp == 0 {
+                xyz.insert(g.id, g.xyz());
+                false
+            } else {
+                true
+            }
+        });
+        cord2r.retain(|c| {
+            if c.rid == 0 {
+                csys.insert(c.rid, c.rotation_matrix());
+                false
+            } else {
+                true
+            }
+        });
+        while !grid.is_empty() && !cord2r.is_empty() {
+            grid.retain(|g| {
+                if let Some(r) = csys.get(&g.cp) {
+                    xyz.insert(g.id, r.forward(g.xyz()));
+                    false
+                } else {
+                    true
+                }
+            })
+        }
+        GlobalLocation { xyz, csys }
     }
 }
