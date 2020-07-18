@@ -272,6 +272,12 @@ pub struct MAT1 {
     ge: f64,
 }
 
+impl MAT1 {
+    fn density(&self) -> f64 {
+        self.rho
+    }
+}
+
 impl StorageItem for MAT1 {
     type Id = u32;
 
@@ -384,6 +390,10 @@ where
         self.map.len()
     }
 
+    fn get(&self, id: T::Id) -> Option<&T> {
+        self.map.get(&id).and_then(|i| self.data[*i].as_ref())
+    }
+
     fn replace(&mut self, item: T) -> Option<T> {
         let i = self.data.len();
         let id = item.id();
@@ -438,6 +448,69 @@ impl GlobalLocation {
 
     pub fn get_csys(&self, id: u32) -> Option<&RotationMat> {
         self.csys.get(&id)
+    }
+}
+
+#[derive(Clone)]
+struct DeckRef<'a, T> {
+    deck: &'a Deck,
+    item: &'a T,
+}
+
+impl<'a, T> std::ops::Deref for DeckRef<'a, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        self.item
+    }
+}
+
+trait HasProperty<'a> {
+    type Property;
+    fn property(&'a self) -> Option<DeckRef<'a, Self::Property>>;
+}
+
+impl<'a> HasProperty<'a> for DeckRef<'a, CTETRA> {
+    type Property = PSOLID;
+
+    fn property(&'a self) -> Option<DeckRef<'a, Self::Property>> {
+        self.deck.psolid(self.item.pid)
+    }
+}
+
+trait HasDensity {
+    fn density(&self) -> f64;
+}
+
+impl HasDensity for MAT1 {
+    fn density(&self) -> f64 {
+        self.rho
+    }
+}
+
+trait HasMaterial<'a> {
+    type Material: HasDensity;
+
+    fn material(&'a self) -> Option<DeckRef<'a, Self::Material>>;
+
+    fn density(&'a self) -> Option<f64> {
+        self.material().map(|r| r.density())
+    }
+}
+
+impl<'a> HasMaterial<'a> for DeckRef<'a, PSOLID> {
+    type Material = MAT1;
+
+    fn material(&self) -> Option<DeckRef<Self::Material>> {
+        self.deck.mat1(self.item.mid)
+    }
+}
+
+impl<'a> HasMaterial<'a> for DeckRef<'a, CTETRA> {
+    type Material = MAT1;
+
+    fn material(&self) -> Option<DeckRef<Self::Material>> {
+        self.property().and_then(|p| self.deck.mat1(p.id()))
     }
 }
 
@@ -508,10 +581,38 @@ impl Deck {
         GlobalLocation { xyz, csys }
     }
 
+    fn with<'a, T>(&'a self, item: &'a T) -> DeckRef<'a, T> {
+        DeckRef { deck: self, item }
+    }
+
+    fn grid(&self, id: u32) -> Option<DeckRef<GRID>> {
+        self.grid.get(id).map(|grid| self.with(grid))
+    }
+
+    fn tetra(&self, id: u32) -> Option<DeckRef<CTETRA>> {
+        self.ctetra.get(id).map(|e| self.with(e))
+    }
+
+    fn psolid<'a>(&'a self, id: u32) -> Option<DeckRef<'a, PSOLID>> {
+        self.psolid.get(id).map(|e| self.with(e))
+    }
+
+    fn mat1(&self, id: u32) -> Option<DeckRef<MAT1>> {
+        self.mat1.get(id).map(|e| self.with(e))
+    }
+
     pub fn volume(&self, location: &GlobalLocation) -> f64 {
         self.ctetra
             .iter()
-            .map(|c| c.volume(location).unwrap())
+            .map(|c| self.with(c))
+            .map(|c| {
+                if let Some(v) = c.volume(location) {
+                    if let Some(rho) = c.density() {
+                        return rho * v;
+                    }
+                }
+                0.
+            })
             .sum()
     }
 }
