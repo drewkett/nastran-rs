@@ -27,6 +27,8 @@ pub enum Error {
     UnexpectedDOF(Field),
     #[error("Invalid specification of e ({0}),g ({1}) and nu ({2}) for material card ")]
     InvalidMaterialCard(Field, Field, Field),
+    #[error("Duplicate Card")]
+    DuplicateCard,
     #[error("Error reading datfile : {0}")]
     IO(#[from] io::Error),
 }

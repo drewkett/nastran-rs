@@ -16,6 +16,7 @@ pub fn main() -> Result<()> {
     let bytes = std::io::BufReader::new(f).bytes();
 
     let deck = Deck::from_bytes(bytes)?;
-    // println!("{:?}", deck);
+    let global = deck.global_locations();
+    println!("{:?}", deck.volume(&global));
     Ok(())
 }

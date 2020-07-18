@@ -25,6 +25,14 @@ impl GRID {
     }
 }
 
+impl StorageItem for GRID {
+    type Id = u32;
+
+    fn id(&self) -> Self::Id {
+        self.id
+    }
+}
+
 impl TryFrom<BulkCard> for GRID {
     type Error = Error;
     fn try_from(card: BulkCard) -> Result<Self> {
@@ -102,6 +110,14 @@ impl CORD2R {
     }
 }
 
+impl StorageItem for CORD2R {
+    type Id = u32;
+
+    fn id(&self) -> Self::Id {
+        self.id
+    }
+}
+
 impl TryFrom<BulkCard> for CORD2R {
     type Error = Error;
     fn try_from(card: BulkCard) -> Result<Self> {
@@ -148,6 +164,30 @@ pub struct CTETRA {
     g4: u32,
 }
 
+impl CTETRA {
+    fn volume(&self, location: &GlobalLocation) -> Option<f64> {
+        let xyz1 = location.get_grid(self.g1)?;
+        let xyz2 = location.get_grid(self.g2)?;
+        let xyz3 = location.get_grid(self.g3)?;
+        let xyz4 = location.get_grid(self.g4)?;
+        // TODO Lookup formula
+        Some(
+            (xyz2.0 - xyz1.0)
+                .cross(xyz3.0 - xyz1.0)
+                .dot(xyz4.0 - xyz1.0)
+                / 3.,
+        )
+    }
+}
+
+impl StorageItem for CTETRA {
+    type Id = u32;
+
+    fn id(&self) -> Self::Id {
+        self.eid
+    }
+}
+
 impl TryFrom<BulkCard> for CTETRA {
     type Error = Error;
     fn try_from(card: BulkCard) -> Result<Self> {
@@ -183,6 +223,14 @@ pub struct PSOLID {
     stress: Field,
     isop: Field,
     fctn: Field,
+}
+
+impl StorageItem for PSOLID {
+    type Id = u32;
+
+    fn id(&self) -> Self::Id {
+        self.pid
+    }
 }
 
 impl TryFrom<BulkCard> for PSOLID {
@@ -222,6 +270,14 @@ pub struct MAT1 {
     a: f64,
     tref: f64,
     ge: f64,
+}
+
+impl StorageItem for MAT1 {
+    type Id = u32;
+
+    fn id(&self) -> Self::Id {
+        self.mid
+    }
 }
 
 impl TryFrom<BulkCard> for MAT1 {
@@ -283,8 +339,11 @@ impl TryFrom<BulkCard> for MAT1 {
 }
 
 struct U();
+
+#[derive(Debug)]
 pub struct XYZ(euclid::Point3D<f64, U>);
 
+#[derive(Debug)]
 pub struct RotationMat(euclid::Transform3D<f64, U, U>);
 
 impl RotationMat {
@@ -297,18 +356,98 @@ impl RotationMat {
     }
 }
 
+pub trait StorageItem: Clone {
+    type Id: std::hash::Hash + Eq;
+    fn id(&self) -> Self::Id;
+}
+#[derive(Debug)]
+pub struct Storage<T>
+where
+    T: StorageItem,
+{
+    data: Vec<Option<T>>,
+    map: HashMap<T::Id, usize>,
+}
+
+impl<T> Storage<T>
+where
+    T: StorageItem,
+{
+    fn new() -> Self {
+        Self {
+            data: Vec::new(),
+            map: HashMap::new(),
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.map.len()
+    }
+
+    fn replace(&mut self, item: T) -> Option<T> {
+        let i = self.data.len();
+        let id = item.id();
+        self.data.push(Some(item));
+        match self.map.insert(id, i) {
+            Some(i) => self.data[i].take(),
+            None => None,
+        }
+    }
+
+    fn insert(&mut self, item: T) -> Result<()> {
+        match self.replace(item) {
+            Some(item) => Err(Error::DuplicateCard),
+            None => Ok(()),
+        }
+    }
+
+    fn clone_to_vec(&self) -> Vec<T> {
+        self.data
+            .iter()
+            .filter_map(|i| i.as_ref())
+            .cloned()
+            .collect()
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &T> {
+        self.data.iter().filter_map(|c| c.as_ref())
+    }
+}
+
+impl<T> Default for Storage<T>
+where
+    T: StorageItem,
+{
+    fn default() -> Self {
+        Self {
+            data: Vec::new(),
+            map: HashMap::new(),
+        }
+    }
+}
+
 pub struct GlobalLocation {
     xyz: HashMap<u32, XYZ>,
     csys: HashMap<u32, RotationMat>,
 }
 
+impl GlobalLocation {
+    pub fn get_grid(&self, id: u32) -> Option<&XYZ> {
+        self.xyz.get(&id)
+    }
+
+    pub fn get_csys(&self, id: u32) -> Option<&RotationMat> {
+        self.csys.get(&id)
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct Deck {
-    grid: Vec<GRID>,
-    cord2r: Vec<CORD2R>,
-    psolid: Vec<PSOLID>,
-    mat1: Vec<MAT1>,
-    ctetra: Vec<CTETRA>,
+    grid: Storage<GRID>,
+    cord2r: Storage<CORD2R>,
+    psolid: Storage<PSOLID>,
+    mat1: Storage<MAT1>,
+    ctetra: Storage<CTETRA>,
 }
 
 impl Deck {
@@ -322,24 +461,24 @@ impl Deck {
             let card = card?;
             // This should be ordered by most common card type. Or maybe using a regexset or something
             match card.card_type().as_ref() {
-                Some(b"GRID   ") => deck.grid.push(card.try_into()?),
-                Some(b"CORD2R ") => deck.cord2r.push(card.try_into()?),
-                Some(b"PSOLID ") => deck.psolid.push(card.try_into()?),
-                Some(b"MAT1   ") => deck.mat1.push(card.try_into()?),
-                Some(b"CTETRA ") => deck.ctetra.push(card.try_into()?),
-                _ => {}
-            }
+                Some(b"GRID   ") => deck.grid.insert(card.try_into()?),
+                Some(b"CORD2R ") => deck.cord2r.insert(card.try_into()?),
+                Some(b"PSOLID ") => deck.psolid.insert(card.try_into()?),
+                Some(b"MAT1   ") => deck.mat1.insert(card.try_into()?),
+                Some(b"CTETRA ") => deck.ctetra.insert(card.try_into()?),
+                _ => Ok(()),
+            }?;
         }
         Ok(deck)
     }
 
-    fn global_locations(&self) -> GlobalLocation {
+    pub fn global_locations(&self) -> GlobalLocation {
         let n_grid = self.grid.len();
         let mut xyz = HashMap::with_capacity(n_grid);
         let n_cord = self.cord2r.len();
         let mut csys = HashMap::with_capacity(n_cord);
-        let mut grid = self.grid.clone();
-        let mut cord2r = self.cord2r.clone();
+        let mut grid = self.grid.clone_to_vec();
+        let mut cord2r = self.cord2r.clone_to_vec();
         grid.retain(|g| {
             if g.cp == 0 {
                 xyz.insert(g.id, g.xyz());
@@ -367,5 +506,12 @@ impl Deck {
             })
         }
         GlobalLocation { xyz, csys }
+    }
+
+    pub fn volume(&self, location: &GlobalLocation) -> f64 {
+        self.ctetra
+            .iter()
+            .map(|c| c.volume(location).unwrap())
+            .sum()
     }
 }
