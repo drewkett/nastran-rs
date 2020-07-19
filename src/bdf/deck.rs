@@ -7,6 +7,26 @@ use crate::bdf::{
     Error, Result,
 };
 
+#[derive(Default)]
+struct IdentityHasher(u64);
+
+impl std::hash::Hasher for IdentityHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write(&mut self, _bytes: &[u8]) {
+        unimplemented!("IdentityHasher only supports usize keys")
+    }
+
+    fn write_u32(&mut self, i: u32) {
+        self.0 = i as u64;
+    }
+    fn write_usize(&mut self, i: usize) {
+        self.0 = i as u64;
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct GRID {
     id: u32,
@@ -372,7 +392,7 @@ where
     T: StorageItem,
 {
     data: Vec<Option<T>>,
-    map: HashMap<T::Id, usize>,
+    map: HashMap<T::Id, usize, std::hash::BuildHasherDefault<IdentityHasher>>,
 }
 
 impl<T> Storage<T>
@@ -380,10 +400,7 @@ where
     T: StorageItem,
 {
     fn new() -> Self {
-        Self {
-            data: Vec::new(),
-            map: HashMap::new(),
-        }
+        Default::default()
     }
 
     fn len(&self) -> usize {
@@ -431,7 +448,7 @@ where
     fn default() -> Self {
         Self {
             data: Vec::new(),
-            map: HashMap::new(),
+            map: HashMap::<_, _, std::hash::BuildHasherDefault<IdentityHasher>>::default(),
         }
     }
 }
