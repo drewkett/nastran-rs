@@ -1163,7 +1163,7 @@ impl std::convert::TryFrom<UnparsedBulkLine> for BulkLine {
 #[derive(Debug, PartialEq)]
 pub struct BulkCardData {
     first: CardType,
-    fields: SmallVec<[Field; 16]>,
+    fields: Vec<Field>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -1391,7 +1391,7 @@ where
                         BulkCard {
                             data: Some(BulkCardData {
                                 first,
-                                fields: SmallVec::from_slice(&fields),
+                                fields: fields.to_vec(),
                             }),
                             original,
                             comment,
@@ -1410,7 +1410,7 @@ where
                         BulkCard {
                             data: Some(BulkCardData {
                                 first,
-                                fields: SmallVec::from_slice(&fields),
+                                fields: fields.to_vec(),
                             }),
                             original,
                             comment,
