@@ -5,13 +5,12 @@ use smallvec::SmallVec;
 use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
-use std::io;
 
 use crate::bdf::{Error, Result};
 
-use lines::{NastranFileIter, NastranLine, NastranLineIter, SplitLines};
+use lines::{NastranLine, NastranLineIter};
 
-#[derive(Debug, Default, PartialEq)]
+#[derive(Debug, Default, PartialEq, Clone)]
 pub struct Comment(SmallVec<[u8; 8]>);
 
 impl From<&[u8]> for Comment {
@@ -246,7 +245,7 @@ impl NastranCommaLine {
         }
     }
 
-    fn comment_and_eol(&mut self) -> (Option<Comment>, Option<EOL>) {
+    fn comment_and_eol(&mut self) -> Option<(Comment, Option<EOL>)> {
         self.iter.comment_and_eol()
     }
 }
@@ -257,8 +256,7 @@ impl Iterator for NastranCommaLine {
     fn next(&mut self) -> Option<Self::Item> {
         let first = self.next_field();
         if first.is_none() {
-            let (comment, eol) = self.comment_and_eol();
-            if let Some(comment) = comment {
+            if let Some((comment, eol)) = self.comment_and_eol() {
                 let original = std::mem::take(&mut self.original);
                 return Some(Ok(UnparsedBulkLine {
                     original,
@@ -285,12 +283,14 @@ impl Iterator for NastranCommaLine {
                 let field7 = self.next_single_field()?;
                 let field8 = self.next_single_field()?;
                 let trailing = self.next_trailing_field()?;
-                let (comment, eol) = self.comment_and_eol();
                 let mut original = vec![];
-                if comment.is_some() {
-                    std::mem::swap(&mut original, &mut self.original);
-                }
-                let comment = comment.unwrap_or_default();
+                let (comment, eol) = match self.comment_and_eol() {
+                    Some((comment, eol)) => {
+                        std::mem::swap(&mut original, &mut self.original);
+                        (comment, eol)
+                    }
+                    None => (Default::default(), None),
+                };
                 Ok(UnparsedBulkLine {
                     original,
                     comment,
@@ -313,12 +313,14 @@ impl Iterator for NastranCommaLine {
                     let field3 = self.next_double_field()?;
                     let field4 = self.next_double_field()?;
                     let trailing = self.next_trailing_field()?;
-                    let (comment, eol) = self.comment_and_eol();
                     let mut original = vec![];
-                    if comment.is_some() {
-                        std::mem::swap(&mut original, &mut self.original);
-                    }
-                    let comment = comment.unwrap_or_default();
+                    let (comment, eol) = match self.comment_and_eol() {
+                        Some((comment, eol)) => {
+                            std::mem::swap(&mut original, &mut self.original);
+                            (comment, eol)
+                        }
+                        None => (Default::default(), None),
+                    };
 
                     Ok(UnparsedBulkLine {
                         original,
@@ -340,12 +342,14 @@ impl Iterator for NastranCommaLine {
                     let field7 = self.next_single_field()?;
                     let field8 = self.next_single_field()?;
                     let trailing = self.next_trailing_field()?;
-                    let (comment, eol) = self.comment_and_eol();
                     let mut original = vec![];
-                    if comment.is_some() {
-                        std::mem::swap(&mut original, &mut self.original);
-                    }
-                    let comment = comment.unwrap_or_default();
+                    let (comment, eol) = match self.comment_and_eol() {
+                        Some((comment, eol)) => {
+                            std::mem::swap(&mut original, &mut self.original);
+                            (comment, eol)
+                        }
+                        None => (Default::default(), None),
+                    };
                     Ok(UnparsedBulkLine {
                         original,
                         comment,
@@ -379,6 +383,7 @@ impl Default for EOL {
 
 impl fmt::Display for EOL {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        #[allow(clippy::write_with_newline)]
         match self {
             Self::CRLF => write!(f, "\r\n"),
             Self::LF => writeln!(f),
@@ -459,62 +464,17 @@ impl fmt::Display for UnparsedBulkLine {
     }
 }
 
-struct BulkLineIter<I> {
-    iter: SplitLines<I>,
+struct BulkLineIter<'a> {
+    iter: rayon::slice::Split<'a, u8, fn(&u8) -> bool>,
     comma_line: Option<NastranCommaLine>,
 }
 
-impl<I> BulkLineIter<I>
-where
-    I: Iterator<Item = io::Result<u8>> + Sized,
-{
-    fn new(iter: I) -> Self {
+impl<'a> BulkLineIter<'a> {
+    fn new(sl: &'a [u8]) -> Self {
+        use rayon::slice::ParallelSlice;
         Self {
-            iter: iter.split_lines(),
+            iter: sl.par_split(|&c| c == b'\n'),
             comma_line: None,
-        }
-    }
-}
-
-impl<I> Iterator for BulkLineIter<I>
-where
-    I: Iterator<Item = io::Result<u8>>,
-{
-    type Item = Result<BulkLine>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        // TODO This either needs to be wrapped in a loop so that if
-        // an internal iterator returns None, it goes to the next line
-        if let Some(mut comma_line) = self.comma_line.take() {
-            match comma_line.next() {
-                Some(r) => {
-                    self.comma_line = Some(comma_line);
-                    return Some(r.and_then(TryInto::try_into));
-                }
-                None => {
-                    self.comma_line = None;
-                }
-            }
-        }
-        if let Some(line) = self.iter.next() {
-            let line = match line {
-                Ok(l) => l,
-                Err(e) => return Some(Err(e)),
-            };
-            let original = line.clone();
-            let n = std::cmp::min(original.len(), 10);
-            if original[..n].contains(&b',') {
-                // NastranCommaLine maybe shouldn't be an iterator
-                let mut comma_line = NastranCommaLine::new(line);
-                let line = comma_line.next();
-                self.comma_line = Some(comma_line);
-                line.map(|r| r.and_then(TryInto::try_into))
-            } else {
-                let line: Result<UnparsedBulkLine> = NastranLine::new(line).try_into();
-                Some(line.and_then(TryInto::try_into))
-            }
-        } else {
-            None
         }
     }
 }
@@ -1248,7 +1208,6 @@ impl BulkCard {
 
 impl fmt::Display for BulkCard {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        dbg!(&self);
         match &self.data {
             Some(BulkCardData { first, fields }) => {
                 let mut first = FirstFieldKind::Text(*first);
@@ -1487,16 +1446,52 @@ where
     }
 }
 
-pub fn parse_bytes_iter<I>(iter: I) -> impl Iterator<Item = Result<BulkCard>>
-where
-    I: Iterator<Item = io::Result<u8>>,
-{
-    BulkCardIter::new(BulkLineIter::new(iter))
-}
+//pub fn parse_bytes_iter<I>(iter: I) -> impl Iterator<Item = Result<BulkCard>>
+//where
+//    I: Iterator<Item = io::Result<u8>>,
+//{
+//    BulkCardIter::new(BulkLineIter::new(iter))
+//}
+//
+//pub fn parse_bytes<I>(iter: I) -> Result<Vec<BulkCard>>
+//where
+//    I: Iterator<Item = io::Result<u8>>,
+//{
+//    parse_bytes_iter(iter).collect()
+//}
 
-pub fn parse_bytes<I>(iter: I) -> Result<Vec<BulkCard>>
-where
-    I: Iterator<Item = io::Result<u8>>,
-{
-    parse_bytes_iter(iter).collect()
+pub fn parse_file(
+    filename: impl AsRef<std::path::Path>,
+) -> Result<impl Iterator<Item = Result<BulkCard>>> {
+    use rayon::prelude::*;
+    let bytes = std::fs::read(filename)?;
+    let lines = bytes.par_split(|&c| c == b'\n').map(|line| {
+        let original = line.to_vec();
+        let n = std::cmp::min(original.len(), 10);
+        if original[..n].contains(&b',') {
+            // NastranCommaLine maybe shouldn't be an iterator
+            // TODO this is wrong.
+            let mut lines: Vec<Result<BulkLine>> = NastranCommaLine::new(line.to_vec())
+                .map(|r| r.and_then(TryInto::try_into))
+                .collect();
+            //println!("{:?}", line.as_bstr());
+            //rayon::iter::Either::Left(lines.into_par_iter())
+            //println!("{:?}", line.as_bstr());
+            //let mut iter = NastranCommaLine::new(line.to_vec());
+            //while let Some(x) = iter.next() {
+            //    println!("{:?}", x)
+            //}
+            //rayon::iter::Either::Left(lines.into_par_iter())
+            //rayon::iter::Either::Left(lines.into_par_iter())
+            Ok(lines.pop().unwrap())
+        } else {
+            let line: Result<UnparsedBulkLine> = NastranLine::new(line.to_vec()).try_into();
+            let line: Result<BulkLine> = line.and_then(TryInto::try_into);
+            //rayon::iter::Either::Right(Some(line).into_par_iter())
+            Ok(line)
+        }
+    });
+    Ok(BulkCardIter::new(
+        lines.collect::<Result<Vec<_>>>()?.into_iter(),
+    ))
 }

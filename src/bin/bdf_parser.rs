@@ -1,9 +1,7 @@
-use nastran::bdf::parser::parse_bytes_iter;
+use nastran::bdf::parser::parse_file;
 use nastran::bdf::Result;
 
-use std::fs::File;
 use std::io;
-use std::io::prelude::*;
 
 pub fn main() -> Result<()> {
     let mut args = std::env::args();
@@ -14,10 +12,7 @@ pub fn main() -> Result<()> {
         .next()
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "missing argument"))?;
     println!("{}", filename);
-    let f = File::open(filename)?;
-    let bytes = std::io::BufReader::new(f).bytes();
-    // let bytes = std::fs::read(filename)?.into_iter().map(Ok);
-    for card in parse_bytes_iter(bytes) {
+    for card in parse_file(filename)? {
         let card = card?;
         // if card.original().is_empty() {
         //     println!("original = ");

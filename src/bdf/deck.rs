@@ -1,9 +1,8 @@
 use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
-use std::io;
 
 use crate::bdf::{
-    parser::{parse_bytes_iter, BulkCard, Field, FieldConv},
+    parser::{parse_file, BulkCard, Field, FieldConv},
     Error, Result,
 };
 use crate::util::{CoordSys, Vec3, XYZ};
@@ -544,12 +543,9 @@ pub struct Deck {
 }
 
 impl Deck {
-    pub fn from_bytes<I>(iter: I) -> Result<Self>
-    where
-        I: Iterator<Item = io::Result<u8>>,
-    {
+    pub fn from_filename(filename: impl AsRef<std::path::Path>) -> Result<Self> {
         let mut deck: Deck = Default::default();
-        for card in parse_bytes_iter(iter) {
+        for card in parse_file(filename)? {
             let card = card?;
             // This should be ordered by most common card type. Or maybe using a regexset or something
             match card.card_type().as_ref() {

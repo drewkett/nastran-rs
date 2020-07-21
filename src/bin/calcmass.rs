@@ -11,15 +11,15 @@ pub fn main() -> Result<()> {
         .next()
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "missing argument"))?;
     println!("{}", filename);
-    let t = Instant::now();
-    let bytes = std::fs::read(filename)?.into_iter().map(Ok);
+    //let t = Instant::now();
+    //let bytes = std::fs::read(filename)?.into_iter().map(Ok);
     //use io::Read;
     //let f = std::fs::File::open(filename)?;
     //let bytes = io::BufReader::with_capacity(1024 * 1024, f).bytes();
-    println!("Read took {} ms", t.elapsed().as_millis());
+    //println!("Read took {} ms", t.elapsed().as_millis());
     let t = Instant::now();
     //let deck = Deck::from_bytes(bytes.into_iter().map(Ok))?;
-    let deck = Deck::from_bytes(bytes)?;
+    let deck = Deck::from_filename(filename)?;
     println!("Parse took {} ms", t.elapsed().as_millis());
     let t = Instant::now();
     let global = deck.global_locations();
