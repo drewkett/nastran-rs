@@ -3,8 +3,6 @@ use super::{Comment, EOL};
 
 use std::io;
 
-use smallvec::SmallVec;
-
 pub(crate) struct NastranLine {
     original: Vec<u8>,
     iter: NastranLineIter,
@@ -94,10 +92,6 @@ impl NastranLineIter {
         self.state = state;
         res
     }
-
-    //fn to_comment(&mut self) -> Result<SmallVec<[u8; 8]>> {
-    //    self.comment.take().ok_or(Error::UnparsedChars)
-    //}
 }
 
 impl Iterator for NastranLineIter {
@@ -133,7 +127,7 @@ impl Iterator for NastranLineIter {
         match result {
             Char(c) => Some(c),
             CharAndEOL(c) => {
-                let mut comment = SmallVec::new();
+                let mut comment = Comment::new();
                 let mut eol = None;
                 while let Some((_, c)) = self.iter.next() {
                     match c {
@@ -148,11 +142,11 @@ impl Iterator for NastranLineIter {
                         _ => comment.push(c),
                     }
                 }
-                self.state = NastranLineIterState::Comment(Comment(comment), eol);
+                self.state = NastranLineIterState::Comment(comment, eol);
                 Some(c)
             }
             DollarSign(c) => {
-                let mut comment = SmallVec::new();
+                let mut comment = Comment::new();
                 let mut eol = None;
                 comment.push(c);
                 while let Some((_, c)) = self.iter.next() {
@@ -168,22 +162,19 @@ impl Iterator for NastranLineIter {
                         _ => comment.push(c),
                     }
                 }
-                self.state = NastranLineIterState::Comment(Comment(comment), eol);
+                self.state = NastranLineIterState::Comment(comment, eol);
                 None
             }
             EOL => {
-                let comment = SmallVec::new();
-                self.state = NastranLineIterState::Comment(Comment(comment), None);
+                self.state = NastranLineIterState::Comment(Comment::new(), None);
                 None
             }
             CRLF => {
-                let comment = SmallVec::new();
-                self.state = NastranLineIterState::Comment(Comment(comment), Some(self::EOL::CRLF));
+                self.state = NastranLineIterState::Comment(Comment::new(), Some(self::EOL::CRLF));
                 None
             }
             LF => {
-                let comment = SmallVec::new();
-                self.state = NastranLineIterState::Comment(Comment(comment), Some(self::EOL::LF));
+                self.state = NastranLineIterState::Comment(Comment::new(), Some(self::EOL::LF));
                 None
             }
         }

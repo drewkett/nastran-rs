@@ -13,9 +13,13 @@ use lines::{NastranLine, NastranLineIter};
 #[derive(Debug, Default, PartialEq, Clone)]
 pub struct Comment(SmallVec<[u8; 8]>);
 
-impl From<&[u8]> for Comment {
-    fn from(buf: &[u8]) -> Self {
-        Self(SmallVec::from_slice(buf))
+impl Comment {
+    fn new() -> Self {
+        Self(Default::default())
+    }
+
+    fn push(&mut self, c: u8) {
+        self.0.push(c)
     }
 }
 
@@ -1449,7 +1453,10 @@ pub fn parse_file(
     filename: impl AsRef<std::path::Path>,
 ) -> Result<impl Iterator<Item = Result<BulkCard>>> {
     use rayon::prelude::*;
+    let t = std::time::Instant::now();
     let bytes = std::fs::read(filename)?;
+    println!("Read file took {} ms", t.elapsed().as_millis());
+    let t = std::time::Instant::now();
     let lines = bytes.par_split(|&c| c == b'\n').map(|line| {
         let original = line.to_vec();
         let n = std::cmp::min(original.len(), 10);
@@ -1476,7 +1483,7 @@ pub fn parse_file(
             Ok(line)
         }
     });
-    Ok(BulkCardIter::new(
-        lines.collect::<Result<Vec<_>>>()?.into_iter(),
-    ))
+    let lines = lines.collect::<Result<Vec<_>>>()?;
+    println!("Line parsing took {} ms", t.elapsed().as_millis());
+    Ok(BulkCardIter::new(lines.into_iter()))
 }
