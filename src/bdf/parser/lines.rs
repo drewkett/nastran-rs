@@ -21,11 +21,11 @@ impl NastranLine {
 
     pub(crate) fn take8(&mut self) -> [u8; 8] {
         let mut field = [b' '; 8];
-        let mut iter = (&mut self.iter)
+        let iter = (&mut self.iter)
             .take(8)
             .skip_while(|c| *c == b' ')
             .enumerate();
-        while let Some((i, c)) = iter.next() {
+        for (i, c) in iter {
             field[i] = c
         }
         field
@@ -33,11 +33,11 @@ impl NastranLine {
 
     pub(crate) fn take16(&mut self) -> [u8; 16] {
         let mut field = [b' '; 16];
-        let mut iter = (&mut self.iter)
+        let iter = (&mut self.iter)
             .take(16)
             .skip_while(|c| *c == b' ')
             .enumerate();
-        while let Some((i, c)) = iter.next() {
+        for (i, c) in iter {
             field[i] = c
         }
         field
@@ -201,13 +201,13 @@ where
             Some(b'\t') => {
                 self.seen_tab = true;
                 self.col += 1;
-                return Some(b' ');
+                Some(b' ')
             }
             Some(c) => {
                 self.col += 1;
-                return Some(c);
+                Some(c)
             }
-            None => return None,
+            None => None,
         }
     }
 }

@@ -310,6 +310,7 @@ pub struct MAT1 {
 }
 
 impl MAT1 {
+    #[allow(dead_code)]
     fn density(&self) -> f64 {
         self.rho
     }
@@ -346,8 +347,7 @@ impl TryFrom<BulkCard> for MAT1 {
             let g = g.unwrap();
             let nu = nu.unwrap_or(1.0 - e / (2.0 * g));
             (e, g, nu)
-        } else if e.is_some() {
-            let e = e.unwrap();
+        } else if let Some(e) = e {
             if let Some(nu) = nu {
                 let g = e / (2. * (1. + nu));
                 (e, g, nu)
@@ -398,6 +398,7 @@ impl<T> Storage<T>
 where
     T: StorageItem,
 {
+    #[allow(dead_code)]
     fn new() -> Self {
         Self {
             data: Vec::new(),
@@ -462,7 +463,7 @@ pub struct GlobalLocation {
 
 impl GlobalLocation {
     pub fn get_grid(&self, id: u32) -> Option<XYZ> {
-        self.xyz.get(&id).map(|x| *x)
+        self.xyz.get(&id).copied()
     }
 
     pub fn get_csys(&self, id: u32) -> Option<&CoordSys> {
@@ -548,8 +549,7 @@ impl Deck {
         I: Iterator<Item = io::Result<u8>>,
     {
         let mut deck: Deck = Default::default();
-        let mut iter = parse_bytes_iter(iter);
-        while let Some(card) = iter.next() {
+        for card in parse_bytes_iter(iter) {
             let card = card?;
             // This should be ordered by most common card type. Or maybe using a regexset or something
             match card.card_type().as_ref() {
@@ -604,15 +604,17 @@ impl Deck {
         DeckRef { deck: self, item }
     }
 
+    #[allow(dead_code)]
     fn grid(&self, id: u32) -> Option<DeckRef<GRID>> {
         self.grid.get(id).map(|grid| self.with(grid))
     }
 
+    #[allow(dead_code)]
     fn tetra(&self, id: u32) -> Option<DeckRef<CTETRA>> {
         self.ctetra.get(id).map(|e| self.with(e))
     }
 
-    fn psolid<'a>(&'a self, id: u32) -> Option<DeckRef<'a, PSOLID>> {
+    fn psolid(&self, id: u32) -> Option<DeckRef<PSOLID>> {
         self.psolid.get(id).map(|e| self.with(e))
     }
 
