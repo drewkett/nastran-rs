@@ -464,21 +464,6 @@ impl fmt::Display for UnparsedBulkLine {
     }
 }
 
-struct BulkLineIter<'a> {
-    iter: rayon::slice::Split<'a, u8, fn(&u8) -> bool>,
-    comma_line: Option<NastranCommaLine>,
-}
-
-impl<'a> BulkLineIter<'a> {
-    fn new(sl: &'a [u8]) -> Self {
-        use rayon::slice::ParallelSlice;
-        Self {
-            iter: sl.par_split(|&c| c == b'\n'),
-            comma_line: None,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CardType([u8; 7]);
 

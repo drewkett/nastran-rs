@@ -86,10 +86,9 @@ impl NastranLineIter {
     pub(crate) fn comment_and_eol(&mut self) -> Option<(Comment, Option<EOL>)> {
         // TODO this is a mess
         let (state, res) = match &self.state {
-            NastranLineIterState::Comment(comment, eol) => (
-                NastranLineIterState::End,
-                Some((comment.clone(), eol.clone())),
-            ),
+            NastranLineIterState::Comment(comment, eol) => {
+                (NastranLineIterState::End, Some((comment.clone(), *eol)))
+            }
             s => (s.clone(), None),
         };
         self.state = state;
