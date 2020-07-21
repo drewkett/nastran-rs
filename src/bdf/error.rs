@@ -15,8 +15,8 @@ pub enum Error {
     TextTooLong(Vec<u8>),
     #[error("Field is not valid")]
     InvalidField,
-    #[error("Whole line not parsed")]
-    UnparsedChars,
+    #[error("Whole line not parsed. Remaining '{}'",.0.as_bstr())]
+    UnparsedChars(Vec<u8>),
     #[error("Unmatched continuation")]
     UnmatchedContinuation([u8; 7]),
     #[error("Unexpected Card Type. Expected '{}' Found '{}'",.0.as_bstr(),.1.as_bstr())]

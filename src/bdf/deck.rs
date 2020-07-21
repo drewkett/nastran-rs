@@ -1,9 +1,8 @@
 use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
-use std::io;
 
 use crate::bdf::{
-    parser::{parse_bytes_iter, BulkCard, Field, FieldConv},
+    parser::{parse_file, BulkCard, Field, FieldConv},
     Error, Result,
 };
 use crate::util::{CoordSys, Vec3, XYZ};
@@ -394,6 +393,28 @@ where
     map: HashMap<T::Id, usize>,
 }
 
+impl<T> From<RawStorage<T>> for Storage<T>
+where
+    T: StorageItem,
+{
+    fn from(raw: RawStorage<T>) -> Self {
+        // FIXME This doesn't currently check for duplicates
+        let data = raw.data;
+        let map = data
+            .iter()
+            .enumerate()
+            .filter_map(|(i, v)| {
+                if let Some(v) = v {
+                    Some((v.id(), i))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        Storage { data, map }
+    }
+}
+
 impl<T> Storage<T>
 where
     T: StorageItem,
@@ -403,6 +424,13 @@ where
         Self {
             data: Vec::new(),
             map: HashMap::new(),
+        }
+    }
+
+    fn with_capacity(n: usize) -> Self {
+        Self {
+            data: Vec::with_capacity(n),
+            map: HashMap::with_capacity(n),
         }
     }
 
@@ -429,6 +457,18 @@ where
             Some(_item) => Err(Error::DuplicateCard),
             None => Ok(()),
         }
+    }
+
+    fn extend_from_raw(&mut self, raw: RawStorage<T>) -> Result<()> {
+        let n = self.data.len();
+        self.data.extend(raw.data);
+        for (i, item) in self.data[n..].iter().enumerate() {
+            match self.map.insert(item.as_ref().unwrap().id(), i + n) {
+                Some(_i) => return Err(Error::DuplicateCard),
+                None => {}
+            }
+        }
+        Ok(())
     }
 
     fn clone_to_vec(&self) -> Vec<T> {
@@ -534,6 +574,54 @@ impl<'a> HasMaterial<'a> for DeckRef<'a, CTETRA> {
     }
 }
 
+#[derive(Debug)]
+pub struct RawStorage<T> {
+    data: Vec<Option<T>>,
+}
+
+impl<T> RawStorage<T> {
+    #[allow(dead_code)]
+    fn insert(&mut self, value: T) {
+        self.data.push(Some(value))
+    }
+}
+
+impl<T> Default for RawStorage<T> {
+    fn default() -> Self {
+        Self { data: Vec::new() }
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct DeckCounts {
+    grid: usize,
+    cord2r: usize,
+    psolid: usize,
+    mat1: usize,
+    ctetra: usize,
+}
+
+#[derive(Debug, Default)]
+pub struct RawDeck {
+    grid: RawStorage<GRID>,
+    cord2r: RawStorage<CORD2R>,
+    psolid: RawStorage<PSOLID>,
+    mat1: RawStorage<MAT1>,
+    ctetra: RawStorage<CTETRA>,
+}
+
+impl Into<Deck> for RawDeck {
+    fn into(self) -> Deck {
+        Deck {
+            grid: self.grid.into(),
+            cord2r: self.cord2r.into(),
+            psolid: self.psolid.into(),
+            mat1: self.mat1.into(),
+            ctetra: self.ctetra.into(),
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct Deck {
     grid: Storage<GRID>,
@@ -544,27 +632,80 @@ pub struct Deck {
 }
 
 impl Deck {
-    pub fn from_bytes<I>(iter: I) -> Result<Self>
-    where
-        I: Iterator<Item = io::Result<u8>>,
-    {
-        let mut deck: Deck = Default::default();
-        for card in parse_bytes_iter(iter) {
-            let card = card?;
-            // This should be ordered by most common card type. Or maybe using a regexset or something
-            match card.card_type().as_ref() {
-                Some(b"GRID   ") => deck.grid.insert(card.try_into()?),
-                Some(b"CORD2R ") => deck.cord2r.insert(card.try_into()?),
-                Some(b"PSOLID ") => deck.psolid.insert(card.try_into()?),
-                Some(b"MAT1   ") => deck.mat1.insert(card.try_into()?),
-                Some(b"CTETRA ") => deck.ctetra.insert(card.try_into()?),
-                _ => Ok(()),
-            }?;
+    #[cfg(feature = "parallel")]
+    pub fn from_filename(filename: impl AsRef<std::path::Path>) -> Result<Self> {
+        use rayon::prelude::*;
+        let cards: Vec<_> = parse_file(filename)?.collect();
+        let decks = cards
+            .into_par_iter()
+            .try_fold(RawDeck::default, |mut deck, card| -> Result<RawDeck> {
+                // This should be ordered by most common card type. Or maybe using a regexset or something
+                let card = card?;
+                match card.card_type().as_ref() {
+                    Some(b"GRID   ") => deck.grid.insert(card.try_into()?),
+                    Some(b"CORD2R ") => deck.cord2r.insert(card.try_into()?),
+                    Some(b"PSOLID ") => deck.psolid.insert(card.try_into()?),
+                    Some(b"MAT1   ") => deck.mat1.insert(card.try_into()?),
+                    Some(b"CTETRA ") => deck.ctetra.insert(card.try_into()?),
+                    _ => {}
+                }
+                Ok(deck)
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let counts = decks
+            .iter()
+            .fold(DeckCounts::default(), |mut counts, item| {
+                counts.grid += item.grid.data.len();
+                counts.cord2r += item.cord2r.data.len();
+                counts.psolid += item.psolid.data.len();
+                counts.mat1 += item.mat1.data.len();
+                counts.ctetra += item.ctetra.data.len();
+                counts
+            });
+
+        decks
+            .into_iter()
+            .try_fold(Deck::with_capacity(counts), |mut deck, item| {
+                deck.grid.extend_from_raw(item.grid)?;
+                deck.cord2r.extend_from_raw(item.cord2r)?;
+                deck.psolid.extend_from_raw(item.psolid)?;
+                deck.mat1.extend_from_raw(item.mat1)?;
+                deck.ctetra.extend_from_raw(item.ctetra)?;
+                Ok(deck)
+            })
+    }
+
+    pub fn with_capacity(counts: DeckCounts) -> Self {
+        Self {
+            grid: Storage::with_capacity(counts.grid),
+            cord2r: Storage::with_capacity(counts.cord2r),
+            psolid: Storage::with_capacity(counts.psolid),
+            mat1: Storage::with_capacity(counts.mat1),
+            ctetra: Storage::with_capacity(counts.ctetra),
         }
-        Ok(deck)
+    }
+
+    #[cfg(not(feature = "parallel"))]
+    pub fn from_filename(filename: impl AsRef<std::path::Path>) -> Result<Self> {
+        parse_file(filename)?
+            .into_iter()
+            .try_fold(Deck::default(), |mut deck, card| {
+                // This should be ordered by most common card type. Or maybe using a regexset or something
+                let card = card?;
+                match card.card_type().as_ref() {
+                    Some(b"GRID   ") => deck.grid.insert(card.try_into()?)?,
+                    Some(b"CORD2R ") => deck.cord2r.insert(card.try_into()?)?,
+                    Some(b"PSOLID ") => deck.psolid.insert(card.try_into()?)?,
+                    Some(b"MAT1   ") => deck.mat1.insert(card.try_into()?)?,
+                    Some(b"CTETRA ") => deck.ctetra.insert(card.try_into()?)?,
+                    _ => {}
+                };
+                Ok(deck)
+            })
     }
 
     pub fn global_locations(&self) -> GlobalLocation {
+        let t = std::time::Instant::now();
         let n_grid = self.grid.len();
         let mut xyz = HashMap::with_capacity(n_grid);
         let n_cord = self.cord2r.len();
@@ -597,6 +738,7 @@ impl Deck {
                 }
             })
         }
+        println!("global_locations took {} ms", t.elapsed().as_millis());
         GlobalLocation { xyz, csys }
     }
 
@@ -628,10 +770,28 @@ impl Deck {
             .map(|c| self.with(c).mass(location).unwrap_or_default())
             .sum()
     }
+
+    #[cfg(feature = "parallel")]
+    pub fn mass_cg(&self, location: &GlobalLocation) -> (f64, Vec3) {
+        use rayon::prelude::*;
+        let mm: MassMoment = self
+            .ctetra
+            .data
+            .par_iter()
+            .filter_map(|c| c.as_ref())
+            .map(|c| self.with(c).mass_moment(location).unwrap_or_default())
+            .sum();
+        let cg = mm.moment / mm.mass;
+        (mm.mass, cg)
+    }
+
+    #[cfg(not(feature = "parallel"))]
     pub fn mass_cg(&self, location: &GlobalLocation) -> (f64, Vec3) {
         let mm: MassMoment = self
             .ctetra
+            .data
             .iter()
+            .filter_map(|c| c.as_ref())
             .map(|c| self.with(c).mass_moment(location).unwrap_or_default())
             .sum();
         let cg = mm.moment / mm.mass;
