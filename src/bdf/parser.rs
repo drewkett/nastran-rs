@@ -406,13 +406,13 @@ pub enum UnparsedFieldData {
     Double(FirstField, [UnparsedDoubleField; 4], ContinuationField),
 }
 
-impl std::convert::TryFrom<UnparsedFieldData> for FieldData {
+impl std::convert::TryFrom<UnparsedFieldData> for (FirstField, Vec<Field>, ContinuationField) {
     type Error = Error;
     fn try_from(field: UnparsedFieldData) -> Result<Self> {
         match field {
-            UnparsedFieldData::Single(first, fields, trailing) => Ok(FieldData::Single(
+            UnparsedFieldData::Single(first, fields, trailing) => Ok((
                 first,
-                [
+                vec![
                     (&fields[0]).try_into()?,
                     (&fields[1]).try_into()?,
                     (&fields[2]).try_into()?,
@@ -424,9 +424,9 @@ impl std::convert::TryFrom<UnparsedFieldData> for FieldData {
                 ],
                 trailing,
             )),
-            UnparsedFieldData::Double(first, fields, trailing) => Ok(FieldData::Double(
+            UnparsedFieldData::Double(first, fields, trailing) => Ok((
                 first,
-                [
+                vec![
                     (&fields[0]).try_into()?,
                     (&fields[1]).try_into()?,
                     (&fields[2]).try_into()?,
@@ -817,41 +817,35 @@ where
     }
 }
 
-#[derive(Debug)]
-pub enum FieldData {
-    Single(FirstField, [Field; 8], ContinuationField),
-    Double(FirstField, [Field; 4], ContinuationField),
-}
-
 pub struct BulkLine {
     pub original: Vec<u8>,
     pub comment: Comment,
     pub eol: Option<EOL>,
-    pub data: Option<FieldData>,
+    pub data: Option<(FirstField, Vec<Field>, ContinuationField)>,
 }
 
-impl fmt::Display for BulkLine {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.data {
-            Some(FieldData::Single(first, fields, trailing)) => {
-                write!(f, "{}", first)?;
-                for field in fields.iter() {
-                    write!(f, "{:8}", field)?;
-                }
-                write!(f, "{}", trailing)?;
-            }
-            Some(FieldData::Double(first, fields, trailing)) => {
-                write!(f, "{}", first)?;
-                for field in fields.iter() {
-                    write!(f, "{:16}", field)?;
-                }
-                write!(f, "{}", trailing)?;
-            }
-            None => {}
-        }
-        write!(f, "{}", self.comment)
-    }
-}
+//impl fmt::Display for BulkLine {
+//    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+//        match &self.data {
+//            Some((first, fields, trailing)) => {
+//                write!(f, "{}", first)?;
+//                for field in fields.iter() {
+//                    write!(f, "{:8}", field)?;
+//                }
+//                write!(f, "{}", trailing)?;
+//            }
+//            Some((first, fields, trailing)) => {
+//                write!(f, "{}", first)?;
+//                for field in fields.iter() {
+//                    write!(f, "{:16}", field)?;
+//                }
+//                write!(f, "{}", trailing)?;
+//            }
+//            None => {}
+//        }
+//        write!(f, "{}", self.comment)
+//    }
+//}
 
 enum ZeroOneTwo {
     Zero,
@@ -1389,33 +1383,11 @@ where
                 eol,
             } = line;
             match data {
-                Some(FieldData::Single(first, fields, trailing)) => match first.kind {
+                Some((first, fields, trailing)) => match first.kind {
                     FirstFieldKind::Text(first) => self.insert(
                         trailing,
                         BulkCard {
-                            data: Some(BulkCardData {
-                                first,
-                                fields: fields.to_vec(),
-                            }),
-                            original,
-                            comment,
-                            eol: eol.unwrap_or_default(),
-                        },
-                    ),
-                    FirstFieldKind::Continuation(field) => {
-                        if let Err(e) = self.append_continuation(field, &fields, trailing) {
-                            return Some(Err(e));
-                        }
-                    }
-                },
-                Some(FieldData::Double(first, fields, trailing)) => match first.kind {
-                    FirstFieldKind::Text(first) => self.insert(
-                        trailing,
-                        BulkCard {
-                            data: Some(BulkCardData {
-                                first,
-                                fields: fields.to_vec(),
-                            }),
+                            data: Some(BulkCardData { first, fields }),
                             original,
                             comment,
                             eol: eol.unwrap_or_default(),

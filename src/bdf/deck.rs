@@ -561,6 +561,7 @@ impl Deck {
     }
 
     pub fn global_locations(&self) -> GlobalLocation {
+        let t = std::time::Instant::now();
         let n_grid = self.grid.len();
         let mut xyz = HashMap::with_capacity(n_grid);
         let n_cord = self.cord2r.len();
@@ -593,6 +594,7 @@ impl Deck {
                 }
             })
         }
+        println!("global_locations took {} ms", t.elapsed().as_millis());
         GlobalLocation { xyz, csys }
     }
 
