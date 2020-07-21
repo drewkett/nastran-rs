@@ -1,4 +1,6 @@
-use nastran::bdf::parser::{parse_bytes_iter, Result};
+use nastran::bdf::parser::parse_bytes_iter;
+use nastran::bdf::Result;
+
 use std::fs::File;
 use std::io;
 use std::io::prelude::*;

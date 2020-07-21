@@ -6,7 +6,7 @@ use crate::bdf::{
     parser::{parse_bytes_iter, BulkCard, Field, FieldConv},
     Error, Result,
 };
-use crate::util::{CoordSys, Mat3, Vec3, XYZ};
+use crate::util::{CoordSys, Vec3, XYZ};
 
 #[derive(Debug, Clone)]
 pub struct GRID {
@@ -92,7 +92,6 @@ impl CORD2R {
         let x = g2 - g0;
         let y = z.cross(x).normalize();
         let x = y.cross(z);
-        let m = Mat3::new(x, y, z);
 
         CoordSys::new(x, y, z, g0)
     }
@@ -426,7 +425,7 @@ where
 
     fn insert(&mut self, item: T) -> Result<()> {
         match self.replace(item) {
-            Some(item) => Err(Error::DuplicateCard),
+            Some(_item) => Err(Error::DuplicateCard),
             None => Ok(()),
         }
     }
