@@ -9,16 +9,15 @@ pub fn main() -> Result<()> {
     let mut args = std::env::args();
     let _ = args
         .next()
-        .ok_or(io::Error::new(io::ErrorKind::NotFound, "missing argument"))?;
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "missing argument"))?;
     let filename = args
         .next()
-        .ok_or(io::Error::new(io::ErrorKind::NotFound, "missing argument"))?;
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "missing argument"))?;
     println!("{}", filename);
     let f = File::open(filename)?;
     let bytes = std::io::BufReader::new(f).bytes();
     // let bytes = std::fs::read(filename)?.into_iter().map(Ok);
-    let mut iter = parse_bytes_iter(bytes);
-    while let Some(card) = iter.next() {
+    for card in parse_bytes_iter(bytes) {
         let card = card?;
         // if card.original().is_empty() {
         //     println!("original = ");

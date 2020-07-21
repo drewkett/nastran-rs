@@ -6,10 +6,10 @@ pub fn main() -> Result<()> {
     let mut args = std::env::args();
     let _ = args
         .next()
-        .ok_or(io::Error::new(io::ErrorKind::NotFound, "missing argument"))?;
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "missing argument"))?;
     let filename = args
         .next()
-        .ok_or(io::Error::new(io::ErrorKind::NotFound, "missing argument"))?;
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "missing argument"))?;
     println!("{}", filename);
     let t = Instant::now();
     let bytes = std::fs::read(filename)?.into_iter().map(Ok);

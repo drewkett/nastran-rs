@@ -143,7 +143,7 @@ impl TryFrom<CommaField> for Option<FirstField> {
     type Error = Error;
     fn try_from(field: CommaField) -> Result<Self> {
         if field.0.len() > 8 {
-            return Err(Error::TextTooLong(field.0.into_vec()));
+            Err(Error::TextTooLong(field.0.into_vec()))
         } else {
             let mut array = [b' '; 8];
             let n = std::cmp::min(field.0.len(), 8);
@@ -171,7 +171,7 @@ impl TryFrom<CommaField> for ContinuationField {
     type Error = Error;
     fn try_from(field: CommaField) -> Result<Self> {
         if field.0.len() > 8 {
-            return Err(Error::TextTooLong(field.0.into_vec()));
+            Err(Error::TextTooLong(field.0.into_vec()))
         } else {
             let mut array = [b' '; 8];
             let n = std::cmp::min(field.0.len(), 8);
@@ -381,7 +381,7 @@ impl fmt::Display for EOL {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::CRLF => write!(f, "\r\n"),
-            Self::LF => write!(f, "\n"),
+            Self::LF => writeln!(f),
         }
     }
 }
@@ -454,7 +454,7 @@ impl fmt::Display for UnparsedBulkLine {
                 }
                 write!(f, "{}", trailing)
             }
-            None => write!(f, "\n"),
+            None => writeln!(f),
         }
     }
 }
@@ -925,8 +925,7 @@ fn parse_first_field(field: [u8; 8]) -> Result<Option<FirstField>> {
     let mut contents = [b' '; 16];
     let mut i = 0;
     let mut double = false;
-    let mut iter = field.iter();
-    while let Some(&c) = iter.next() {
+    for &c in field.iter() {
         let (s, c) = match (state, c, i) {
             (Start, b' ', _) => (Blank, Zero),
             (Start, c @ b'A'..=b'Z', _) => (Alpha, One(c)),
@@ -1013,7 +1012,7 @@ where
     let mut state = State::Start;
     let mut contents = [b' '; 16];
     let mut i = 0;
-    while let Some(c) = field.next() {
+    for c in field {
         let (s, c) = match (state, c, i) {
             (Start, b' ', _) => (Start, Zero),
             (Start, c @ b'A'..=b'Z', _) => (Alpha, One(c)),
@@ -1139,8 +1138,7 @@ fn parse_trailing_field(field: [u8; 8]) -> Result<ContinuationField> {
     let mut state = State::Start;
     let mut contents = [b' '; 16];
     let mut i = 0;
-    let mut iter = field.iter();
-    while let Some(&c) = iter.next() {
+    for &c in &field {
         let (s, c) = match (state, c, i) {
             // TODO not sure about how to handle this blank
             (Start, b' ', _) => (Blank, Zero),
@@ -1261,17 +1259,18 @@ impl fmt::Display for BulkCard {
                     fields = fields_;
                     if next8.iter().any(|f| matches!(f, Field::Double(_))) {
                         let n4 = std::cmp::min(4, n8);
+                        let (first4, last4) = next8.split_at(n4);
                         write!(f, "{:16}", first)?;
-                        for i in 0..n4 {
-                            write!(f, "{:16}", next8[i])?;
+                        for c in first4 {
+                            write!(f, "{:16}", c)?;
                         }
                         if n8 > 4 {
                             // Using 8 here makes it output a plus
                             // write!(f, "{:8}{}", ContinuationField::default(), self.eol)?;
                             writeln!(f, "{:8}", ContinuationField::default())?;
                             write!(f, "{:16}", ContinuationField::default())?;
-                            for i in 4..n8 {
-                                write!(f, "{:16}", next8[i])?;
+                            for c in last4 {
+                                write!(f, "{:16}", c)?;
                             }
                             if fields.is_empty() {
                                 // break write!(f, "{:8}{}{}", "", self.comment, self.eol);
@@ -1283,8 +1282,8 @@ impl fmt::Display for BulkCard {
                         }
                     } else {
                         write!(f, "{:8}", first)?;
-                        for i in 0..n8 {
-                            write!(f, "{:8}", next8[i])?;
+                        for c in next8 {
+                            write!(f, "{:8}", c)?;
                         }
                         if fields.is_empty() {
                             // break write!(f, "{:8}{}{}", "", self.comment, self.eol);
@@ -1371,9 +1370,8 @@ impl<I> BulkCardIter<I> {
                     }) => fields.extend_from_slice(new_fields),
                     _ => unreachable!(),
                 }
-                match self.continuations.insert(trailing, i) {
-                    Some(i) => self.mark_complete(i),
-                    None => {}
+                if let Some(i) = self.continuations.insert(trailing, i) {
+                    self.mark_complete(i)
                 }
                 Ok(())
             }
@@ -1383,9 +1381,8 @@ impl<I> BulkCardIter<I> {
 
     fn insert(&mut self, continuation: ContinuationField, partial: BulkCard) {
         let i = self.append_partial(partial);
-        match self.continuations.insert(continuation, i) {
-            Some(i) => self.mark_complete(i),
-            None => {}
+        if let Some(i) = self.continuations.insert(continuation, i) {
+            self.mark_complete(i)
         }
     }
 

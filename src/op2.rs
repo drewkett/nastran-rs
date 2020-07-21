@@ -279,7 +279,7 @@ where
         let res = self.take(expected)?;
         self.read_i32_value(expected_i)?;
         let res = unsafe { &*(res.as_ptr() as *const T) };
-        return Ok(res);
+        Ok(res)
     }
 
     fn read_padded_value<T: PartialEq + fmt::Debug>(
@@ -291,7 +291,7 @@ where
             //eprintln!("{:?} != {:?}", value, expected_value);
             return Err(ErrorCode::UnexpectedValue);
         }
-        return Ok(value);
+        Ok(value)
     }
 
     #[allow(dead_code)]
@@ -307,7 +307,7 @@ where
             //eprintln!("{:?} != {:?}", n, expected);
             return Err(ErrorCode::UnexpectedValue);
         }
-        return Ok(res);
+        Ok(res)
     }
 
     fn read_padded_slice<T>(&mut self) -> Result<&'a [T], ErrorCode<P>> {
@@ -328,7 +328,7 @@ where
             return Err(ErrorCode::UnexpectedValue);
         }
         let res = unsafe { std::slice::from_raw_parts(res.as_ptr() as *const T, n_values) };
-        return Ok(res);
+        Ok(res)
     }
 
     #[allow(dead_code)]
@@ -417,7 +417,7 @@ where
             //eprintln!("{:?} != {:?}", value, expected_value);
             return Err(ErrorCode::UnexpectedValue);
         }
-        return Ok(value);
+        Ok(value)
     }
 
     fn read_header(&mut self) -> Result<FileHeader<P>, ErrorCode<P>> {
@@ -490,9 +490,7 @@ where
     }
 }
 
-pub fn parse_buffer_single<'a>(
-    buffer: &'a [u8],
-) -> Result<OP2<'a, SinglePrecision>, Error<'a, SinglePrecision>> {
+pub fn parse_buffer_single(buffer: &[u8]) -> Result<OP2<SinglePrecision>, Error<SinglePrecision>> {
     let mut parser = OP2Parser {
         buffer,
         precision: std::marker::PhantomData,
@@ -500,9 +498,7 @@ pub fn parse_buffer_single<'a>(
     parser.parse()
 }
 
-pub fn parse_buffer_double<'a>(
-    buffer: &'a [u8],
-) -> Result<OP2<'a, DoublePrecision>, Error<'a, DoublePrecision>> {
+pub fn parse_buffer_double(buffer: &[u8]) -> Result<OP2<DoublePrecision>, Error<DoublePrecision>> {
     let mut parser = OP2Parser {
         buffer,
         precision: std::marker::PhantomData,
