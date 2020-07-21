@@ -1424,12 +1424,11 @@ where
 pub fn parse_file(
     filename: impl AsRef<std::path::Path>,
 ) -> Result<impl Iterator<Item = Result<BulkCard>>> {
-    use rayon::prelude::*;
     let t = std::time::Instant::now();
     let bytes = std::fs::read(filename)?;
     println!("Read file took {} ms", t.elapsed().as_millis());
     let t = std::time::Instant::now();
-    let lines = bytes.par_split(|&c| c == b'\n').map(|line| {
+    let lines = bytes.split(|&c| c == b'\n').map(|line| {
         let original = line.to_vec();
         let n = std::cmp::min(original.len(), 10);
         if original[..n].contains(&b',') {

@@ -627,11 +627,10 @@ impl Deck {
             .sum()
     }
     pub fn mass_cg(&self, location: &GlobalLocation) -> (f64, Vec3) {
-        use rayon::prelude::*;
         let mm: MassMoment = self
             .ctetra
             .data
-            .par_iter()
+            .iter()
             .filter_map(|c| c.as_ref())
             .map(|c| self.with(c).mass_moment(location).unwrap_or_default())
             .sum();
