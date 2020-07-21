@@ -3,8 +3,6 @@ use super::{Comment, EOL};
 
 use std::io;
 
-use smallvec::SmallVec;
-
 pub(crate) struct NastranLine {
     original: Vec<u8>,
     iter: NastranLineIter,
@@ -44,14 +42,14 @@ impl NastranLine {
     }
 
     pub(crate) fn comment_and_eol(&mut self) -> Result<(Comment, Option<EOL>)> {
-        match self.iter.comment.take() {
-            Some(comment) => Ok((comment, self.iter.eol)),
-            None => Err(Error::UnparsedChars),
-        }
+        self.iter.comment_and_eol().ok_or_else(|| {
+            let chars = (&mut self.iter).collect();
+            Error::UnparsedChars(chars)
+        })
     }
 
     pub(crate) fn end_of_data(&mut self) -> bool {
-        self.iter.comment.is_some() || self.iter.peek().is_none()
+        self.iter.state != NastranLineIterState::Parsing
     }
 
     pub(crate) fn original(&self) -> Vec<u8> {
@@ -59,18 +57,23 @@ impl NastranLine {
     }
 }
 
+#[derive(PartialEq, Clone)]
+pub(crate) enum NastranLineIterState {
+    Parsing,
+    Comment(Comment, Option<EOL>),
+    End,
+}
+
 pub(crate) struct NastranLineIter {
     iter: std::iter::Peekable<std::iter::Enumerate<ExpandTabs<std::vec::IntoIter<u8>>>>,
-    comment: Option<Comment>,
-    eol: Option<EOL>,
+    state: NastranLineIterState,
 }
 
 impl NastranLineIter {
     pub(crate) fn new(iter: std::vec::IntoIter<u8>) -> Self {
         Self {
             iter: ExpandTabs::new(iter).enumerate().peekable(),
-            comment: None,
-            eol: None,
+            state: NastranLineIterState::Parsing,
         }
     }
 
@@ -78,24 +81,33 @@ impl NastranLineIter {
         self.iter.peek().map(|c| c.1)
     }
 
-    pub(crate) fn comment_and_eol(&mut self) -> (Option<Comment>, Option<EOL>) {
-        (self.comment.take(), self.eol)
+    pub(crate) fn comment_and_eol(&mut self) -> Option<(Comment, Option<EOL>)> {
+        // TODO this is a mess
+        let (state, res) = match &self.state {
+            NastranLineIterState::Comment(comment, eol) => {
+                (NastranLineIterState::End, Some((comment.clone(), *eol)))
+            }
+            s => (s.clone(), None),
+        };
+        self.state = state;
+        res
     }
-
-    //fn to_comment(&mut self) -> Result<SmallVec<[u8; 8]>> {
-    //    self.comment.take().ok_or(Error::UnparsedChars)
-    //}
 }
 
 impl Iterator for NastranLineIter {
     type Item = u8;
 
     fn next(&mut self) -> Option<Self::Item> {
+        match self.state {
+            NastranLineIterState::Comment(_, _) | NastranLineIterState::End => return None,
+            _ => {}
+        }
         #[derive(Debug)]
         enum Res {
             Char(u8),
             CharAndEOL(u8),
             DollarSign(u8),
+            EOL,
             CRLF,
             LF,
         }
@@ -109,58 +121,60 @@ impl Iterator for NastranLineIter {
             Some((79, c)) => CharAndEOL(c),
             Some((_, c @ b'a'..=b'z')) => Char(c - 32),
             Some((_, c)) => Char(c),
-            None => return None,
+            None => EOL,
         };
         // There's probably a better way to handle this
         match result {
             Char(c) => Some(c),
             CharAndEOL(c) => {
-                let mut comment = SmallVec::new();
+                let mut comment = Comment::new();
+                let mut eol = None;
                 while let Some((_, c)) = self.iter.next() {
                     match c {
                         b'\r' => {
-                            self.eol = Some(self::EOL::CRLF);
+                            eol = Some(self::EOL::LF);
                             break;
                         }
                         b'\n' => {
-                            self.eol = Some(self::EOL::LF);
+                            eol = Some(self::EOL::LF);
                             break;
                         }
                         _ => comment.push(c),
                     }
                 }
-                self.comment = Some(Comment(comment));
+                self.state = NastranLineIterState::Comment(comment, eol);
                 Some(c)
             }
             DollarSign(c) => {
-                let mut comment = SmallVec::new();
+                let mut comment = Comment::new();
+                let mut eol = None;
                 comment.push(c);
                 while let Some((_, c)) = self.iter.next() {
                     match c {
                         b'\r' => {
-                            self.eol = Some(self::EOL::CRLF);
+                            eol = Some(self::EOL::CRLF);
                             break;
                         }
                         b'\n' => {
-                            self.eol = Some(self::EOL::LF);
+                            eol = Some(self::EOL::LF);
                             break;
                         }
                         _ => comment.push(c),
                     }
                 }
-                self.comment = Some(Comment(comment));
+                self.state = NastranLineIterState::Comment(comment, eol);
+                None
+            }
+            EOL => {
+                self.state = NastranLineIterState::Comment(Comment::new(), None);
                 None
             }
             CRLF => {
-                let comment = SmallVec::new();
-                self.comment = Some(Comment(comment));
-                self.eol = Some(self::EOL::CRLF);
+                self.state = NastranLineIterState::Comment(Comment::new(), Some(self::EOL::CRLF));
                 None
             }
             LF => {
-                let comment = SmallVec::new();
-                self.comment = Some(Comment(comment));
-                self.eol = Some(self::EOL::LF);
+                self.state = NastranLineIterState::Comment(Comment::new(), Some(self::EOL::LF));
                 None
             }
         }
