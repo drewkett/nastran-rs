@@ -442,6 +442,7 @@ where
         self.map.get(&id).and_then(|i| self.data[*i].as_ref())
     }
 
+    #[cfg_attr(feature = "parallel", allow(dead_code))]
     fn replace(&mut self, item: T) -> Option<T> {
         let i = self.data.len();
         let id = item.id();
@@ -452,6 +453,7 @@ where
         }
     }
 
+    #[cfg_attr(feature = "parallel", allow(dead_code))]
     fn insert(&mut self, item: T) -> Result<()> {
         match self.replace(item) {
             Some(_item) => Err(Error::DuplicateCard),
@@ -459,6 +461,7 @@ where
         }
     }
 
+    #[cfg_attr(not(feature = "parallel"), allow(dead_code))]
     fn extend_from_raw(&mut self, raw: RawStorage<T>) -> Result<()> {
         let n = self.data.len();
         self.data.extend(raw.data);
