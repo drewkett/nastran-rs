@@ -1417,17 +1417,16 @@ pub fn parse_file(
     let bytes = std::fs::read(filename)?;
     println!("Read file took {} ms", t.elapsed().as_millis());
     let t = std::time::Instant::now();
-    let lines = bytes.split(|&c| c == b'\n').map(|line| {
+    let lines = bytes.split(|&c| c == b'\n').flat_map(|line| {
         let n = std::cmp::min(line.len(), 10);
         if line[..n].contains(&b',') {
-            // FIXME this is currently dropping continuations for commas
-            let mut lines = NastranCommaLine::new(line.to_vec())
+            let lines = NastranCommaLine::new(line.to_vec())
                 .map(|r| r.and_then(TryInto::try_into))
                 .collect::<Result<Vec<BulkLine>>>()?;
-            Ok(lines.pop().unwrap())
+            rayon::iter::Either::Left(lines.into_par_iter())
         } else {
             let line: Result<UnparsedBulkLine> = NastranLine::new(line.to_vec()).try_into();
-            line.and_then(TryInto::try_into)
+            rayon::iter::Either::Right(rayon::iter::once(line.and_then(TryInto::try_into)))
         }
     });
     println!("Line parsing took {} ms", t.elapsed().as_millis());
