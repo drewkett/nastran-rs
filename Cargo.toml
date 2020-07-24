@@ -17,6 +17,7 @@ default = ["parallel"]
 parallel = ["rayon"]
 
 [dependencies]
+arrayvec = "0.5"
 bstr = "0.2"
 dtoa = "0.4"
 memmap = "0.7"

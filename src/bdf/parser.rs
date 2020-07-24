@@ -1,5 +1,6 @@
 mod lines;
 
+use arrayvec::ArrayVec;
 use bstr::ByteSlice;
 use smallvec::SmallVec;
 use std::collections::HashMap;
@@ -12,7 +13,7 @@ use lines::{NastranLine, NastranLineIter};
 
 enum OneOrMany<T> {
     One(T),
-    Many(Vec<T>),
+    Many(ArrayVec<[T; 9]>),
 }
 
 #[derive(Debug, Default, PartialEq, Clone)]
@@ -1390,7 +1391,7 @@ where
     I: Iterator<Item = OneOrMany<T>>,
 {
     iter: I,
-    many: Option<Vec<T>>,
+    many: Option<ArrayVec<[T; 9]>>,
 }
 
 fn expand_one_or_many<T, I>(iter: I) -> ExpandOneOrMany<T, I>
@@ -1440,7 +1441,7 @@ pub fn parse_file(
         if original[..n].contains(&b',') {
             let lines = NastranCommaLine::new(line.to_vec())
                 .map(|r| r.and_then(TryInto::try_into))
-                .collect::<Vec<Result<BulkLine>>>();
+                .collect::<arrayvec::ArrayVec<[Result<BulkLine>; 9]>>();
             Ok(OneOrMany::Many(lines))
         } else {
             let line: Result<UnparsedBulkLine> = NastranLine::new(line.to_vec()).try_into();
