@@ -1,20 +1,16 @@
 mod lines;
 
-use arrayvec::ArrayVec;
 use bstr::ByteSlice;
 use smallvec::SmallVec;
 use std::collections::HashMap;
+#[cfg(feature = "parallel")]
+use std::collections::LinkedList;
 use std::convert::{TryFrom, TryInto};
 use std::fmt;
 
 use crate::bdf::{Error, Result};
 
 use lines::{NastranLine, NastranLineIter};
-
-enum OneOrMany<T> {
-    One(T),
-    Many(ArrayVec<[T; 9]>),
-}
 
 #[derive(Debug, Default, PartialEq, Clone)]
 pub struct Comment(SmallVec<[u8; 8]>);
@@ -1386,100 +1382,54 @@ where
     }
 }
 
-struct ExpandOneOrMany<T, I>
-where
-    I: Iterator<Item = OneOrMany<T>>,
-{
-    iter: I,
-    many: Option<ArrayVec<[T; 9]>>,
-}
-
-fn expand_one_or_many<T, I>(iter: I) -> ExpandOneOrMany<T, I>
-where
-    I: Iterator<Item = OneOrMany<T>>,
-{
-    ExpandOneOrMany { iter, many: None }
-}
-
-impl<T, I> Iterator for ExpandOneOrMany<T, I>
-where
-    I: Iterator<Item = OneOrMany<T>>,
-{
-    type Item = T;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if let Some(m) = &mut self.many {
-            if !m.is_empty() {
-                return Some(m.remove(0));
-            }
-        }
-        self.many = None;
-        match self.iter.next() {
-            Some(OneOrMany::One(v)) => Some(v),
-            Some(OneOrMany::Many(mut v)) => {
-                let o = v.remove(0);
-                self.many = Some(v);
-                Some(o)
-            }
-            None => None,
-        }
-    }
-}
-
 #[cfg(feature = "parallel")]
-pub fn parse_file(
-    filename: impl AsRef<std::path::Path>,
-) -> Result<impl Iterator<Item = Result<BulkCard>>> {
+pub fn parse_bytes(bytes: &[u8]) -> Result<impl Iterator<Item = Result<BulkCard>>> {
     use rayon::prelude::*;
     let t = std::time::Instant::now();
-    let bytes = std::fs::read(filename)?;
-    println!("Read file took {} ms", t.elapsed().as_millis());
-    let t = std::time::Instant::now();
-    let lines = bytes.par_split(|&c| c == b'\n').map(|line| {
-        let original = line.to_vec();
-        let n = std::cmp::min(original.len(), 10);
-        if original[..n].contains(&b',') {
-            let lines = NastranCommaLine::new(line.to_vec())
-                .map(|r| r.and_then(TryInto::try_into))
-                .collect::<arrayvec::ArrayVec<[Result<BulkLine>; 9]>>();
-            Ok(OneOrMany::Many(lines))
-        } else {
-            let line: Result<UnparsedBulkLine> = NastranLine::new(line.to_vec()).try_into();
-            let line: Result<BulkLine> = line.and_then(TryInto::try_into);
-            Ok(OneOrMany::One(line))
-        }
-    });
-    let lines = lines.collect::<Result<Vec<_>>>()?;
+    let lines = bytes
+        .par_split(|&c| c == b'\n')
+        .fold(Vec::new, |mut vec, line| {
+            let n = std::cmp::min(line.len(), 10);
+            if line[..n].contains(&b',') {
+                vec.extend(
+                    NastranCommaLine::new(line.to_vec()).map(|r| r.and_then(TryInto::try_into)),
+                );
+            } else {
+                let line: Result<UnparsedBulkLine> = NastranLine::new(line.to_vec()).try_into();
+                let line: Result<BulkLine> = line.and_then(TryInto::try_into);
+                vec.push(line)
+            }
+            vec
+        })
+        .map(|vec| {
+            let mut list = LinkedList::new();
+            list.push_back(vec);
+            list
+        })
+        .reduce(LinkedList::new, |mut list1, mut list2| {
+            list1.append(&mut list2);
+            list1
+        });
     println!("Line parsing took {} ms", t.elapsed().as_millis());
-    Ok(BulkCardIter::new(expand_one_or_many(lines.into_iter())))
+    Ok(BulkCardIter::new(lines.into_iter().flatten()))
 }
 
 #[cfg(not(feature = "parallel"))]
-pub fn parse_file(
-    filename: impl AsRef<std::path::Path>,
-) -> Result<impl Iterator<Item = Result<BulkCard>>> {
+pub fn parse_bytes(bytes: &[u8]) -> Result<BulkCardIter<()>> {
     // FIXME this is awkward. Either the bulk card iter should open the file
-    let t = std::time::Instant::now();
-    let bytes = std::fs::read(filename)?;
-    println!("Read file took {} ms", t.elapsed().as_millis());
     let t = std::time::Instant::now();
     let lines = bytes.split(|&c| c == b'\n').flat_map(|line| {
         let n = std::cmp::min(line.len(), 10);
-        if original[..n].contains(&b',') {
-            let lines = NastranCommaLine::new(line.to_vec())
-                .map(|r| r.and_then(TryInto::try_into))
-                .collect::<Vec<Result<BulkLine>>>();
-            Ok(OneOrMany::Many(lines))
+        if line[..n].contains(&b',') {
+            either::Either::Left(
+                NastranCommaLine::new(line.to_vec()).map(|r| r.and_then(TryInto::try_into)),
+            )
         } else {
             let line: Result<UnparsedBulkLine> = NastranLine::new(line.to_vec()).try_into();
             let line: Result<BulkLine> = line.and_then(TryInto::try_into);
-            Ok(OneOrMany::One(line))
+            either::Either::Right(std::iter::once(line))
         }
     });
     println!("Line parsing took {} ms", t.elapsed().as_millis());
-    let cards = BulkCardIter::new(expand_one_or_many(lines))
-        .collect::<Result<Vec<BulkCard>>>()?
-        .into_iter()
-        .map(Ok);
-    Ok(cards)
+    Ok(BulkCardIter::new(lines))
 }

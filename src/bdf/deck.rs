@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 
 use crate::bdf::{
-    parser::{parse_file, BulkCard, Field, FieldConv},
+    parser::{parse_bytes, BulkCard, Field, FieldConv},
     Error, Result,
 };
 use crate::util::{CoordSys, Vec3, XYZ};
@@ -638,7 +638,8 @@ impl Deck {
     #[cfg(feature = "parallel")]
     pub fn from_filename(filename: impl AsRef<std::path::Path>) -> Result<Self> {
         use rayon::prelude::*;
-        let cards: Vec<_> = parse_file(filename)?.collect();
+        let bytes = std::fs::read(filename)?;
+        let cards: Vec<_> = parse_bytes(&bytes)?.collect();
         let decks = cards
             .into_par_iter()
             .try_fold(RawDeck::default, |mut deck, card| -> Result<RawDeck> {
@@ -690,7 +691,8 @@ impl Deck {
 
     #[cfg(not(feature = "parallel"))]
     pub fn from_filename(filename: impl AsRef<std::path::Path>) -> Result<Self> {
-        parse_file(filename)?
+        let bytes = std::fs::read(filename)?;
+        parse_bytes(&bytes)?
             .into_iter()
             .try_fold(Deck::default(), |mut deck, card| {
                 // This should be ordered by most common card type. Or maybe using a regexset or something

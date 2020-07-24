@@ -1,4 +1,4 @@
-use nastran::bdf::parser::parse_file;
+use nastran::bdf::parser::parse_bytes;
 use nastran::bdf::Result;
 
 use std::io;
@@ -12,7 +12,8 @@ pub fn main() -> Result<()> {
         .next()
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "missing argument"))?;
     println!("{}", filename);
-    for card in parse_file(filename)? {
+    let bytes = std::fs::read(filename)?;
+    for card in parse_bytes(&bytes)? {
         let card = card?;
         // if card.original().is_empty() {
         //     println!("original = ");
