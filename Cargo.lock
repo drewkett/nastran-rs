@@ -387,6 +387,7 @@ dependencies = [
  "bstr",
  "criterion",
  "dtoa",
+ "either",
  "memmap",
  "rayon",
  "smallvec",
