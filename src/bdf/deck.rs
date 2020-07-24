@@ -638,8 +638,8 @@ impl Deck {
     #[cfg(feature = "parallel")]
     pub fn from_filename(filename: impl AsRef<std::path::Path>) -> Result<Self> {
         use rayon::prelude::*;
-        let decks = parse_file(filename)?
-            .par_bridge()
+        let cards: Vec<_> = parse_file(filename)?.collect();
+        let decks = cards
             .into_par_iter()
             .try_fold(RawDeck::default, |mut deck, card| -> Result<RawDeck> {
                 // This should be ordered by most common card type. Or maybe using a regexset or something

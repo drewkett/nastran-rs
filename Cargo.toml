@@ -19,7 +19,6 @@ parallel = ["rayon"]
 [dependencies]
 bstr = "0.2"
 dtoa = "0.4"
-either = "1.5"
 memmap = "0.7"
 smallvec = "1.4"
 thiserror = "1.0"
