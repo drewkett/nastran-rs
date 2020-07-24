@@ -10,6 +10,11 @@ use crate::bdf::{Error, Result};
 
 use lines::{NastranLine, NastranLineIter};
 
+enum OneOrMany<T> {
+    One(T),
+    Many(Vec<T>),
+}
+
 #[derive(Debug, Default, PartialEq, Clone)]
 pub struct Comment(SmallVec<[u8; 8]>);
 
@@ -1380,6 +1385,46 @@ where
     }
 }
 
+struct ExpandOneOrMany<T, I>
+where
+    I: Iterator<Item = OneOrMany<T>>,
+{
+    iter: I,
+    many: Option<Vec<T>>,
+}
+
+fn expand_one_or_many<T, I>(iter: I) -> ExpandOneOrMany<T, I>
+where
+    I: Iterator<Item = OneOrMany<T>>,
+{
+    ExpandOneOrMany { iter, many: None }
+}
+
+impl<T, I> Iterator for ExpandOneOrMany<T, I>
+where
+    I: Iterator<Item = OneOrMany<T>>,
+{
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(m) = &mut self.many {
+            if !m.is_empty() {
+                return Some(m.remove(0));
+            }
+        }
+        self.many = None;
+        match self.iter.next() {
+            Some(OneOrMany::One(v)) => Some(v),
+            Some(OneOrMany::Many(mut v)) => {
+                let o = v.remove(0);
+                self.many = Some(v);
+                Some(o)
+            }
+            None => None,
+        }
+    }
+}
+
 #[cfg(feature = "parallel")]
 pub fn parse_file(
     filename: impl AsRef<std::path::Path>,
@@ -1389,22 +1434,28 @@ pub fn parse_file(
     let bytes = std::fs::read(filename)?;
     println!("Read file took {} ms", t.elapsed().as_millis());
     let t = std::time::Instant::now();
-    let lines = bytes.par_split(|&c| c == b'\n').flat_map(|line| {
+    let lines = bytes.par_split(|&c| c == b'\n').map(|line| {
         let original = line.to_vec();
         let n = std::cmp::min(original.len(), 10);
         if original[..n].contains(&b',') {
             let lines = NastranCommaLine::new(line.to_vec())
                 .map(|r| r.and_then(TryInto::try_into))
                 .collect::<Vec<Result<BulkLine>>>();
-            rayon::iter::Either::Left(lines.into_par_iter())
+            Ok(OneOrMany::Many(lines))
+        // rayon::iter::Either::Left(lines.into_par_iter())
         } else {
             let line: Result<UnparsedBulkLine> = NastranLine::new(line.to_vec()).try_into();
-            rayon::iter::Either::Right(rayon::iter::once(line.and_then(TryInto::try_into)))
+            let line: Result<BulkLine> = line.and_then(TryInto::try_into);
+            // let mut v = SmallVec::<[_; 9]>::new();
+            // v.push(line.and_then(TryInto::try_into));
+            // v
+            Ok(OneOrMany::One(line))
+            // rayon::iter::Either::Right(rayon::iter::once(line))
         }
     });
     let lines = lines.collect::<Result<Vec<_>>>()?;
     println!("Line parsing took {} ms", t.elapsed().as_millis());
-    Ok(BulkCardIter::new(lines.into_iter().map(Ok)))
+    Ok(BulkCardIter::new(expand_one_or_many(lines.into_iter())))
 }
 
 #[cfg(not(feature = "parallel"))]
