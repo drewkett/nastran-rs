@@ -639,7 +639,7 @@ impl Deck {
     pub fn from_filename(filename: impl AsRef<std::path::Path>) -> Result<Self> {
         use rayon::prelude::*;
         let bytes = std::fs::read(filename)?;
-        let cards: Vec<_> = parse_bytes(&bytes)?.collect();
+        let cards: Vec<_> = parse_bytes(bytes)?.collect();
         let decks = cards
             .into_par_iter()
             .try_fold(RawDeck::default, |mut deck, card| -> Result<RawDeck> {
@@ -692,21 +692,19 @@ impl Deck {
     #[cfg(not(feature = "parallel"))]
     pub fn from_filename(filename: impl AsRef<std::path::Path>) -> Result<Self> {
         let bytes = std::fs::read(filename)?;
-        parse_bytes(&bytes)?
-            .into_iter()
-            .try_fold(Deck::default(), |mut deck, card| {
-                // This should be ordered by most common card type. Or maybe using a regexset or something
-                let card = card?;
-                match card.card_type().as_ref() {
-                    Some(b"GRID   ") => deck.grid.insert(card.try_into()?)?,
-                    Some(b"CORD2R ") => deck.cord2r.insert(card.try_into()?)?,
-                    Some(b"PSOLID ") => deck.psolid.insert(card.try_into()?)?,
-                    Some(b"MAT1   ") => deck.mat1.insert(card.try_into()?)?,
-                    Some(b"CTETRA ") => deck.ctetra.insert(card.try_into()?)?,
-                    _ => {}
-                };
-                Ok(deck)
-            })
+        parse_bytes(bytes)?.try_fold(Deck::default(), |mut deck, card| {
+            // This should be ordered by most common card type. Or maybe using a regexset or something
+            let card = card?;
+            match card.card_type().as_ref() {
+                Some(b"GRID   ") => deck.grid.insert(card.try_into()?)?,
+                Some(b"CORD2R ") => deck.cord2r.insert(card.try_into()?)?,
+                Some(b"PSOLID ") => deck.psolid.insert(card.try_into()?)?,
+                Some(b"MAT1   ") => deck.mat1.insert(card.try_into()?)?,
+                Some(b"CTETRA ") => deck.ctetra.insert(card.try_into()?)?,
+                _ => {}
+            };
+            Ok(deck)
+        })
     }
 
     pub fn global_locations(&self) -> GlobalLocation {

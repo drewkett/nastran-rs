@@ -1383,7 +1383,7 @@ where
 }
 
 #[cfg(feature = "parallel")]
-pub fn parse_bytes(bytes: &[u8]) -> Result<impl Iterator<Item = Result<BulkCard>>> {
+pub fn parse_bytes(bytes: Vec<u8>) -> Result<impl Iterator<Item = Result<BulkCard>>> {
     use rayon::prelude::*;
     let t = std::time::Instant::now();
     let lines = bytes
@@ -1415,7 +1415,7 @@ pub fn parse_bytes(bytes: &[u8]) -> Result<impl Iterator<Item = Result<BulkCard>
 }
 
 #[cfg(not(feature = "parallel"))]
-pub fn parse_bytes(bytes: &[u8]) -> Result<BulkCardIter<()>> {
+pub fn parse_bytes(bytes: Vec<u8>) -> Result<impl Iterator<Item = Result<BulkCard>>> {
     // FIXME this is awkward. Either the bulk card iter should open the file
     let t = std::time::Instant::now();
     let lines = bytes.split(|&c| c == b'\n').flat_map(|line| {
@@ -1431,5 +1431,5 @@ pub fn parse_bytes(bytes: &[u8]) -> Result<BulkCardIter<()>> {
         }
     });
     println!("Line parsing took {} ms", t.elapsed().as_millis());
-    Ok(BulkCardIter::new(lines))
+    Ok(BulkCardIter::new(lines).collect::<Vec<_>>().into_iter())
 }

@@ -13,7 +13,7 @@ pub fn main() -> Result<()> {
         .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "missing argument"))?;
     println!("{}", filename);
     let bytes = std::fs::read(filename)?;
-    for card in parse_bytes(&bytes)? {
+    for card in parse_bytes(bytes)? {
         let card = card?;
         // if card.original().is_empty() {
         //     println!("original = ");
