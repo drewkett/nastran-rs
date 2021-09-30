@@ -940,15 +940,15 @@ where
             (Int, b' ', _) => (EndInt, Zero),
             (Int, b'D', _) => (DoubleExponent, One(b'E')),
             (Int, c @ b'E', _) => (FloatExponent, One(c)),
-            (Int, c @ b'+', _) => (FloatSignedExponent, Two(b'E',c)),
-            (Int, c @ b'-', _) => (FloatSignedExponent, Two(b'E',c)),
+            (Int, c @ b'+', _) => (FloatSignedExponent, Two(b'E', c)),
+            (Int, c @ b'-', _) => (FloatSignedExponent, Two(b'E', c)),
             (IntOrId, c @ b'0'..=b'9', _) => (IntOrId, One(c)),
             (IntOrId, c @ b'.', _) => (FloatPeriod, One(c)),
             (IntOrId, b' ', _) => (EndIntOrId, Zero),
             (IntOrId, c @ b'E', _) => (FloatExponent, One(c)),
             (IntOrId, b'D', _) => (DoubleExponent, One(b'E')),
-            (IntOrId, c @ b'+', _) => (FloatSignedExponent, Two(b'E',c)),
-            (IntOrId, c @ b'-', _) => (FloatSignedExponent, Two(b'E',c)),
+            (IntOrId, c @ b'+', _) => (FloatSignedExponent, Two(b'E', c)),
+            (IntOrId, c @ b'-', _) => (FloatSignedExponent, Two(b'E', c)),
             (PlusMinus, c @ b'0'..=b'9', _) => (Int, One(c)),
             (PlusMinus, c @ b'.', _) => (PlusMinusPeriod, One(c)),
             (PlusMinusPeriod, c @ b'0'..=b'9', _) => (FloatPeriod, One(c)),
@@ -1452,12 +1452,30 @@ mod test {
 
     #[test]
     fn test_parse_field() {
-        assert_eq!(Field::Float(1000.),parse_inner_field(&mut b"1.E3".iter().copied()).unwrap());
-        assert_eq!(Field::Float(1000.),parse_inner_field(&mut b"1E3".iter().copied()).unwrap());
-        assert_eq!(Field::Float(1000.),parse_inner_field(&mut b"1+3".iter().copied()).unwrap());
-        assert_eq!(Field::Double(1000.),parse_inner_field(&mut b"1.D3".iter().copied()).unwrap());
-        assert_eq!(Field::Double(1000.),parse_inner_field(&mut b"1D3".iter().copied()).unwrap());
-        assert_eq!(Field::Double(1000.),parse_inner_field(&mut b"1D+3".iter().copied()).unwrap());
+        assert_eq!(
+            Field::Float(1000.),
+            parse_inner_field(&mut b"1.E3".iter().copied()).unwrap()
+        );
+        assert_eq!(
+            Field::Float(1000.),
+            parse_inner_field(&mut b"1E3".iter().copied()).unwrap()
+        );
+        assert_eq!(
+            Field::Float(1000.),
+            parse_inner_field(&mut b"1+3".iter().copied()).unwrap()
+        );
+        assert_eq!(
+            Field::Double(1000.),
+            parse_inner_field(&mut b"1.D3".iter().copied()).unwrap()
+        );
+        assert_eq!(
+            Field::Double(1000.),
+            parse_inner_field(&mut b"1D3".iter().copied()).unwrap()
+        );
+        assert_eq!(
+            Field::Double(1000.),
+            parse_inner_field(&mut b"1D+3".iter().copied()).unwrap()
+        );
         //assert_eq!((),parse_inner_field(b"1.D+3"));
         //assert_eq!((),parse_inner_field(b"1.D-3"));
         //assert_eq!((),parse_inner_field(b"1D3"));

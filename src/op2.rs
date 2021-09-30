@@ -29,9 +29,16 @@ impl fmt::Display for DoubleWord {
 impl Word for DoubleWord {}
 
 pub trait Precision: fmt::Debug + Sized + Copy + 'static {
-    type Int: fmt::Debug + fmt::Display + PartialEq + PartialOrd + Copy + Into<i64> + From<i32>+'static;
-    type UInt: fmt::Debug + fmt::Display+'static;
-    type Float: fmt::Debug + fmt::Display+'static;
+    type Int: fmt::Debug
+        + fmt::Display
+        + PartialEq
+        + PartialOrd
+        + Copy
+        + Into<i64>
+        + From<i32>
+        + 'static;
+    type UInt: fmt::Debug + fmt::Display + 'static;
+    type Float: fmt::Debug + fmt::Display + 'static;
     type Word: Word + 'static;
 
     const WORDSIZE: usize;
@@ -212,18 +219,21 @@ impl DataBlockType {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct Indexed<T>{
+pub struct Indexed<T> {
     start: usize,
     end: usize,
-    data: std::marker::PhantomData<T>
+    data: std::marker::PhantomData<T>,
 }
 
-impl <T> Indexed<T> where T: 'static {
+impl<T> Indexed<T>
+where
+    T: 'static,
+{
     fn new(start: usize, end: usize) -> Self {
         Indexed {
             start,
             end,
-            data: std::marker::PhantomData
+            data: std::marker::PhantomData,
         }
     }
 
@@ -235,19 +245,22 @@ impl <T> Indexed<T> where T: 'static {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct IndexedSlice<T>{
+pub struct IndexedSlice<T> {
     start: usize,
     end: usize,
-    data: std::marker::PhantomData<T>
+    data: std::marker::PhantomData<T>,
 }
 
-impl <T> IndexedSlice<T> where T: 'static {
+impl<T> IndexedSlice<T>
+where
+    T: 'static,
+{
     fn new(start: usize, end: usize) -> Self {
-        debug_assert!((end-start)%std::mem::size_of::<T>() == 0);
+        debug_assert!((end - start) % std::mem::size_of::<T>() == 0);
         IndexedSlice {
             start,
             end,
-            data: std::marker::PhantomData
+            data: std::marker::PhantomData,
         }
     }
 
@@ -299,7 +312,8 @@ pub enum EncodedSize<P: Precision> {
 }
 
 pub enum EncodedData<P: Precision, T> {
-    Data(T), Zero,
+    Data(T),
+    Zero,
     EOR(P::Int),
 }
 
@@ -333,7 +347,7 @@ where
         if self.rem() < n {
             return Err(ErrorCode::UnexpectedEOF);
         }
-        let ret = IndexedSlice::new(self.index,self.index+n);
+        let ret = IndexedSlice::new(self.index, self.index + n);
         self.index += n;
         Ok(ret)
     }
@@ -394,7 +408,9 @@ where
         Ok(res.cast_slice())
     }
 
-    fn read_encoded_data_slice<T: 'static>(&mut self) -> Result<EncodedData<P, IndexedSlice<T>>, ErrorCode<P>> {
+    fn read_encoded_data_slice<T: 'static>(
+        &mut self,
+    ) -> Result<EncodedData<P, IndexedSlice<T>>, ErrorCode<P>> {
         let idx = self.read_padded()?;
         let nwords: P::Int = *self.read(&idx);
         if nwords < P::zero_int() {
@@ -418,8 +434,10 @@ where
         }
     }
 
-    fn read_encoded_data<T: 'static>(&mut self) -> Result<EncodedData<P, Indexed<T>>, ErrorCode<P>> {
-                let idx = self.read_padded()?;
+    fn read_encoded_data<T: 'static>(
+        &mut self,
+    ) -> Result<EncodedData<P, Indexed<T>>, ErrorCode<P>> {
+        let idx = self.read_padded()?;
         let nwords: P::Int = *self.read(&idx);
         if nwords < P::zero_int() {
             Ok(EncodedData::EOR(nwords))
@@ -460,10 +478,10 @@ where
     }
 
     fn read_header(&mut self) -> Result<FileHeader<P>, ErrorCode<P>> {
-                let idx = self.read_encoded()?;
+        let idx = self.read_encoded()?;
         let date: Date<P> = *self.read(&idx);
         let _ = self.read_encoded_value(&P::header_code())?;
-                let idx = self.read_encoded()?;
+        let idx = self.read_encoded()?;
         let label = *self.read(&idx);
         let _ = self.read_padded_expected(&P::Int::from(-1))?;
         let _ = self.read_padded_expected(&P::Int::from(0))?;
@@ -529,7 +547,7 @@ where
     fn parse(&mut self) -> std::result::Result<OP2<P>, Error<P>> {
         self.inner_parse().map_err(|code| Error {
             code,
-            remaining: Indexed::new(self.index,self.buffer.len())
+            remaining: Indexed::new(self.index, self.buffer.len()),
         })
     }
 }
@@ -584,10 +602,7 @@ fn test_parse_buffer() {
     assert_eq!(op2.blocks[0].trailer, [101, 13, 0, 0, 0, 0, 0]);
     assert_eq!(op2.blocks[0].record_type, DataBlockType::Table);
     let header = op2.blocks[0].header.read(buf);
-    assert_eq!(
-        header,
-        [SingleWord(*b"PVT "), SingleWord(*b"    ")]
-    );
+    assert_eq!(header, [SingleWord(*b"PVT "), SingleWord(*b"    ")]);
     assert_eq!(op2.blocks[0].records.len(), 1);
 }
 

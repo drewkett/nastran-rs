@@ -460,8 +460,12 @@ where
         let n = self.data.len();
         self.data.extend(raw.data);
         for (i, item) in self.data[n..].iter().enumerate() {
-            if self.map.insert(item.as_ref().unwrap().id(), i + n).is_some() {
-                return Err(Error::DuplicateCard)
+            if self
+                .map
+                .insert(item.as_ref().unwrap().id(), i + n)
+                .is_some()
+            {
+                return Err(Error::DuplicateCard);
             }
         }
         Ok(())
