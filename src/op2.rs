@@ -28,11 +28,11 @@ impl fmt::Display for DoubleWord {
 
 impl Word for DoubleWord {}
 
-pub trait Precision: fmt::Debug + Sized + Copy {
-    type Int: fmt::Debug + fmt::Display + PartialEq + PartialOrd + Copy + Into<i64> + From<i32>;
-    type UInt: fmt::Debug + fmt::Display;
-    type Float: fmt::Debug + fmt::Display;
-    type Word: Word;
+pub trait Precision: fmt::Debug + Sized + Copy + 'static {
+    type Int: fmt::Debug + fmt::Display + PartialEq + PartialOrd + Copy + Into<i64> + From<i32>+'static;
+    type UInt: fmt::Debug + fmt::Display+'static;
+    type Float: fmt::Debug + fmt::Display+'static;
+    type Word: Word + 'static;
 
     const WORDSIZE: usize;
 
@@ -172,10 +172,10 @@ pub enum ErrorCode<P: Precision> {
 }
 
 #[derive(Debug, Error)]
-#[error("{0}\nnext bytes:\n{1:?}",code,&remaining[..std::cmp::min(remaining.len(),20)])]
-pub struct Error<'a, P: Precision> {
+#[error("{code}")]
+pub struct Error<P: Precision> {
     code: ErrorCode<P>,
-    remaining: &'a [u8],
+    remaining: Indexed<u8>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -212,18 +212,83 @@ impl DataBlockType {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct DataBlock<'a, P: Precision> {
-    name: [P::Word; 2],
-    trailer: [P::Int; 7],
-    record_type: DataBlockType,
-    header: &'a [P::Word],
-    records: Vec<&'a [u8]>,
+pub struct Indexed<T>{
+    start: usize,
+    end: usize,
+    data: std::marker::PhantomData<T>
+}
+
+impl <T> Indexed<T> where T: 'static {
+    fn new(start: usize, end: usize) -> Self {
+        Indexed {
+            start,
+            end,
+            data: std::marker::PhantomData
+        }
+    }
+
+    fn read<'b>(&self, file_buffer: &'b [u8]) -> &'b T {
+        let buf = &file_buffer[self.start..self.end];
+        // TODO confirm safety (see bytemuck)
+        unsafe { &*(buf.as_ptr() as *const T) }
+    }
 }
 
 #[derive(Debug, PartialEq)]
-pub struct OP2<'a, P: Precision> {
+pub struct IndexedSlice<T>{
+    start: usize,
+    end: usize,
+    data: std::marker::PhantomData<T>
+}
+
+impl <T> IndexedSlice<T> where T: 'static {
+    fn new(start: usize, end: usize) -> Self {
+        debug_assert!((end-start)%std::mem::size_of::<T>() == 0);
+        IndexedSlice {
+            start,
+            end,
+            data: std::marker::PhantomData
+        }
+    }
+
+    fn len(&self) -> usize {
+        (self.end - self.start) / std::mem::size_of::<T>()
+    }
+
+    fn read<'b>(&self, file_buffer: &'b [u8]) -> &'b [T] {
+        let buf = &file_buffer[self.start..self.end];
+        // TODO confirm safety (see bytemuck)
+        unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const T, self.len()) }
+    }
+
+    fn cast<U: 'static>(self) -> Indexed<U> {
+        let n = self.end - self.start;
+        debug_assert!(n == std::mem::size_of::<U>());
+        // TODO confirm safety
+        unsafe { std::mem::transmute(self) }
+    }
+
+    fn cast_slice<U: 'static>(self) -> IndexedSlice<U> {
+        let n = self.end - self.start;
+        debug_assert!(n % std::mem::size_of::<U>() == 0);
+        // TODO confirm safety
+        unsafe { std::mem::transmute(self) }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct DataBlock<P: Precision> {
+    name: [P::Word; 2],
+    trailer: [P::Int; 7],
+    record_type: DataBlockType,
+    header: IndexedSlice<P::Word>,
+    records: Vec<IndexedSlice<u8>>,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct OP2<P: Precision> {
     header: FileHeader<P>,
-    blocks: Vec<DataBlock<'a, P>>,
+    blocks: Vec<DataBlock<P>>,
 }
 
 #[derive(Debug)]
@@ -234,12 +299,12 @@ pub enum EncodedSize<P: Precision> {
 }
 
 pub enum EncodedData<P: Precision, T> {
-    Data(T),
-    Zero,
+    Data(T), Zero,
     EOR(P::Int),
 }
 
 struct OP2Parser<'a, P> {
+    index: usize,
     buffer: &'a [u8],
     precision: std::marker::PhantomData<P>,
 }
@@ -249,19 +314,36 @@ where
     P: Precision,
 {
     #[inline]
-    fn take(&mut self, n: usize) -> Result<&'a [u8], ErrorCode<P>> {
-        if self.buffer.len() < n {
+    fn rem(&self) -> usize {
+        self.buffer.len() - self.index
+    }
+
+    #[inline]
+    fn read<T: 'static>(&self, slice: &Indexed<T>) -> &'a T {
+        slice.read(self.buffer)
+    }
+
+    #[inline]
+    fn read_slice<T: 'static>(&self, slice: &IndexedSlice<T>) -> &'a [T] {
+        slice.read(self.buffer)
+    }
+
+    #[inline]
+    fn take(&mut self, n: usize) -> Result<IndexedSlice<u8>, ErrorCode<P>> {
+        if self.rem() < n {
             return Err(ErrorCode::UnexpectedEOF);
         }
-        let (ret, buffer) = self.buffer.split_at(n);
-        self.buffer = buffer;
+        let ret = IndexedSlice::new(self.index,self.index+n);
+        self.index += n;
         Ok(ret)
     }
 
     fn read_i32(&mut self) -> Result<i32, ErrorCode<P>> {
-        let sl = self.take(4)?;
-        let sl = sl.as_ptr() as *const [u8; 4];
-        Ok(i32::from_le_bytes(unsafe { *sl }))
+        let mut buf = [0u8; 4];
+        let idx = self.take(4)?;
+        let sl = &self.read_slice(&idx);
+        buf.copy_from_slice(sl);
+        Ok(i32::from_le_bytes(buf))
     }
 
     fn read_i32_value(&mut self, expected: i32) -> Result<(), ErrorCode<P>> {
@@ -272,45 +354,28 @@ where
         Ok(())
     }
 
-    fn read_padded<T>(&mut self) -> Result<&'a T, ErrorCode<P>> {
+    fn read_padded<T: 'static>(&mut self) -> Result<Indexed<T>, ErrorCode<P>> {
         let expected = mem::size_of::<T>();
         let expected_i = P::i32_from_usize(expected)?;
         self.read_i32_value(expected_i)?;
         let res = self.take(expected)?;
         self.read_i32_value(expected_i)?;
-        let res = unsafe { &*(res.as_ptr() as *const T) };
-        Ok(res)
+        Ok(res.cast())
     }
 
-    fn read_padded_value<T: PartialEq + fmt::Debug>(
+    fn read_padded_expected<T: PartialEq + fmt::Debug + 'static>(
         &mut self,
         expected_value: &T,
-    ) -> Result<&'a T, ErrorCode<P>> {
+    ) -> Result<Indexed<T>, ErrorCode<P>> {
         let value = self.read_padded()?;
-        if value != expected_value {
+        if self.read(&value) != expected_value {
             //eprintln!("{:?} != {:?}", value, expected_value);
             return Err(ErrorCode::UnexpectedValue);
         }
         Ok(value)
     }
 
-    #[allow(dead_code)]
-    fn read_padded_byte_slice(&mut self) -> Result<&'a [u8], ErrorCode<P>> {
-        let n = self.read_i32()?;
-        if n < 1 {
-            return Err(ErrorCode::NegativeRead(n));
-        }
-        let res = self.take(n as usize)?;
-        let expected = n;
-        let n = self.read_i32()?;
-        if n != expected {
-            //eprintln!("{:?} != {:?}", n, expected);
-            return Err(ErrorCode::UnexpectedValue);
-        }
-        Ok(res)
-    }
-
-    fn read_padded_slice<T>(&mut self) -> Result<&'a [T], ErrorCode<P>> {
+    fn read_padded_slice<T: 'static>(&mut self) -> Result<IndexedSlice<T>, ErrorCode<P>> {
         let size = std::mem::size_of::<T>();
         let n = self.read_i32()?;
         if n < 1 {
@@ -319,7 +384,6 @@ where
         if n as usize % size != 0 {
             return Err(ErrorCode::AlignmentError);
         }
-        let n_values = n as usize / size;
         let res = self.take(n as usize)?;
         let expected = n;
         let n = self.read_i32()?;
@@ -327,30 +391,12 @@ where
             //eprintln!("{:?} != {:?}", n, expected);
             return Err(ErrorCode::UnexpectedValue);
         }
-        let res = unsafe { std::slice::from_raw_parts(res.as_ptr() as *const T, n_values) };
-        Ok(res)
+        Ok(res.cast_slice())
     }
 
-    #[allow(dead_code)]
-    fn read_encoded_data_byte_slice(&mut self) -> Result<EncodedData<P, &'a [u8]>, ErrorCode<P>> {
-        let nwords: P::Int = *self.read_padded()?;
-        if nwords < P::zero_int() {
-            Ok(EncodedData::EOR(nwords))
-        } else if nwords == P::zero_int() {
-            Ok(EncodedData::Zero)
-        } else {
-            let nwords: i64 = nwords.into();
-            let nbytes = (nwords as usize) * P::WORDSIZE;
-            let ret = self.read_padded_slice()?;
-            if ret.len() != nbytes {
-                return Err(ErrorCode::UnexpectedDataLength(nbytes, ret.len()));
-            }
-            Ok(EncodedData::Data(ret))
-        }
-    }
-
-    fn read_encoded_data_slice<T>(&mut self) -> Result<EncodedData<P, &'a [T]>, ErrorCode<P>> {
-        let nwords: P::Int = *self.read_padded()?;
+    fn read_encoded_data_slice<T: 'static>(&mut self) -> Result<EncodedData<P, IndexedSlice<T>>, ErrorCode<P>> {
+        let idx = self.read_padded()?;
+        let nwords: P::Int = *self.read(&idx);
         if nwords < P::zero_int() {
             Ok(EncodedData::EOR(nwords))
         } else if nwords == P::zero_int() {
@@ -364,15 +410,17 @@ where
             }
             let nvalues = nbytes / size;
             let ret = self.read_padded_slice()?;
-            if ret.len() != nvalues {
-                return Err(ErrorCode::UnexpectedDataLength(nvalues, ret.len()));
+            let ret_n = self.read_slice(&ret).len();
+            if ret_n != nvalues {
+                return Err(ErrorCode::UnexpectedDataLength(nvalues, ret_n));
             }
             Ok(EncodedData::Data(ret))
         }
     }
 
-    fn read_encoded_data<T>(&mut self) -> Result<EncodedData<P, &'a T>, ErrorCode<P>> {
-        let nwords: P::Int = *self.read_padded()?;
+    fn read_encoded_data<T: 'static>(&mut self) -> Result<EncodedData<P, Indexed<T>>, ErrorCode<P>> {
+                let idx = self.read_padded()?;
+        let nwords: P::Int = *self.read(&idx);
         if nwords < P::zero_int() {
             Ok(EncodedData::EOR(nwords))
         } else if nwords == P::zero_int() {
@@ -383,7 +431,7 @@ where
         }
     }
 
-    fn read_encoded<T>(&mut self) -> Result<&'a T, ErrorCode<P>> {
+    fn read_encoded<T: 'static>(&mut self) -> Result<Indexed<T>, ErrorCode<P>> {
         match self.read_encoded_data()? {
             EncodedData::EOR(n) => Err(ErrorCode::UnexpectedEOR(n)),
             EncodedData::Zero => Err(ErrorCode::UnexpectedEOR(P::zero_int())),
@@ -391,16 +439,7 @@ where
         }
     }
 
-    #[allow(dead_code)]
-    fn read_encoded_byte_slice(&mut self) -> Result<&'a [u8], ErrorCode<P>> {
-        match self.read_encoded_data_byte_slice()? {
-            EncodedData::EOR(n) => Err(ErrorCode::UnexpectedEOR(n)),
-            EncodedData::Zero => Err(ErrorCode::UnexpectedEOR(P::zero_int())),
-            EncodedData::Data(d) => Ok(d),
-        }
-    }
-
-    fn read_encoded_slice<T>(&mut self) -> Result<&'a [T], ErrorCode<P>> {
+    fn read_encoded_slice<T: 'static>(&mut self) -> Result<IndexedSlice<T>, ErrorCode<P>> {
         match self.read_encoded_data_slice()? {
             EncodedData::EOR(n) => Err(ErrorCode::UnexpectedEOR(n)),
             EncodedData::Zero => Err(ErrorCode::UnexpectedEOR(P::zero_int())),
@@ -408,12 +447,12 @@ where
         }
     }
 
-    fn read_encoded_value<T: PartialEq + fmt::Debug>(
+    fn read_encoded_value<T: PartialEq + fmt::Debug + 'static>(
         &mut self,
         expected_value: &T,
-    ) -> Result<&'a T, ErrorCode<P>> {
+    ) -> Result<Indexed<T>, ErrorCode<P>> {
         let value = self.read_encoded()?;
-        if value != expected_value {
+        if expected_value != self.read(&value) {
             //eprintln!("{:?} != {:?}", value, expected_value);
             return Err(ErrorCode::UnexpectedValue);
         }
@@ -421,19 +460,22 @@ where
     }
 
     fn read_header(&mut self) -> Result<FileHeader<P>, ErrorCode<P>> {
-        let date: Date<P> = *self.read_encoded()?;
+                let idx = self.read_encoded()?;
+        let date: Date<P> = *self.read(&idx);
         let _ = self.read_encoded_value(&P::header_code())?;
-        let label = *self.read_encoded()?;
-        let _ = self.read_padded_value(&P::Int::from(-1))?;
-        let _ = self.read_padded_value(&P::Int::from(0))?;
+                let idx = self.read_encoded()?;
+        let label = *self.read(&idx);
+        let _ = self.read_padded_expected(&P::Int::from(-1))?;
+        let _ = self.read_padded_expected(&P::Int::from(0))?;
         Ok(FileHeader { date, label })
     }
 
-    fn read_table_record(&mut self) -> Result<Option<&'a [u8]>, ErrorCode<P>> {
+    fn read_table_record(&mut self) -> Result<Option<IndexedSlice<u8>>, ErrorCode<P>> {
         self.read_encoded_value(&P::Int::from(0))?;
         match self.read_encoded_data_slice()? {
             EncodedData::Data(data) => {
-                let record_num: &P::Int = self.read_padded()?;
+                let idx = self.read_padded()?;
+                let record_num: &P::Int = self.read(&idx);
                 if record_num >= &P::zero_int() {
                     return Err(ErrorCode::ExpectedEOR(*record_num));
                 }
@@ -444,18 +486,20 @@ where
         }
     }
 
-    fn read_datablock(&mut self) -> Result<Option<DataBlock<'a, P>>, ErrorCode<P>> {
+    fn read_datablock(&mut self) -> Result<Option<DataBlock<P>>, ErrorCode<P>> {
         let name = match self.read_encoded_data()? {
             EncodedData::EOR(n) => return Err(ErrorCode::UnexpectedEOR(n)),
             EncodedData::Zero => return Ok(None),
-            EncodedData::Data(name) => *name,
+            EncodedData::Data(name) => *self.read(&name),
         };
-        self.read_padded_value(&P::Int::from(-1))?;
-        let trailer = *self.read_encoded()?;
-        self.read_padded_value(&P::Int::from(-2))?;
-        let record_type = DataBlockType::parse(*self.read_encoded::<P::Int>()?)?;
+        self.read_padded_expected(&P::Int::from(-1))?;
+        let idx = self.read_encoded()?;
+        let trailer = *self.read(&idx);
+        self.read_padded_expected(&P::Int::from(-2))?;
+        let idx = self.read_encoded::<P::Int>()?;
+        let record_type = DataBlockType::parse(*self.read(&idx))?;
         let header = self.read_encoded_slice()?;
-        self.read_padded_value(&P::Int::from(-3))?;
+        self.read_padded_expected(&P::Int::from(-3))?;
         let mut records = vec![];
         while let Some(record) = self.read_table_record()? {
             records.push(record);
@@ -469,29 +513,30 @@ where
         }))
     }
 
-    fn inner_parse(&mut self) -> Result<OP2<'a, P>, ErrorCode<P>> {
+    fn inner_parse(&mut self) -> Result<OP2<P>, ErrorCode<P>> {
         let header = self.read_header()?;
         let mut blocks = vec![];
         while let Some(block) = self.read_datablock()? {
             blocks.push(block);
         }
-        if self.buffer.is_empty() {
+        if self.rem() == 0 {
             Ok(OP2 { header, blocks })
         } else {
             Err(ErrorCode::BytesRemaining)
         }
     }
 
-    fn parse(&mut self) -> std::result::Result<OP2<'a, P>, Error<'a, P>> {
+    fn parse(&mut self) -> std::result::Result<OP2<P>, Error<P>> {
         self.inner_parse().map_err(|code| Error {
             code,
-            remaining: self.buffer,
+            remaining: Indexed::new(self.index,self.buffer.len())
         })
     }
 }
 
 pub fn parse_buffer_single(buffer: &[u8]) -> Result<OP2<SinglePrecision>, Error<SinglePrecision>> {
     let mut parser = OP2Parser {
+        index: 0,
         buffer,
         precision: std::marker::PhantomData,
     };
@@ -500,6 +545,7 @@ pub fn parse_buffer_single(buffer: &[u8]) -> Result<OP2<SinglePrecision>, Error<
 
 pub fn parse_buffer_double(buffer: &[u8]) -> Result<OP2<DoublePrecision>, Error<DoublePrecision>> {
     let mut parser = OP2Parser {
+        index: 0,
         buffer,
         precision: std::marker::PhantomData,
     };
@@ -537,8 +583,9 @@ fn test_parse_buffer() {
     );
     assert_eq!(op2.blocks[0].trailer, [101, 13, 0, 0, 0, 0, 0]);
     assert_eq!(op2.blocks[0].record_type, DataBlockType::Table);
+    let header = op2.blocks[0].header.read(buf);
     assert_eq!(
-        op2.blocks[0].header,
+        header,
         [SingleWord(*b"PVT "), SingleWord(*b"    ")]
     );
     assert_eq!(op2.blocks[0].records.len(), 1);
@@ -569,8 +616,9 @@ fn test_parse_buffer_64() {
     //assert_eq!(op2.blocks[0].name, *b"PVT0    ");
     assert_eq!(op2.blocks[0].trailer, [101, 13, 0, 0, 0, 0, 0]);
     assert_eq!(op2.blocks[0].record_type, DataBlockType::Table);
+    let header = op2.blocks[0].header.read(buf);
     assert_eq!(
-        op2.blocks[0].header,
+        header,
         [
             DoubleWord(*b"PVT ", *b"    "),
             DoubleWord(*b"    ", *b"    ")
