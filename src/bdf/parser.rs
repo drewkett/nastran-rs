@@ -833,7 +833,6 @@ fn parse_first_field(field: [u8; 8]) -> Result<Option<FirstField>> {
         Alpha,
         Continuation,
         EndAlpha,
-        EndContinuation,
     }
     use State::*;
     use ZeroOneTwo::*;
@@ -892,7 +891,7 @@ fn parse_first_field(field: [u8; 8]) -> Result<Option<FirstField>> {
     let kind = match state {
         Start | Blank => return Ok(None),
         Alpha | EndAlpha => FirstFieldKind::Text(CardType(result)),
-        Continuation | EndContinuation => FirstFieldKind::Continuation(ContinuationField(result)),
+        Continuation => FirstFieldKind::Continuation(ContinuationField(result)),
     };
     Ok(Some(FirstField { kind, double }))
 }

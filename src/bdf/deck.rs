@@ -606,14 +606,14 @@ pub struct RawDeck {
     ctetra: RawStorage<CTETRA>,
 }
 
-impl Into<Deck> for RawDeck {
-    fn into(self) -> Deck {
+impl From<RawDeck> for Deck {
+    fn from(other: RawDeck) -> Deck {
         Deck {
-            grid: self.grid.into(),
-            cord2r: self.cord2r.into(),
-            psolid: self.psolid.into(),
-            mat1: self.mat1.into(),
-            ctetra: self.ctetra.into(),
+            grid: other.grid.into(),
+            cord2r: other.cord2r.into(),
+            psolid: other.psolid.into(),
+            mat1: other.mat1.into(),
+            ctetra: other.ctetra.into(),
         }
     }
 }
