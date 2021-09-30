@@ -333,16 +333,6 @@ where
     }
 
     #[inline]
-    fn read<T: 'static>(&self, slice: &Indexed<T>) -> &'a T {
-        slice.read(self.buffer)
-    }
-
-    #[inline]
-    fn read_slice<T: 'static>(&self, slice: &IndexedSlice<T>) -> &'a [T] {
-        slice.read(self.buffer)
-    }
-
-    #[inline]
     fn take(&mut self, n: usize) -> Result<IndexedSlice<u8>, ErrorCode<P>> {
         if self.rem() < n {
             return Err(ErrorCode::UnexpectedEOF);
@@ -354,8 +344,7 @@ where
 
     fn read_i32(&mut self) -> Result<i32, ErrorCode<P>> {
         let mut buf = [0u8; 4];
-        let idx = self.take(4)?;
-        let sl = &self.read_slice(&idx);
+        let sl = &self.take(4)?.read(self.buffer);
         buf.copy_from_slice(sl);
         Ok(i32::from_le_bytes(buf))
     }
@@ -382,8 +371,7 @@ where
         expected_value: &T,
     ) -> Result<Indexed<T>, ErrorCode<P>> {
         let value = self.read_padded()?;
-        if self.read(&value) != expected_value {
-            //eprintln!("{:?} != {:?}", value, expected_value);
+        if value.read(self.buffer) != expected_value {
             return Err(ErrorCode::UnexpectedValue);
         }
         Ok(value)
@@ -402,7 +390,6 @@ where
         let expected = n;
         let n = self.read_i32()?;
         if n != expected {
-            //eprintln!("{:?} != {:?}", n, expected);
             return Err(ErrorCode::UnexpectedValue);
         }
         Ok(res.cast_slice())
@@ -411,8 +398,7 @@ where
     fn read_encoded_data_slice<T: 'static>(
         &mut self,
     ) -> Result<EncodedData<P, IndexedSlice<T>>, ErrorCode<P>> {
-        let idx = self.read_padded()?;
-        let nwords: P::Int = *self.read(&idx);
+        let nwords: P::Int = *self.read_padded()?.read(self.buffer);
         if nwords < P::zero_int() {
             Ok(EncodedData::EOR(nwords))
         } else if nwords == P::zero_int() {
@@ -426,9 +412,8 @@ where
             }
             let nvalues = nbytes / size;
             let ret = self.read_padded_slice()?;
-            let ret_n = self.read_slice(&ret).len();
-            if ret_n != nvalues {
-                return Err(ErrorCode::UnexpectedDataLength(nvalues, ret_n));
+            if ret.len() != nvalues {
+                return Err(ErrorCode::UnexpectedDataLength(nvalues, ret.len()));
             }
             Ok(EncodedData::Data(ret))
         }
@@ -437,8 +422,7 @@ where
     fn read_encoded_data<T: 'static>(
         &mut self,
     ) -> Result<EncodedData<P, Indexed<T>>, ErrorCode<P>> {
-        let idx = self.read_padded()?;
-        let nwords: P::Int = *self.read(&idx);
+        let nwords: P::Int = *self.read_padded()?.read(self.buffer);
         if nwords < P::zero_int() {
             Ok(EncodedData::EOR(nwords))
         } else if nwords == P::zero_int() {
@@ -470,7 +454,7 @@ where
         expected_value: &T,
     ) -> Result<Indexed<T>, ErrorCode<P>> {
         let value = self.read_encoded()?;
-        if expected_value != self.read(&value) {
+        if expected_value != value.read(self.buffer) {
             //eprintln!("{:?} != {:?}", value, expected_value);
             return Err(ErrorCode::UnexpectedValue);
         }
@@ -478,11 +462,9 @@ where
     }
 
     fn read_header(&mut self) -> Result<FileHeader<P>, ErrorCode<P>> {
-        let idx = self.read_encoded()?;
-        let date: Date<P> = *self.read(&idx);
+        let date: Date<P> = *self.read_encoded()?.read(self.buffer);
         let _ = self.read_encoded_value(&P::header_code())?;
-        let idx = self.read_encoded()?;
-        let label = *self.read(&idx);
+        let label = *self.read_encoded()?.read(self.buffer);
         let _ = self.read_padded_expected(&P::Int::from(-1))?;
         let _ = self.read_padded_expected(&P::Int::from(0))?;
         Ok(FileHeader { date, label })
@@ -492,8 +474,7 @@ where
         self.read_encoded_value(&P::Int::from(0))?;
         match self.read_encoded_data_slice()? {
             EncodedData::Data(data) => {
-                let idx = self.read_padded()?;
-                let record_num: &P::Int = self.read(&idx);
+                let record_num: &P::Int = self.read_padded()?.read(self.buffer);
                 if record_num >= &P::zero_int() {
                     return Err(ErrorCode::ExpectedEOR(*record_num));
                 }
@@ -508,14 +489,12 @@ where
         let name = match self.read_encoded_data()? {
             EncodedData::EOR(n) => return Err(ErrorCode::UnexpectedEOR(n)),
             EncodedData::Zero => return Ok(None),
-            EncodedData::Data(name) => *self.read(&name),
+            EncodedData::Data(name) => *name.read(self.buffer),
         };
         self.read_padded_expected(&P::Int::from(-1))?;
-        let idx = self.read_encoded()?;
-        let trailer = *self.read(&idx);
+        let trailer = *self.read_encoded()?.read(self.buffer);
         self.read_padded_expected(&P::Int::from(-2))?;
-        let idx = self.read_encoded::<P::Int>()?;
-        let record_type = DataBlockType::parse(*self.read(&idx))?;
+        let record_type = DataBlockType::parse(*self.read_encoded::<P::Int>()?.read(self.buffer))?;
         let header = self.read_encoded_slice()?;
         self.read_padded_expected(&P::Int::from(-3))?;
         let mut records = vec![];
