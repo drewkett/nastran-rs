@@ -896,7 +896,7 @@ fn parse_first_field(field: [u8; 8]) -> Result<Option<FirstField>> {
     Ok(Some(FirstField { kind, double }))
 }
 
-fn parse_inner_field<I>(field: &mut I) -> Result<Field>
+pub fn parse_inner_field<I>(field: I) -> Result<Field>
 where
     I: Iterator<Item = u8>,
 {
@@ -932,42 +932,42 @@ where
             (Start, b' ', _) => (Start, Zero),
             (Start, c @ b'A'..=b'Z', _) => (Alpha, One(c)),
             (Start, b'+', _) => (PlusMinus, Zero),
-            (Start, c @ b'-', _) => (PlusMinus, One(c)),
-            (Start, c @ b'.', _) => (Period, One(c)),
+            (Start, b'-', _) => (PlusMinus, One(b'-')),
+            (Start, b'.', _) => (Period, One(b'.')),
             (Start, c @ b'0'..=b'9', _) => (IntOrId, One(c)),
             (Int, c @ b'0'..=b'9', _) => (Int, One(c)),
-            (Int, c @ b'.', _) => (FloatPeriod, One(c)),
+            (Int, b'.', _) => (FloatPeriod, One(b'.')),
             (Int, b' ', _) => (EndInt, Zero),
-            (Int, b'D', _) => (DoubleExponent, One(b'E')),
-            (Int, c @ b'E', _) => (FloatExponent, One(c)),
-            (Int, c @ b'+', _) => (FloatSignedExponent, Two(b'E', c)),
-            (Int, c @ b'-', _) => (FloatSignedExponent, Two(b'E', c)),
+            (Int, b'd' | b'D', _) => (DoubleExponent, One(b'e')),
+            (Int, b'e' | b'E', _) => (FloatExponent, One(b'e')),
+            (Int, b'+', _) => (FloatSignedExponent, Two(b'e', b'+')),
+            (Int, b'-', _) => (FloatSignedExponent, Two(b'e', b'-')),
             (IntOrId, c @ b'0'..=b'9', _) => (IntOrId, One(c)),
-            (IntOrId, c @ b'.', _) => (FloatPeriod, One(c)),
+            (IntOrId, b'.', _) => (FloatPeriod, One(b'.')),
             (IntOrId, b' ', _) => (EndIntOrId, Zero),
-            (IntOrId, c @ b'E', _) => (FloatExponent, One(c)),
-            (IntOrId, b'D', _) => (DoubleExponent, One(b'E')),
-            (IntOrId, c @ b'+', _) => (FloatSignedExponent, Two(b'E', c)),
-            (IntOrId, c @ b'-', _) => (FloatSignedExponent, Two(b'E', c)),
+            (IntOrId, b'e' | b'E', _) => (FloatExponent, One(b'e')),
+            (IntOrId, b'd' | b'D', _) => (DoubleExponent, One(b'e')),
+            (IntOrId, b'+', _) => (FloatSignedExponent, Two(b'e', b'+')),
+            (IntOrId, b'-', _) => (FloatSignedExponent, Two(b'e', b'-')),
             (PlusMinus, c @ b'0'..=b'9', _) => (Int, One(c)),
-            (PlusMinus, c @ b'.', _) => (PlusMinusPeriod, One(c)),
+            (PlusMinus, b'.', _) => (PlusMinusPeriod, One(b'.')),
             (PlusMinusPeriod, c @ b'0'..=b'9', _) => (FloatPeriod, One(c)),
             (Period, c @ b'0'..=b'9', _) => (FloatPeriod, One(c)),
-            (Period, b'D', _) => (DoubleExponent, One(b'E')),
-            (Period, c @ b'E', _) => (FloatExponent, One(c)),
-            (Period, c @ b'+', _) => (FloatSignedExponent, Two(b'E', c)),
-            (Period, c @ b'-', _) => (FloatSignedExponent, Two(b'E', c)),
+            (Period, b'd' | b'D', _) => (DoubleExponent, One(b'e')),
+            (Period, b'e' | b'E', _) => (FloatExponent, One(b'e')),
+            (Period, b'+', _) => (FloatSignedExponent, Two(b'e', b'+')),
+            (Period, b'-', _) => (FloatSignedExponent, Two(b'e', b'-')),
             (FloatPeriod, c @ b'0'..=b'9', _) => (FloatPeriod, One(c)),
-            (FloatPeriod, b'D', _) => (DoubleExponent, One(b'E')),
-            (FloatPeriod, c @ b'E', _) => (FloatExponent, One(c)),
-            (FloatPeriod, c @ b'+', _) => (FloatSignedExponent, Two(b'E', c)),
-            (FloatPeriod, c @ b'-', _) => (FloatSignedExponent, Two(b'E', c)),
+            (FloatPeriod, b'd' | b'D', _) => (DoubleExponent, One(b'e')),
+            (FloatPeriod, b'e' | b'E', _) => (FloatExponent, One(b'e')),
+            (FloatPeriod, b'+', _) => (FloatSignedExponent, Two(b'e', b'+')),
+            (FloatPeriod, b'-', _) => (FloatSignedExponent, Two(b'e', b'-')),
             (FloatPeriod, b' ', _) => (EndFloat, Zero),
-            (FloatExponent, c @ b'+', _) => (FloatSignedExponent, One(c)),
-            (FloatExponent, c @ b'-', _) => (FloatSignedExponent, One(c)),
+            (FloatExponent, b'+', _) => (FloatSignedExponent, One(b'+')),
+            (FloatExponent, b'-', _) => (FloatSignedExponent, One(b'-')),
             (FloatExponent, c @ b'0'..=b'9', _) => (FloatSignedExponentValue, One(c)),
-            (DoubleExponent, c @ b'+', _) => (DoubleSignedExponent, One(c)),
-            (DoubleExponent, c @ b'-', _) => (DoubleSignedExponent, One(c)),
+            (DoubleExponent, b'+', _) => (DoubleSignedExponent, One(b'+')),
+            (DoubleExponent, b'-', _) => (DoubleSignedExponent, One(b'-')),
             (DoubleExponent, c @ b'0'..=b'9', _) => (DoubleSignedExponentValue, One(c)),
             (FloatSignedExponent, c @ b'0'..=b'9', _) => (FloatSignedExponentValue, One(c)),
             (DoubleSignedExponent, c @ b'0'..=b'9', _) => (DoubleSignedExponentValue, One(c)),
@@ -999,9 +999,8 @@ where
             }
             Two(c1, c2) => {
                 contents[i] = c1;
-                i += 1;
-                contents[i] = c2;
-                i += 1;
+                contents[i + 1] = c2;
+                i += 2;
             }
         }
     }
@@ -1107,14 +1106,14 @@ fn parse_trailing_field(field: [u8; 8]) -> Result<ContinuationField> {
 impl std::convert::TryFrom<&UnparsedSingleField> for Field {
     type Error = Error;
     fn try_from(field: &UnparsedSingleField) -> Result<Self> {
-        parse_inner_field(&mut field.0.iter().cloned())
+        parse_inner_field(field.0.iter().cloned())
     }
 }
 
 impl std::convert::TryFrom<&UnparsedDoubleField> for Field {
     type Error = Error;
     fn try_from(field: &UnparsedDoubleField) -> Result<Self> {
-        parse_inner_field(&mut field.0.iter().cloned())
+        parse_inner_field(field.0.iter().cloned())
     }
 }
 
@@ -1454,30 +1453,36 @@ mod test {
     fn test_parse_field() {
         assert_eq!(
             Field::Float(1000.),
-            parse_inner_field(&mut b"1.E3".iter().copied()).unwrap()
+            parse_inner_field(b"1.E3".iter().copied()).unwrap()
         );
         assert_eq!(
             Field::Float(1000.),
-            parse_inner_field(&mut b"1E3".iter().copied()).unwrap()
+            parse_inner_field(b"1E3".iter().copied()).unwrap()
         );
         assert_eq!(
             Field::Float(1000.),
-            parse_inner_field(&mut b"1+3".iter().copied()).unwrap()
+            parse_inner_field(b"1+3".iter().copied()).unwrap()
         );
         assert_eq!(
             Field::Double(1000.),
-            parse_inner_field(&mut b"1.D3".iter().copied()).unwrap()
+            parse_inner_field(b"1.D3".iter().copied()).unwrap()
         );
         assert_eq!(
             Field::Double(1000.),
-            parse_inner_field(&mut b"1D3".iter().copied()).unwrap()
+            parse_inner_field(b"1D3".iter().copied()).unwrap()
         );
         assert_eq!(
             Field::Double(1000.),
-            parse_inner_field(&mut b"1D+3".iter().copied()).unwrap()
+            parse_inner_field(b"1D+3".iter().copied()).unwrap()
         );
-        //assert_eq!((),parse_inner_field(b"1.D+3"));
-        //assert_eq!((),parse_inner_field(b"1.D-3"));
+        assert_eq!(
+            Field::Float(1.122e8),
+            parse_inner_field(b"11.22e+7".iter().copied()).unwrap()
+        );
+        assert_eq!(
+            Field::Float(1.122e8),
+            parse_inner_field(b"11.22+7".iter().copied()).unwrap()
+        );
         //assert_eq!((),parse_inner_field(b"1D3"));
         //assert_eq!((),parse_inner_field(b"1D+3"));
         //assert_eq!((),parse_inner_field(b"1D-3"));
