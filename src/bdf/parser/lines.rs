@@ -1,5 +1,5 @@
 use super::super::error::{Error, Result};
-use super::{Comment, EOL};
+use super::{Comment, Eol};
 
 use std::io;
 
@@ -41,7 +41,7 @@ impl NastranLine {
         field
     }
 
-    pub(crate) fn comment_and_eol(&mut self) -> Result<(Comment, Option<EOL>)> {
+    pub(crate) fn comment_and_eol(&mut self) -> Result<(Comment, Option<Eol>)> {
         self.iter.comment_and_eol().ok_or_else(|| {
             let chars = (&mut self.iter).collect();
             Error::UnparsedChars(chars)
@@ -60,7 +60,7 @@ impl NastranLine {
 #[derive(PartialEq, Clone)]
 pub(crate) enum NastranLineIterState {
     Parsing,
-    Comment(Comment, Option<EOL>),
+    Comment(Comment, Option<Eol>),
     End,
 }
 
@@ -81,7 +81,7 @@ impl NastranLineIter {
         self.iter.peek().map(|c| c.1)
     }
 
-    pub(crate) fn comment_and_eol(&mut self) -> Option<(Comment, Option<EOL>)> {
+    pub(crate) fn comment_and_eol(&mut self) -> Option<(Comment, Option<Eol>)> {
         // TODO this is a mess
         let (state, res) = match &self.state {
             NastranLineIterState::Comment(comment, eol) => {
@@ -105,38 +105,38 @@ impl Iterator for NastranLineIter {
         #[derive(Debug)]
         enum Res {
             Char(u8),
-            CharAndEOL(u8),
+            CharAndEol(u8),
             DollarSign(u8),
-            EOL,
-            CRLF,
-            LF,
+            Eol,
+            CrLf,
+            Lf,
         }
         use Res::*;
-        // Be careful here. The ordering matters so that the EOL is processed
+        // Be careful here. The ordering matters so that the Eol is processed
         let result = match self.iter.next() {
             Some((_, b'$')) => DollarSign(b'$'),
-            Some((_, b'\n')) => LF,
-            Some((_, b'\r')) => CRLF,
-            Some((79, c @ b'a'..=b'z')) => CharAndEOL(c - 32),
-            Some((79, c)) => CharAndEOL(c),
+            Some((_, b'\n')) => Lf,
+            Some((_, b'\r')) => CrLf,
+            Some((79, c @ b'a'..=b'z')) => CharAndEol(c - 32),
+            Some((79, c)) => CharAndEol(c),
             Some((_, c @ b'a'..=b'z')) => Char(c - 32),
             Some((_, c)) => Char(c),
-            None => EOL,
+            None => Eol,
         };
         // There's probably a better way to handle this
         match result {
             Char(c) => Some(c),
-            CharAndEOL(c) => {
+            CharAndEol(c) => {
                 let mut comment = Comment::new();
                 let mut eol = None;
-                while let Some((_, c)) = self.iter.next() {
+                for (_, c) in &mut self.iter {
                     match c {
                         b'\r' => {
-                            eol = Some(self::EOL::LF);
+                            eol = Some(self::Eol::Lf);
                             break;
                         }
                         b'\n' => {
-                            eol = Some(self::EOL::LF);
+                            eol = Some(self::Eol::Lf);
                             break;
                         }
                         _ => comment.push(c),
@@ -149,14 +149,14 @@ impl Iterator for NastranLineIter {
                 let mut comment = Comment::new();
                 let mut eol = None;
                 comment.push(c);
-                while let Some((_, c)) = self.iter.next() {
+                for (_, c) in &mut self.iter {
                     match c {
                         b'\r' => {
-                            eol = Some(self::EOL::CRLF);
+                            eol = Some(self::Eol::CrLf);
                             break;
                         }
                         b'\n' => {
-                            eol = Some(self::EOL::LF);
+                            eol = Some(self::Eol::Lf);
                             break;
                         }
                         _ => comment.push(c),
@@ -165,16 +165,16 @@ impl Iterator for NastranLineIter {
                 self.state = NastranLineIterState::Comment(comment, eol);
                 None
             }
-            EOL => {
+            Eol => {
                 self.state = NastranLineIterState::Comment(Comment::new(), None);
                 None
             }
-            CRLF => {
-                self.state = NastranLineIterState::Comment(Comment::new(), Some(self::EOL::CRLF));
+            CrLf => {
+                self.state = NastranLineIterState::Comment(Comment::new(), Some(self::Eol::CrLf));
                 None
             }
-            LF => {
-                self.state = NastranLineIterState::Comment(Comment::new(), Some(self::EOL::LF));
+            Lf => {
+                self.state = NastranLineIterState::Comment(Comment::new(), Some(self::Eol::Lf));
                 None
             }
         }

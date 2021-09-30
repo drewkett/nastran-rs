@@ -245,7 +245,7 @@ impl NastranCommaLine {
         }
     }
 
-    fn comment_and_eol(&mut self) -> Option<(Comment, Option<EOL>)> {
+    fn comment_and_eol(&mut self) -> Option<(Comment, Option<Eol>)> {
         self.iter.comment_and_eol()
     }
 }
@@ -370,23 +370,23 @@ impl Iterator for NastranCommaLine {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum EOL {
-    CRLF,
-    LF,
+pub enum Eol {
+    CrLf,
+    Lf,
 }
 
-impl Default for EOL {
+impl Default for Eol {
     fn default() -> Self {
-        EOL::CRLF
+        Eol::CrLf
     }
 }
 
-impl fmt::Display for EOL {
+impl fmt::Display for Eol {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         #[allow(clippy::write_with_newline)]
         match self {
-            Self::CRLF => write!(f, "\r\n"),
-            Self::LF => writeln!(f),
+            Self::CrLf => write!(f, "\r\n"),
+            Self::Lf => writeln!(f),
         }
     }
 }
@@ -438,7 +438,7 @@ impl std::convert::TryFrom<UnparsedFieldData> for (FirstField, Vec<Field>, Conti
 pub struct UnparsedBulkLine {
     pub original: Vec<u8>,
     comment: Comment,
-    eol: Option<EOL>,
+    eol: Option<Eol>,
     data: Option<UnparsedFieldData>,
 }
 
@@ -816,7 +816,7 @@ where
 pub struct BulkLine {
     pub original: Vec<u8>,
     pub comment: Comment,
-    pub eol: Option<EOL>,
+    pub eol: Option<Eol>,
     pub data: Option<(FirstField, Vec<Field>, ContinuationField)>,
 }
 
@@ -939,18 +939,25 @@ where
             (Int, c @ b'0'..=b'9', _) => (Int, One(c)),
             (Int, c @ b'.', _) => (FloatPeriod, One(c)),
             (Int, b' ', _) => (EndInt, Zero),
+            (Int, b'D', _) => (DoubleExponent, One(b'E')),
             (Int, c @ b'E', _) => (FloatExponent, One(c)),
+            (Int, c @ b'+', _) => (FloatSignedExponent, Two(b'E',c)),
+            (Int, c @ b'-', _) => (FloatSignedExponent, Two(b'E',c)),
             (IntOrId, c @ b'0'..=b'9', _) => (IntOrId, One(c)),
             (IntOrId, c @ b'.', _) => (FloatPeriod, One(c)),
             (IntOrId, b' ', _) => (EndIntOrId, Zero),
-            // Can't remember if these are valid
             (IntOrId, c @ b'E', _) => (FloatExponent, One(c)),
-            // (Digits, c @ b'+', _) => (FloatPeriod, [*c].iter()),
-            // (Digits, c @ b'-', _) => (FloatPeriod, [*c].iter()),
+            (IntOrId, b'D', _) => (DoubleExponent, One(b'E')),
+            (IntOrId, c @ b'+', _) => (FloatSignedExponent, Two(b'E',c)),
+            (IntOrId, c @ b'-', _) => (FloatSignedExponent, Two(b'E',c)),
             (PlusMinus, c @ b'0'..=b'9', _) => (Int, One(c)),
             (PlusMinus, c @ b'.', _) => (PlusMinusPeriod, One(c)),
             (PlusMinusPeriod, c @ b'0'..=b'9', _) => (FloatPeriod, One(c)),
             (Period, c @ b'0'..=b'9', _) => (FloatPeriod, One(c)),
+            (Period, b'D', _) => (DoubleExponent, One(b'E')),
+            (Period, c @ b'E', _) => (FloatExponent, One(c)),
+            (Period, c @ b'+', _) => (FloatSignedExponent, Two(b'E', c)),
+            (Period, c @ b'-', _) => (FloatSignedExponent, Two(b'E', c)),
             (FloatPeriod, c @ b'0'..=b'9', _) => (FloatPeriod, One(c)),
             (FloatPeriod, b'D', _) => (DoubleExponent, One(b'E')),
             (FloatPeriod, c @ b'E', _) => (FloatExponent, One(c)),
@@ -960,6 +967,9 @@ where
             (FloatExponent, c @ b'+', _) => (FloatSignedExponent, One(c)),
             (FloatExponent, c @ b'-', _) => (FloatSignedExponent, One(c)),
             (FloatExponent, c @ b'0'..=b'9', _) => (FloatSignedExponentValue, One(c)),
+            (DoubleExponent, c @ b'+', _) => (DoubleSignedExponent, One(c)),
+            (DoubleExponent, c @ b'-', _) => (DoubleSignedExponent, One(c)),
+            (DoubleExponent, c @ b'0'..=b'9', _) => (DoubleSignedExponentValue, One(c)),
             (FloatSignedExponent, c @ b'0'..=b'9', _) => (FloatSignedExponentValue, One(c)),
             (DoubleSignedExponent, c @ b'0'..=b'9', _) => (DoubleSignedExponentValue, One(c)),
             (FloatSignedExponentValue, c @ b'0'..=b'9', _) => (FloatSignedExponentValue, One(c)),
@@ -1141,7 +1151,7 @@ pub struct BulkCardData {
 pub struct BulkCard {
     data: Option<BulkCardData>,
     comment: Comment,
-    eol: EOL,
+    eol: Eol,
     original: Vec<u8>,
 }
 
@@ -1301,7 +1311,7 @@ impl<I> BulkCardIter<I> {
         }
     }
 
-    fn insert_blank(&mut self, original: Vec<u8>, comment: Comment, eol: Option<EOL>) {
+    fn insert_blank(&mut self, original: Vec<u8>, comment: Comment, eol: Option<Eol>) {
         self.deque.push_back(CardState {
             card: BulkCard {
                 data: None,
@@ -1435,4 +1445,24 @@ pub fn parse_file(
         .into_iter()
         .map(Ok);
     Ok(cards)
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_parse_field() {
+        assert_eq!(Field::Float(1000.),parse_inner_field(&mut b"1.E3".iter().copied()).unwrap());
+        assert_eq!(Field::Float(1000.),parse_inner_field(&mut b"1E3".iter().copied()).unwrap());
+        assert_eq!(Field::Float(1000.),parse_inner_field(&mut b"1+3".iter().copied()).unwrap());
+        assert_eq!(Field::Double(1000.),parse_inner_field(&mut b"1.D3".iter().copied()).unwrap());
+        assert_eq!(Field::Double(1000.),parse_inner_field(&mut b"1D3".iter().copied()).unwrap());
+        assert_eq!(Field::Double(1000.),parse_inner_field(&mut b"1D+3".iter().copied()).unwrap());
+        //assert_eq!((),parse_inner_field(b"1.D+3"));
+        //assert_eq!((),parse_inner_field(b"1.D-3"));
+        //assert_eq!((),parse_inner_field(b"1D3"));
+        //assert_eq!((),parse_inner_field(b"1D+3"));
+        //assert_eq!((),parse_inner_field(b"1D-3"));
+    }
 }

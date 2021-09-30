@@ -5,13 +5,13 @@ use crate::bdf::{
     parser::{parse_file, BulkCard, Field, FieldConv},
     Error, Result,
 };
-use crate::util::{CoordSys, Vec3, XYZ};
+use crate::util::{CoordSys, Vec3, Xyz};
 
 #[derive(Debug, Clone)]
 pub struct GRID {
     id: u32,
     cp: u32,
-    xyz: XYZ,
+    xyz: Xyz,
     cd: u32,
     ps: [bool; 6],
     seid: u32,
@@ -39,7 +39,7 @@ impl TryFrom<BulkCard> for GRID {
         let x = iter.next().float_or(0.0)?;
         let y = iter.next().float_or(0.0)?;
         let z = iter.next().float_or(0.0)?;
-        let xyz = XYZ::new(x, y, z);
+        let xyz = Xyz::new(x, y, z);
         // is this the right default?
         let cd = iter.next().id_or(0)?;
         let ps = iter.next().dof()?;
@@ -403,13 +403,7 @@ where
         let map = data
             .iter()
             .enumerate()
-            .filter_map(|(i, v)| {
-                if let Some(v) = v {
-                    Some((v.id(), i))
-                } else {
-                    None
-                }
-            })
+            .filter_map(|(i, v)| v.as_ref().map(|v| (v.id(), i)))
             .collect();
         Storage { data, map }
     }
@@ -466,9 +460,8 @@ where
         let n = self.data.len();
         self.data.extend(raw.data);
         for (i, item) in self.data[n..].iter().enumerate() {
-            match self.map.insert(item.as_ref().unwrap().id(), i + n) {
-                Some(_i) => return Err(Error::DuplicateCard),
-                None => {}
+            if self.map.insert(item.as_ref().unwrap().id(), i + n).is_some() {
+                return Err(Error::DuplicateCard)
             }
         }
         Ok(())
@@ -500,12 +493,12 @@ where
 }
 
 pub struct GlobalLocation {
-    xyz: HashMap<u32, XYZ>,
+    xyz: HashMap<u32, Xyz>,
     csys: HashMap<u32, CoordSys>,
 }
 
 impl GlobalLocation {
-    pub fn get_grid(&self, id: u32) -> Option<XYZ> {
+    pub fn get_grid(&self, id: u32) -> Option<Xyz> {
         self.xyz.get(&id).copied()
     }
 

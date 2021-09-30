@@ -117,12 +117,12 @@ impl Mul<Vec3> for &Mat3 {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct XYZ(Vec3);
+pub struct Xyz(Vec3);
 
 #[derive(Debug, Clone, Copy)]
-pub struct DeltaXYZ(Vec3);
+pub struct DeltaXyz(Vec3);
 
-impl XYZ {
+impl Xyz {
     pub fn new(x: f64, y: f64, z: f64) -> Self {
         Self(Vec3([x, y, z]))
     }
@@ -141,7 +141,7 @@ impl XYZ {
     }
 }
 
-//impl std::ops::Deref for XYZ {
+//impl std::ops::Deref for Xyz {
 //    type Target = Vec3;
 //
 //    fn deref(&self) -> &Self::Target {
@@ -149,14 +149,14 @@ impl XYZ {
 //    }
 //}
 
-impl Sub<Self> for XYZ {
-    type Output = DeltaXYZ;
-    fn sub(self, other: Self) -> DeltaXYZ {
-        DeltaXYZ(self.0 - other.0)
+impl Sub<Self> for Xyz {
+    type Output = DeltaXyz;
+    fn sub(self, other: Self) -> DeltaXyz {
+        DeltaXyz(self.0 - other.0)
     }
 }
 
-//impl std::ops::Deref for DeltaXYZ {
+//impl std::ops::Deref for DeltaXyz {
 //    type Target = Vec3;
 //
 //    fn deref(&self) -> &Self::Target {
@@ -177,7 +177,7 @@ impl CoordSys {
         }
     }
 
-    pub fn forward(&self, xyz: XYZ) -> XYZ {
-        XYZ(&self.m * xyz.0 + self.o)
+    pub fn forward(&self, xyz: Xyz) -> Xyz {
+        Xyz(&self.m * xyz.0 + self.o)
     }
 }

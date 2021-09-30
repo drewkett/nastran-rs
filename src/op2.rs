@@ -508,8 +508,10 @@ pub fn parse_buffer_double(buffer: &[u8]) -> Result<OP2<DoublePrecision>, Error<
 
 #[test]
 fn test_parse_buffer() {
-    let buf = std::fs::read("tests/op2test32.op2").unwrap();
-    let op2 = match parse_buffer_single(&buf) {
+    // include_bytes here is just to work around some issues related
+    // to filesystem protections on my machine
+    let buf = include_bytes!("../tests/op2test32.op2");
+    let op2 = match parse_buffer_single(&buf[..]) {
         Ok(o) => o,
         Err(e) => {
             eprintln!("{}", e);
@@ -544,8 +546,10 @@ fn test_parse_buffer() {
 
 #[test]
 fn test_parse_buffer_64() {
-    let buf = std::fs::read("tests/op2test64.op2").unwrap();
-    let op2 = match parse_buffer_double(&buf) {
+    // include_bytes here is just to work around some issues related
+    // to filesystem protections on my machine
+    let buf = include_bytes!("../tests/op2test64.op2");
+    let op2 = match parse_buffer_double(&buf[..]) {
         Ok(o) => o,
         Err(e) => {
             eprintln!("{}", e);
