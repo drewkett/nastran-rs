@@ -1,7 +1,7 @@
 use std::fmt;
+use std::fs::File;
 use std::mem;
 use std::path::Path;
-use std::fs::File;
 
 use bstr::ByteSlice;
 use thiserror::Error;
@@ -9,7 +9,14 @@ use thiserror::Error;
 pub trait Word: fmt::Debug + fmt::Display + PartialEq + Copy {}
 
 #[derive(Debug, PartialEq, Clone, Copy)]
+#[repr(C)]
 pub struct SingleWord([u8; 4]);
+
+// SAFETY All zeros is a valid value
+unsafe impl bytemuck::Zeroable for SingleWord {}
+// SAFETY Any value is valid, there is no padding, the underlying type is Pod and its repr(C)
+unsafe impl bytemuck::Pod for SingleWord {}
+
 
 impl fmt::Display for SingleWord {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -20,17 +27,24 @@ impl fmt::Display for SingleWord {
 impl Word for SingleWord {}
 
 #[derive(Debug, PartialEq, Clone, Copy)]
+#[repr(C)]
 pub struct DoubleWord([u8; 4], [u8; 4]);
+
+// SAFETY All zeros is a valid value
+unsafe impl bytemuck::Zeroable for DoubleWord {}
+// SAFETY Any value is valid, there is no padding, the underlying type is Pod and its repr(C)
+unsafe impl bytemuck::Pod for DoubleWord {}
 
 impl fmt::Display for DoubleWord {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // This doesn't output the second value since that is unused in the double width op2
         write!(f, "{}", self.0.as_bstr())
     }
 }
 
 impl Word for DoubleWord {}
 
-pub trait Precision: fmt::Debug + Sized + Copy + 'static {
+pub trait Precision: fmt::Debug + Sized + Copy + bytemuck::Pod {
     type Int: fmt::Debug
         + fmt::Display
         + PartialEq
@@ -38,10 +52,10 @@ pub trait Precision: fmt::Debug + Sized + Copy + 'static {
         + Copy
         + Into<i64>
         + From<i32>
-        + 'static;
-    type UInt: fmt::Debug + fmt::Display + 'static;
-    type Float: fmt::Debug + fmt::Display + 'static;
-    type Word: Word + 'static;
+        + bytemuck::Pod;
+    type UInt: fmt::Debug + fmt::Display + bytemuck::Pod;
+    type Float: fmt::Debug + fmt::Display + bytemuck::Pod;
+    type Word: Word + bytemuck::Pod;
 
     const WORDSIZE: usize;
 
@@ -61,6 +75,11 @@ pub trait Precision: fmt::Debug + Sized + Copy + 'static {
 
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub struct SinglePrecision;
+
+// SAFETY Since this is ZST, it holds no data
+unsafe impl bytemuck::Zeroable for SinglePrecision {}
+// SAFETY Since this is ZST, it holds no data
+unsafe impl bytemuck::Pod for SinglePrecision {}
 
 impl Precision for SinglePrecision {
     type Int = i32;
@@ -105,6 +124,11 @@ impl Precision for SinglePrecision {
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub struct DoublePrecision;
 
+// SAFETY Since this is ZST, it holds no data
+unsafe impl bytemuck::Zeroable for DoublePrecision {}
+// SAFETY Since this is ZST, it holds no data
+unsafe impl bytemuck::Pod for DoublePrecision {}
+
 impl Precision for DoublePrecision {
     type Int = i64;
     type UInt = u64;
@@ -148,6 +172,8 @@ pub enum ErrorCode<P: Precision> {
     BytesRemaining,
     #[error("Unexpected EOF")]
     UnexpectedEOF,
+    #[error("Unaligned Value")]
+    UnalignedValue,
     #[error("Unexpected EOR ({0})")]
     UnexpectedEOR(P::Int),
     #[error("IO Error {0}")]
@@ -188,11 +214,18 @@ pub struct Error<P: Precision> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(C)]
 pub struct Date<P: Precision> {
     month: P::Int,
     day: P::Int,
     year: P::Int,
 }
+
+// SAFETY All zeros is a valid value even if it doesn't have a real meaning
+unsafe impl <P: Precision> bytemuck::Zeroable for Date<P> {}
+// SAFETY Any value is valid, there is no padding since all values are the same size, the
+// underlying type is Pod per requirements of Precision and its repr(C)
+unsafe impl <P: Precision> bytemuck::Pod for Date<P> {}
 
 #[derive(Debug, PartialEq)]
 pub struct FileHeader<P: Precision> {
@@ -229,7 +262,7 @@ pub struct Indexed<T> {
 
 impl<T> Indexed<T>
 where
-    T: 'static,
+    T: bytemuck::Pod,
 {
     fn new(start: usize, end: usize) -> Self {
         Indexed {
@@ -241,8 +274,7 @@ where
 
     fn read<'b>(&self, file_buffer: &'b [u8]) -> &'b T {
         let buf = &file_buffer[self.start..self.end];
-        // TODO confirm safety (see bytemuck)
-        unsafe { &*(buf.as_ptr() as *const T) }
+        bytemuck::from_bytes(buf)
     }
 }
 
@@ -255,7 +287,7 @@ pub struct IndexedSlice<T> {
 
 impl<T> IndexedSlice<T>
 where
-    T: 'static,
+    T: bytemuck::Pod,
 {
     fn new(start: usize, end: usize) -> Self {
         debug_assert!((end - start) % std::mem::size_of::<T>() == 0);
@@ -272,22 +304,7 @@ where
 
     fn read<'b>(&self, file_buffer: &'b [u8]) -> &'b [T] {
         let buf = &file_buffer[self.start..self.end];
-        // TODO confirm safety (see bytemuck)
-        unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const T, self.len()) }
-    }
-
-    fn cast<U: 'static>(self) -> Indexed<U> {
-        let n = self.end - self.start;
-        debug_assert!(n == std::mem::size_of::<U>());
-        // TODO confirm safety
-        unsafe { std::mem::transmute(self) }
-    }
-
-    fn cast_slice<U: 'static>(self) -> IndexedSlice<U> {
-        let n = self.end - self.start;
-        debug_assert!(n % std::mem::size_of::<U>() == 0);
-        // TODO confirm safety
-        unsafe { std::mem::transmute(self) }
+        bytemuck::cast_slice(buf)
     }
 }
 
@@ -344,6 +361,43 @@ where
         Ok(ret)
     }
 
+    fn read<T: bytemuck::Pod>(&mut self) -> Result<Indexed<T>, ErrorCode<P>> {
+        let n = std::mem::size_of::<T>();
+        if self.rem() < n {
+            return Err(ErrorCode::UnexpectedEOF);
+        }
+        let buf = &self.buffer[self.index..];
+        if (buf.as_ptr() as usize) % std::mem::align_of::<T>() != 0 {
+            dbg!(self.buffer.as_ptr() as usize);
+            dbg!(buf.as_ptr() as usize);
+            dbg!((self.buffer.as_ptr() as usize)%std::mem::align_of::<T>());
+            dbg!(buf.as_ptr() as usize);
+            dbg!(std::mem::align_of::<T>());
+            dbg!(self.index);
+            return Err(ErrorCode::UnalignedValue);
+        }
+        let ret = Indexed::new(self.index, self.index + n);
+        self.index += n;
+        Ok(ret)
+    }
+
+    fn read_slice<T: bytemuck::Pod>(&mut self, n_bytes: usize) -> Result<IndexedSlice<T>, ErrorCode<P>> {
+        if self.rem() < n_bytes {
+            return Err(ErrorCode::UnexpectedEOF);
+        }
+        let n = std::mem::size_of::<T>();
+        if n_bytes % n != 0 {
+            return Err(ErrorCode::AlignmentError);
+        }
+        let buf = &self.buffer[self.index..];
+        if (buf.as_ptr() as usize) % std::mem::align_of::<T>() != 0 {
+            return Err(ErrorCode::UnalignedValue);
+        }
+        let ret = IndexedSlice::new(self.index, self.index + n_bytes);
+        self.index += n_bytes;
+        Ok(ret)
+    }
+
     fn read_i32(&mut self) -> Result<i32, ErrorCode<P>> {
         let mut buf = [0u8; 4];
         let sl = &self.take(4)?.read(self.buffer);
@@ -359,16 +413,16 @@ where
         Ok(())
     }
 
-    fn read_padded<T: 'static>(&mut self) -> Result<Indexed<T>, ErrorCode<P>> {
+    fn read_padded<T: bytemuck::Pod>(&mut self) -> Result<Indexed<T>, ErrorCode<P>> {
         let expected = mem::size_of::<T>();
         let expected_i = P::i32_from_usize(expected)?;
         self.read_i32_value(expected_i)?;
-        let res = self.take(expected)?;
+        let res = self.read()?;
         self.read_i32_value(expected_i)?;
-        Ok(res.cast())
+        Ok(res)
     }
 
-    fn read_padded_expected<T: PartialEq + fmt::Debug + 'static>(
+    fn read_padded_expected<T: PartialEq + fmt::Debug + bytemuck::Pod>(
         &mut self,
         expected_value: &T,
     ) -> Result<Indexed<T>, ErrorCode<P>> {
@@ -379,7 +433,7 @@ where
         Ok(value)
     }
 
-    fn read_padded_slice<T: 'static>(&mut self) -> Result<IndexedSlice<T>, ErrorCode<P>> {
+    fn read_padded_slice<T: bytemuck::Pod>(&mut self) -> Result<IndexedSlice<T>, ErrorCode<P>> {
         let size = std::mem::size_of::<T>();
         let n = self.read_i32()?;
         if n < 1 {
@@ -388,16 +442,16 @@ where
         if n as usize % size != 0 {
             return Err(ErrorCode::AlignmentError);
         }
-        let res = self.take(n as usize)?;
+        let res = self.read_slice(n as usize)?;
         let expected = n;
         let n = self.read_i32()?;
         if n != expected {
             return Err(ErrorCode::UnexpectedValue);
         }
-        Ok(res.cast_slice())
+        Ok(res)
     }
 
-    fn read_encoded_data_slice<T: 'static>(
+    fn read_encoded_data_slice<T: bytemuck::Pod>(
         &mut self,
     ) -> Result<EncodedData<P, IndexedSlice<T>>, ErrorCode<P>> {
         let nwords: P::Int = *self.read_padded()?.read(self.buffer);
@@ -421,7 +475,7 @@ where
         }
     }
 
-    fn read_encoded_data<T: 'static>(
+    fn read_encoded_data<T: bytemuck::Pod>(
         &mut self,
     ) -> Result<EncodedData<P, Indexed<T>>, ErrorCode<P>> {
         let nwords: P::Int = *self.read_padded()?.read(self.buffer);
@@ -435,7 +489,7 @@ where
         }
     }
 
-    fn read_encoded<T: 'static>(&mut self) -> Result<Indexed<T>, ErrorCode<P>> {
+    fn read_encoded<T: bytemuck::Pod>(&mut self) -> Result<Indexed<T>, ErrorCode<P>> {
         match self.read_encoded_data()? {
             EncodedData::EOR(n) => Err(ErrorCode::UnexpectedEOR(n)),
             EncodedData::Zero => Err(ErrorCode::UnexpectedEOR(P::zero_int())),
@@ -443,7 +497,7 @@ where
         }
     }
 
-    fn read_encoded_slice<T: 'static>(&mut self) -> Result<IndexedSlice<T>, ErrorCode<P>> {
+    fn read_encoded_slice<T: bytemuck::Pod>(&mut self) -> Result<IndexedSlice<T>, ErrorCode<P>> {
         match self.read_encoded_data_slice()? {
             EncodedData::EOR(n) => Err(ErrorCode::UnexpectedEOR(n)),
             EncodedData::Zero => Err(ErrorCode::UnexpectedEOR(P::zero_int())),
@@ -451,13 +505,12 @@ where
         }
     }
 
-    fn read_encoded_value<T: PartialEq + fmt::Debug + 'static>(
+    fn read_encoded_value<T: PartialEq + fmt::Debug + bytemuck::Pod>(
         &mut self,
         expected_value: &T,
     ) -> Result<Indexed<T>, ErrorCode<P>> {
         let value = self.read_encoded()?;
         if expected_value != value.read(self.buffer) {
-            //eprintln!("{:?} != {:?}", value, expected_value);
             return Err(ErrorCode::UnexpectedValue);
         }
         Ok(value)
@@ -542,7 +595,9 @@ pub fn parse_buffer<P: Precision>(buffer: &[u8]) -> Result<OP2MetaData<P>, Error
     parser.parse()
 }
 
-pub fn parse_buffer_single(buffer: &[u8]) -> Result<OP2MetaData<SinglePrecision>, Error<SinglePrecision>> {
+pub fn parse_buffer_single(
+    buffer: &[u8],
+) -> Result<OP2MetaData<SinglePrecision>, Error<SinglePrecision>> {
     let mut parser = OP2Parser {
         index: 0,
         buffer,
@@ -551,7 +606,9 @@ pub fn parse_buffer_single(buffer: &[u8]) -> Result<OP2MetaData<SinglePrecision>
     parser.parse()
 }
 
-pub fn parse_buffer_double(buffer: &[u8]) -> Result<OP2MetaData<DoublePrecision>, Error<DoublePrecision>> {
+pub fn parse_buffer_double(
+    buffer: &[u8],
+) -> Result<OP2MetaData<DoublePrecision>, Error<DoublePrecision>> {
     let mut parser = OP2Parser {
         index: 0,
         buffer,
@@ -563,7 +620,7 @@ pub fn parse_buffer_double(buffer: &[u8]) -> Result<OP2MetaData<DoublePrecision>
 #[derive(Debug)]
 pub struct OP2File<P: Precision> {
     file: std::fs::File,
-    meta: OP2MetaData<P>
+    meta: OP2MetaData<P>,
 }
 
 fn open_file(filename: &Path) -> std::io::Result<File> {
@@ -574,31 +631,67 @@ fn open_file(filename: &Path) -> std::io::Result<File> {
 }
 
 pub fn parse_file<P: Precision>(filename: impl AsRef<Path>) -> Result<OP2File<P>, Error<P>> {
-    let file = open_file(filename.as_ref()).map_err(|e| Error { code: ErrorCode::IO(e), remaining: None })?;
-    // Should be safe since open_file gets an exclusive lock on the whole file
-    let buf = unsafe { memmap2::Mmap::map(&file) } .map_err(|e| Error { code: ErrorCode::IO(e), remaining: None })?;
+    let file = open_file(filename.as_ref()).map_err(|e| Error {
+        code: ErrorCode::IO(e),
+        remaining: None,
+    })?;
+    // SAFETY: Should be safe since open_file gets an exclusive lock on the whole file and the
+    // buffer gets dropped before the end of the function while the file lock is still held
+    let buf = unsafe { memmap2::Mmap::map(&file) }.map_err(|e| Error {
+        code: ErrorCode::IO(e),
+        remaining: None,
+    })?;
     let meta = parse_buffer(buf.as_ref())?;
-    Ok(OP2File {
-        file,
-        meta
-        })
+    Ok(OP2File { file, meta })
 }
 
-pub fn parse_file_single(filename: impl AsRef<Path>) -> Result<OP2File<SinglePrecision>, Error<SinglePrecision>> {
+pub fn parse_file_single(
+    filename: impl AsRef<Path>,
+) -> Result<OP2File<SinglePrecision>, Error<SinglePrecision>> {
     parse_file(filename.as_ref())
 }
 
-pub fn parse_file_double(filename: impl AsRef<Path>) -> Result<OP2File<DoublePrecision>, Error<DoublePrecision>> {
+pub fn parse_file_double(
+    filename: impl AsRef<Path>,
+) -> Result<OP2File<DoublePrecision>, Error<DoublePrecision>> {
     parse_file(filename.as_ref())
 }
 
 #[cfg(test)]
-mod test{
+mod test {
+    use super::*;
+
+    #[macro_use]
+    mod macros {
+        #[repr(C)] // guarantee 'bytes' comes after '_align'
+        pub struct AlignedAs<Align, Bytes: ?Sized> {
+            pub _align: [Align; 0],
+            pub bytes: Bytes,
+        }
+
+        macro_rules! include_bytes_align_as {
+            ($align_ty:ty, $path:literal) => {
+                {  // const block expression to encapsulate the static
+                    use self::macros::AlignedAs;
+                    
+                    // this assignment is made possible by CoerceUnsized
+                    static ALIGNED: &AlignedAs::<$align_ty, [u8]> = &AlignedAs {
+                        _align: [],
+                        bytes: *include_bytes!($path),
+                    };
+        
+                    &ALIGNED.bytes
+                }
+            };
+        }
+    }
+
+
     #[test]
     fn test_parse_buffer() {
         // include_bytes here is just to work around some issues related
         // to filesystem protections on my machine
-        let buf = include_bytes!("../tests/op2test32.op2");
+        let buf = include_bytes_align_as!(u64,"../tests/op2test32.op2");
         let op2 = match parse_buffer_single(&buf[..]) {
             Ok(o) => o,
             Err(e) => {
@@ -634,7 +727,7 @@ mod test{
     fn test_parse_buffer_64() {
         // include_bytes here is just to work around some issues related
         // to filesystem protections on my machine
-        let buf = include_bytes!("../tests/op2test64.op2");
+        let buf = include_bytes_align_as!(u64,"../tests/op2test64.op2");
         let op2 = match parse_buffer_double(&buf[..]) {
             Ok(o) => o,
             Err(e) => {
@@ -666,4 +759,3 @@ mod test{
         assert_eq!(op2.blocks[0].records.len(), 1);
     }
 }
-
