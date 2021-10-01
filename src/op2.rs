@@ -1,5 +1,7 @@
 use std::fmt;
 use std::mem;
+use std::path::Path;
+use std::fs::File;
 
 use bstr::ByteSlice;
 use thiserror::Error;
@@ -182,7 +184,7 @@ pub enum ErrorCode<P: Precision> {
 #[error("{code}")]
 pub struct Error<P: Precision> {
     code: ErrorCode<P>,
-    remaining: Indexed<u8>,
+    remaining: Option<Indexed<u8>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -299,7 +301,7 @@ pub struct DataBlock<P: Precision> {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct OP2<P: Precision> {
+pub struct OP2MetaData<P: Precision> {
     header: FileHeader<P>,
     blocks: Vec<DataBlock<P>>,
 }
@@ -510,28 +512,28 @@ where
         }))
     }
 
-    fn inner_parse(&mut self) -> Result<OP2<P>, ErrorCode<P>> {
+    fn inner_parse(&mut self) -> Result<OP2MetaData<P>, ErrorCode<P>> {
         let header = self.read_header()?;
         let mut blocks = vec![];
         while let Some(block) = self.read_datablock()? {
             blocks.push(block);
         }
         if self.rem() == 0 {
-            Ok(OP2 { header, blocks })
+            Ok(OP2MetaData { header, blocks })
         } else {
             Err(ErrorCode::BytesRemaining)
         }
     }
 
-    fn parse(&mut self) -> std::result::Result<OP2<P>, Error<P>> {
+    fn parse(&mut self) -> std::result::Result<OP2MetaData<P>, Error<P>> {
         self.inner_parse().map_err(|code| Error {
             code,
-            remaining: Indexed::new(self.index, self.buffer.len()),
+            remaining: Some(Indexed::new(self.index, self.buffer.len())),
         })
     }
 }
 
-pub fn parse_buffer_single(buffer: &[u8]) -> Result<OP2<SinglePrecision>, Error<SinglePrecision>> {
+pub fn parse_buffer<P: Precision>(buffer: &[u8]) -> Result<OP2MetaData<P>, Error<P>> {
     let mut parser = OP2Parser {
         index: 0,
         buffer,
@@ -540,7 +542,7 @@ pub fn parse_buffer_single(buffer: &[u8]) -> Result<OP2<SinglePrecision>, Error<
     parser.parse()
 }
 
-pub fn parse_buffer_double(buffer: &[u8]) -> Result<OP2<DoublePrecision>, Error<DoublePrecision>> {
+pub fn parse_buffer_single(buffer: &[u8]) -> Result<OP2MetaData<SinglePrecision>, Error<SinglePrecision>> {
     let mut parser = OP2Parser {
         index: 0,
         buffer,
@@ -549,74 +551,119 @@ pub fn parse_buffer_double(buffer: &[u8]) -> Result<OP2<DoublePrecision>, Error<
     parser.parse()
 }
 
-#[test]
-fn test_parse_buffer() {
-    // include_bytes here is just to work around some issues related
-    // to filesystem protections on my machine
-    let buf = include_bytes!("../tests/op2test32.op2");
-    let op2 = match parse_buffer_single(&buf[..]) {
-        Ok(o) => o,
-        Err(e) => {
-            eprintln!("{}", e);
-            assert!(false);
-            return;
-        }
+pub fn parse_buffer_double(buffer: &[u8]) -> Result<OP2MetaData<DoublePrecision>, Error<DoublePrecision>> {
+    let mut parser = OP2Parser {
+        index: 0,
+        buffer,
+        precision: std::marker::PhantomData,
     };
-    assert_eq!(
-        op2.header.date,
-        Date::<_> {
-            month: 8,
-            day: 13,
-            year: 18
-        }
-    );
-    assert_eq!(
-        op2.header.label,
-        [SingleWord(*b"NX11"), SingleWord(*b".0.2")]
-    );
-    assert_eq!(
-        op2.blocks[0].name,
-        [SingleWord(*b"PVT0"), SingleWord(*b"    ")]
-    );
-    assert_eq!(op2.blocks[0].trailer, [101, 13, 0, 0, 0, 0, 0]);
-    assert_eq!(op2.blocks[0].record_type, DataBlockType::Table);
-    let header = op2.blocks[0].header.read(buf);
-    assert_eq!(header, [SingleWord(*b"PVT "), SingleWord(*b"    ")]);
-    assert_eq!(op2.blocks[0].records.len(), 1);
+    parser.parse()
 }
 
-#[test]
-fn test_parse_buffer_64() {
-    // include_bytes here is just to work around some issues related
-    // to filesystem protections on my machine
-    let buf = include_bytes!("../tests/op2test64.op2");
-    let op2 = match parse_buffer_double(&buf[..]) {
-        Ok(o) => o,
-        Err(e) => {
-            eprintln!("{}", e);
-            assert!(false);
-            return;
-        }
-    };
-    assert_eq!(
-        op2.header.date,
-        Date::<_> {
-            month: 7,
-            day: 10,
-            year: 18
-        }
-    );
-    //assert_eq!(op2.header.label, *b"NX11.0.2");
-    //assert_eq!(op2.blocks[0].name, *b"PVT0    ");
-    assert_eq!(op2.blocks[0].trailer, [101, 13, 0, 0, 0, 0, 0]);
-    assert_eq!(op2.blocks[0].record_type, DataBlockType::Table);
-    let header = op2.blocks[0].header.read(buf);
-    assert_eq!(
-        header,
-        [
-            DoubleWord(*b"PVT ", *b"    "),
-            DoubleWord(*b"    ", *b"    ")
-        ]
-    );
-    assert_eq!(op2.blocks[0].records.len(), 1);
+#[derive(Debug)]
+pub struct OP2File<P: Precision> {
+    file: std::fs::File,
+    meta: OP2MetaData<P>
 }
+
+fn open_file(filename: &Path) -> std::io::Result<File> {
+    use fs2::FileExt;
+    let file = std::fs::File::open(filename)?;
+    file.lock_exclusive()?;
+    Ok(file)
+}
+
+pub fn parse_file<P: Precision>(filename: impl AsRef<Path>) -> Result<OP2File<P>, Error<P>> {
+    let file = open_file(filename.as_ref()).map_err(|e| Error { code: ErrorCode::IO(e), remaining: None })?;
+    // Should be safe since open_file gets an exclusive lock on the whole file
+    let buf = unsafe { memmap2::Mmap::map(&file) } .map_err(|e| Error { code: ErrorCode::IO(e), remaining: None })?;
+    let meta = parse_buffer(buf.as_ref())?;
+    Ok(OP2File {
+        file,
+        meta
+        })
+}
+
+pub fn parse_file_single(filename: impl AsRef<Path>) -> Result<OP2File<SinglePrecision>, Error<SinglePrecision>> {
+    parse_file(filename.as_ref())
+}
+
+pub fn parse_file_double(filename: impl AsRef<Path>) -> Result<OP2File<DoublePrecision>, Error<DoublePrecision>> {
+    parse_file(filename.as_ref())
+}
+
+#[cfg(test)]
+mod test{
+    #[test]
+    fn test_parse_buffer() {
+        // include_bytes here is just to work around some issues related
+        // to filesystem protections on my machine
+        let buf = include_bytes!("../tests/op2test32.op2");
+        let op2 = match parse_buffer_single(&buf[..]) {
+            Ok(o) => o,
+            Err(e) => {
+                eprintln!("{}", e);
+                assert!(false);
+                return;
+            }
+        };
+        assert_eq!(
+            op2.header.date,
+            Date::<_> {
+                month: 8,
+                day: 13,
+                year: 18
+            }
+        );
+        assert_eq!(
+            op2.header.label,
+            [SingleWord(*b"NX11"), SingleWord(*b".0.2")]
+        );
+        assert_eq!(
+            op2.blocks[0].name,
+            [SingleWord(*b"PVT0"), SingleWord(*b"    ")]
+        );
+        assert_eq!(op2.blocks[0].trailer, [101, 13, 0, 0, 0, 0, 0]);
+        assert_eq!(op2.blocks[0].record_type, DataBlockType::Table);
+        let header = op2.blocks[0].header.read(buf);
+        assert_eq!(header, [SingleWord(*b"PVT "), SingleWord(*b"    ")]);
+        assert_eq!(op2.blocks[0].records.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_buffer_64() {
+        // include_bytes here is just to work around some issues related
+        // to filesystem protections on my machine
+        let buf = include_bytes!("../tests/op2test64.op2");
+        let op2 = match parse_buffer_double(&buf[..]) {
+            Ok(o) => o,
+            Err(e) => {
+                eprintln!("{}", e);
+                assert!(false);
+                return;
+            }
+        };
+        assert_eq!(
+            op2.header.date,
+            Date::<_> {
+                month: 7,
+                day: 10,
+                year: 18
+            }
+        );
+        //assert_eq!(op2.header.label, *b"NX11.0.2");
+        //assert_eq!(op2.blocks[0].name, *b"PVT0    ");
+        assert_eq!(op2.blocks[0].trailer, [101, 13, 0, 0, 0, 0, 0]);
+        assert_eq!(op2.blocks[0].record_type, DataBlockType::Table);
+        let header = op2.blocks[0].header.read(buf);
+        assert_eq!(
+            header,
+            [
+                DoubleWord(*b"PVT ", *b"    "),
+                DoubleWord(*b"    ", *b"    ")
+            ]
+        );
+        assert_eq!(op2.blocks[0].records.len(), 1);
+    }
+}
+
