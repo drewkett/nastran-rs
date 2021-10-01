@@ -210,7 +210,7 @@ pub enum ErrorCode<P: Precision> {
 #[error("{code}")]
 pub struct Error<P: Precision> {
     code: ErrorCode<P>,
-    remaining: Option<Indexed<u8>>,
+    remaining: Option<Indexed<MaybeAligned,u8>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -253,40 +253,87 @@ impl DataBlockType {
     }
 }
 
+#[derive(Debug,PartialEq)]
+pub struct Aligned;
+#[derive(Debug,PartialEq)]
+pub struct MaybeAligned;
+#[derive(Debug,PartialEq)]
+pub struct Unaligned;
+
+pub trait Alignment { }
+
+impl Alignment for Aligned {}
+impl Alignment for MaybeAligned {}
+impl Alignment for Unaligned {}
+
 #[derive(Debug, PartialEq)]
-pub struct Indexed<T> {
+pub struct Indexed<A,T> {
     start: usize,
     end: usize,
+    alignment: std::marker::PhantomData<A>,
     data: std::marker::PhantomData<T>,
 }
 
-impl<T> Indexed<T>
+impl<A, T> Indexed<A, T>
 where
+    A: Alignment,
     T: bytemuck::Pod,
 {
     fn new(start: usize, end: usize) -> Self {
         Indexed {
             start,
             end,
+            alignment: std::marker::PhantomData,
             data: std::marker::PhantomData,
         }
     }
+}
 
-    fn read<'b>(&self, file_buffer: &'b [u8]) -> &'b T {
+impl <T> Indexed<Aligned,T> where T: bytemuck::Pod{
+    pub fn read<'b>(&self, file_buffer: &'b [u8]) -> &'b T {
         let buf = &file_buffer[self.start..self.end];
         bytemuck::from_bytes(buf)
+    }
+
+    pub fn read_value(&self, file_buffer: &[u8]) -> T {
+        *self.read(file_buffer)
+    }
+}
+
+impl <T> Indexed<Unaligned,T> where T: bytemuck::Pod{
+    pub fn read_value(&self, file_buffer: &[u8]) -> T {
+        let buf = &file_buffer[self.start..self.end];
+        unsafe { std::ptr::read_unaligned(buf.as_ptr() as *const T) }
+    }
+}
+
+impl <T> Indexed<MaybeAligned,T> where T: bytemuck::Pod{
+    pub fn try_read<'b>(&self, file_buffer: &'b [u8]) -> Option<&'b T> {
+        let buf = &file_buffer[self.start..self.end];
+        bytemuck::try_from_bytes(buf).ok()
+    }
+
+    fn read_value(&self, file_buffer: &[u8]) -> T {
+        let buf = &file_buffer[self.start..self.end];
+        if (buf.as_ptr() as usize) % std::mem::size_of::<T>() == 0 {
+            *bytemuck::from_bytes(buf)
+        } else {
+            unsafe { std::ptr::read_unaligned(buf.as_ptr() as *const T) }
+        }
     }
 }
 
 #[derive(Debug, PartialEq)]
-pub struct IndexedSlice<T> {
+pub struct IndexedSlice<A,T> {
     start: usize,
     end: usize,
+    alignment: std::marker::PhantomData<A>,
     data: std::marker::PhantomData<T>,
 }
 
-impl<T> IndexedSlice<T>
+impl<A, T> IndexedSlice<A, T>
 where
+    A: Alignment,
     T: bytemuck::Pod,
 {
     fn new(start: usize, end: usize) -> Self {
@@ -294,6 +341,7 @@ where
         IndexedSlice {
             start,
             end,
+    alignment: std::marker::PhantomData,
             data: std::marker::PhantomData,
         }
     }
@@ -301,26 +349,67 @@ where
     fn len(&self) -> usize {
         (self.end - self.start) / std::mem::size_of::<T>()
     }
+}
 
-    fn read<'b>(&self, file_buffer: &'b [u8]) -> &'b [T] {
+impl <T> IndexedSlice<Aligned,T> where T: bytemuck::Pod{
+    pub fn read<'b>(&self, file_buffer: &'b [u8]) -> &'b [T] {
         let buf = &file_buffer[self.start..self.end];
         bytemuck::cast_slice(buf)
+    }
+
+    pub fn read_value(&self, file_buffer: &[u8]) -> Vec<T> {
+        self.read(file_buffer).to_vec()
+    }
+}
+
+impl <T> IndexedSlice<Unaligned,T> where T: bytemuck::Pod{
+    pub fn read_value(&self, file_buffer: &[u8]) -> Vec<T> {
+        let buf = &file_buffer[self.start..self.end];
+            let mut ret = Vec::with_capacity(self.len());
+            let mut offset = 0;
+            for _ in 0..self.len() {
+                ret.push(unsafe { std::ptr::read_unaligned((&buf[offset..]).as_ptr() as *const T) });
+                offset += std::mem::size_of::<T>();
+            }
+            ret
+    }
+}
+
+impl <T> IndexedSlice<MaybeAligned,T> where T: bytemuck::Pod{
+    pub fn try_read<'b>(&self, file_buffer: &'b [u8]) -> Option<&'b [T]> {
+        let buf = &file_buffer[self.start..self.end];
+        bytemuck::try_cast_slice(buf).ok()
+    }
+
+    pub fn read_value(&self, file_buffer: &[u8]) -> Vec<T> {
+        let buf = &file_buffer[self.start..self.end];
+        if (buf.as_ptr() as usize) % std::mem::size_of::<T>() == 0 {
+            bytemuck::cast_slice(buf).to_vec()
+        } else {
+            let mut ret = Vec::with_capacity(self.len());
+            let mut offset = 0;
+            for _ in 0..self.len() {
+                ret.push(unsafe { std::ptr::read_unaligned((&buf[offset..]).as_ptr() as *const T) });
+                offset += std::mem::size_of::<T>();
+            }
+            ret
+        }
     }
 }
 
 #[derive(Debug, PartialEq)]
-pub struct DataBlock<P: Precision> {
+pub struct DataBlock<A: Alignment, P: Precision> {
     name: [P::Word; 2],
     trailer: [P::Int; 7],
     record_type: DataBlockType,
-    header: IndexedSlice<P::Word>,
-    records: Vec<IndexedSlice<u8>>,
+    header: IndexedSlice<A, P::Word>,
+    records: Vec<IndexedSlice<Aligned,u8>>,
 }
 
 #[derive(Debug, PartialEq)]
-pub struct OP2MetaData<P: Precision> {
+pub struct OP2MetaData<A: Alignment, P: Precision> {
     header: FileHeader<P>,
-    blocks: Vec<DataBlock<P>>,
+    blocks: Vec<DataBlock<A,P>>,
 }
 
 #[derive(Debug)]
@@ -352,7 +441,7 @@ where
     }
 
     #[inline]
-    fn take(&mut self, n: usize) -> Result<IndexedSlice<u8>, ErrorCode<P>> {
+    fn take(&mut self, n: usize) -> Result<IndexedSlice<Aligned,u8>, ErrorCode<P>> {
         if self.rem() < n {
             return Err(ErrorCode::UnexpectedEOF);
         }
@@ -361,27 +450,17 @@ where
         Ok(ret)
     }
 
-    fn read<T: bytemuck::Pod>(&mut self) -> Result<Indexed<T>, ErrorCode<P>> {
+    fn read<T: bytemuck::Pod>(&mut self) -> Result<Indexed<MaybeAligned,T>, ErrorCode<P>> {
         let n = std::mem::size_of::<T>();
         if self.rem() < n {
             return Err(ErrorCode::UnexpectedEOF);
-        }
-        let buf = &self.buffer[self.index..];
-        if (buf.as_ptr() as usize) % std::mem::align_of::<T>() != 0 {
-            dbg!(self.buffer.as_ptr() as usize);
-            dbg!(buf.as_ptr() as usize);
-            dbg!((self.buffer.as_ptr() as usize)%std::mem::align_of::<T>());
-            dbg!(buf.as_ptr() as usize);
-            dbg!(std::mem::align_of::<T>());
-            dbg!(self.index);
-            return Err(ErrorCode::UnalignedValue);
         }
         let ret = Indexed::new(self.index, self.index + n);
         self.index += n;
         Ok(ret)
     }
 
-    fn read_slice<T: bytemuck::Pod>(&mut self, n_bytes: usize) -> Result<IndexedSlice<T>, ErrorCode<P>> {
+    fn read_slice<T: bytemuck::Pod>(&mut self, n_bytes: usize) -> Result<IndexedSlice<MaybeAligned,T>, ErrorCode<P>> {
         if self.rem() < n_bytes {
             return Err(ErrorCode::UnexpectedEOF);
         }
@@ -392,6 +471,15 @@ where
         let buf = &self.buffer[self.index..];
         if (buf.as_ptr() as usize) % std::mem::align_of::<T>() != 0 {
             return Err(ErrorCode::UnalignedValue);
+        }
+        let ret = IndexedSlice::new(self.index, self.index + n_bytes);
+        self.index += n_bytes;
+        Ok(ret)
+    }
+
+    fn read_byte_slice(&mut self, n_bytes: usize) -> Result<IndexedSlice<Aligned,u8>, ErrorCode<P>> {
+        if self.rem() < n_bytes {
+            return Err(ErrorCode::UnexpectedEOF);
         }
         let ret = IndexedSlice::new(self.index, self.index + n_bytes);
         self.index += n_bytes;
@@ -413,7 +501,7 @@ where
         Ok(())
     }
 
-    fn read_padded<T: bytemuck::Pod>(&mut self) -> Result<Indexed<T>, ErrorCode<P>> {
+    fn read_padded<T: bytemuck::Pod>(&mut self) -> Result<Indexed<MaybeAligned,T>, ErrorCode<P>> {
         let expected = mem::size_of::<T>();
         let expected_i = P::i32_from_usize(expected)?;
         self.read_i32_value(expected_i)?;
@@ -425,15 +513,17 @@ where
     fn read_padded_expected<T: PartialEq + fmt::Debug + bytemuck::Pod>(
         &mut self,
         expected_value: &T,
-    ) -> Result<Indexed<T>, ErrorCode<P>> {
-        let value = self.read_padded()?;
-        if value.read(self.buffer) != expected_value {
+    ) -> Result<(), ErrorCode<P>> {
+        let v = self.read_padded::<T>()?;
+        // This could potentially be optimized since we really only need to compare the
+        // underlying bytes, so the concerns about alignment are not necessary
+        if &v.read_value(self.buffer) != expected_value {
             return Err(ErrorCode::UnexpectedValue);
         }
-        Ok(value)
+        Ok(())
     }
 
-    fn read_padded_slice<T: bytemuck::Pod>(&mut self) -> Result<IndexedSlice<T>, ErrorCode<P>> {
+    fn read_padded_slice<T: bytemuck::Pod>(&mut self) -> Result<IndexedSlice<MaybeAligned,T>, ErrorCode<P>> {
         let size = std::mem::size_of::<T>();
         let n = self.read_i32()?;
         if n < 1 {
@@ -451,10 +541,24 @@ where
         Ok(res)
     }
 
+    fn read_padded_byte_slice(&mut self) -> Result<IndexedSlice<Aligned,u8>, ErrorCode<P>> {
+        let n = self.read_i32()?;
+        if n < 1 {
+            return Err(ErrorCode::NegativeRead(n));
+        }
+        let res = self.read_byte_slice(n as usize)?;
+        let expected = n;
+        let n = self.read_i32()?;
+        if n != expected {
+            return Err(ErrorCode::UnexpectedValue);
+        }
+        Ok(res)
+    }
+
     fn read_encoded_data_slice<T: bytemuck::Pod>(
         &mut self,
-    ) -> Result<EncodedData<P, IndexedSlice<T>>, ErrorCode<P>> {
-        let nwords: P::Int = *self.read_padded()?.read(self.buffer);
+    ) -> Result<EncodedData<P, IndexedSlice<MaybeAligned, T>>, ErrorCode<P>> {
+        let nwords: P::Int = self.read_padded()?.read_value(self.buffer);
         if nwords < P::zero_int() {
             Ok(EncodedData::EOR(nwords))
         } else if nwords == P::zero_int() {
@@ -475,10 +579,29 @@ where
         }
     }
 
+    fn read_encoded_byte_slice(
+        &mut self,
+    ) -> Result<EncodedData<P, IndexedSlice<Aligned, u8>>, ErrorCode<P>> {
+        let nwords: P::Int = self.read_padded()?.read_value(self.buffer);
+        if nwords < P::zero_int() {
+            Ok(EncodedData::EOR(nwords))
+        } else if nwords == P::zero_int() {
+            Ok(EncodedData::Zero)
+        } else {
+            let nwords: i64 = nwords.into();
+            let nbytes = (nwords as usize) * P::WORDSIZE;
+            let ret = self.read_padded_byte_slice()?;
+            if ret.len() != nbytes {
+                return Err(ErrorCode::UnexpectedDataLength(nbytes, ret.len()));
+            }
+            Ok(EncodedData::Data(ret))
+        }
+    }
+
     fn read_encoded_data<T: bytemuck::Pod>(
         &mut self,
-    ) -> Result<EncodedData<P, Indexed<T>>, ErrorCode<P>> {
-        let nwords: P::Int = *self.read_padded()?.read(self.buffer);
+    ) -> Result<EncodedData<P, Indexed<MaybeAligned,T>>, ErrorCode<P>> {
+        let nwords: P::Int = self.read_padded()?.read_value(self.buffer);
         if nwords < P::zero_int() {
             Ok(EncodedData::EOR(nwords))
         } else if nwords == P::zero_int() {
@@ -489,7 +612,7 @@ where
         }
     }
 
-    fn read_encoded<T: bytemuck::Pod>(&mut self) -> Result<Indexed<T>, ErrorCode<P>> {
+    fn read_encoded<T: bytemuck::Pod>(&mut self) -> Result<Indexed<MaybeAligned,T>, ErrorCode<P>> {
         match self.read_encoded_data()? {
             EncodedData::EOR(n) => Err(ErrorCode::UnexpectedEOR(n)),
             EncodedData::Zero => Err(ErrorCode::UnexpectedEOR(P::zero_int())),
@@ -497,7 +620,7 @@ where
         }
     }
 
-    fn read_encoded_slice<T: bytemuck::Pod>(&mut self) -> Result<IndexedSlice<T>, ErrorCode<P>> {
+    fn read_encoded_slice<T: bytemuck::Pod>(&mut self) -> Result<IndexedSlice<MaybeAligned,T>, ErrorCode<P>> {
         match self.read_encoded_data_slice()? {
             EncodedData::EOR(n) => Err(ErrorCode::UnexpectedEOR(n)),
             EncodedData::Zero => Err(ErrorCode::UnexpectedEOR(P::zero_int())),
@@ -505,33 +628,35 @@ where
         }
     }
 
-    fn read_encoded_value<T: PartialEq + fmt::Debug + bytemuck::Pod>(
+    fn read_encoded_expected<T: PartialEq + fmt::Debug + bytemuck::Pod>(
         &mut self,
         expected_value: &T,
-    ) -> Result<Indexed<T>, ErrorCode<P>> {
-        let value = self.read_encoded()?;
-        if expected_value != value.read(self.buffer) {
+    ) -> Result<(), ErrorCode<P>> {
+        let value = self.read_encoded::<T>()?;
+        // This could potentially be optimized since we really only need to compare the
+        // underlying bytes, so the concerns about alignment are not necessary
+        if expected_value != &value.read_value(self.buffer) {
             return Err(ErrorCode::UnexpectedValue);
         }
-        Ok(value)
+        Ok(())
     }
 
     fn read_header(&mut self) -> Result<FileHeader<P>, ErrorCode<P>> {
-        let date: Date<P> = *self.read_encoded()?.read(self.buffer);
-        let _ = self.read_encoded_value(&P::header_code())?;
-        let label = *self.read_encoded()?.read(self.buffer);
-        let _ = self.read_padded_expected(&P::Int::from(-1))?;
-        let _ = self.read_padded_expected(&P::Int::from(0))?;
+        let date: Date<P> = self.read_encoded()?.read_value(self.buffer);
+         self.read_encoded_expected(&P::header_code())?;
+        let label = self.read_encoded()?.read_value(self.buffer);
+         self.read_padded_expected(&P::Int::from(-1))?;
+         self.read_padded_expected(&P::Int::from(0))?;
         Ok(FileHeader { date, label })
     }
 
-    fn read_table_record(&mut self) -> Result<Option<IndexedSlice<u8>>, ErrorCode<P>> {
-        self.read_encoded_value(&P::Int::from(0))?;
-        match self.read_encoded_data_slice()? {
+    fn read_table_record(&mut self) -> Result<Option<IndexedSlice<Aligned, u8>>, ErrorCode<P>> {
+        self.read_encoded_expected(&P::Int::from(0))?;
+        match self.read_encoded_byte_slice()? {
             EncodedData::Data(data) => {
-                let record_num: &P::Int = self.read_padded()?.read(self.buffer);
-                if record_num >= &P::zero_int() {
-                    return Err(ErrorCode::ExpectedEOR(*record_num));
+                let record_num: P::Int = self.read_padded()?.read_value(self.buffer);
+                if record_num >= P::zero_int() {
+                    return Err(ErrorCode::ExpectedEOR(record_num));
                 }
                 Ok(Some(data))
             }
@@ -540,16 +665,16 @@ where
         }
     }
 
-    fn read_datablock(&mut self) -> Result<Option<DataBlock<P>>, ErrorCode<P>> {
+    fn read_datablock(&mut self) -> Result<Option<DataBlock<MaybeAligned,P>>, ErrorCode<P>> {
         let name = match self.read_encoded_data()? {
             EncodedData::EOR(n) => return Err(ErrorCode::UnexpectedEOR(n)),
             EncodedData::Zero => return Ok(None),
-            EncodedData::Data(name) => *name.read(self.buffer),
+            EncodedData::Data(name) => name.read_value(self.buffer),
         };
         self.read_padded_expected(&P::Int::from(-1))?;
-        let trailer = *self.read_encoded()?.read(self.buffer);
+        let trailer = self.read_encoded()?.read_value(self.buffer);
         self.read_padded_expected(&P::Int::from(-2))?;
-        let record_type = DataBlockType::parse(*self.read_encoded::<P::Int>()?.read(self.buffer))?;
+        let record_type = DataBlockType::parse(self.read_encoded::<P::Int>()?.read_value(self.buffer))?;
         let header = self.read_encoded_slice()?;
         self.read_padded_expected(&P::Int::from(-3))?;
         let mut records = vec![];
@@ -565,7 +690,7 @@ where
         }))
     }
 
-    fn inner_parse(&mut self) -> Result<OP2MetaData<P>, ErrorCode<P>> {
+    fn inner_parse(&mut self) -> Result<OP2MetaData<MaybeAligned,P>, ErrorCode<P>> {
         let header = self.read_header()?;
         let mut blocks = vec![];
         while let Some(block) = self.read_datablock()? {
@@ -578,7 +703,7 @@ where
         }
     }
 
-    fn parse(&mut self) -> std::result::Result<OP2MetaData<P>, Error<P>> {
+    fn parse(&mut self) -> std::result::Result<OP2MetaData<MaybeAligned, P>, Error<P>> {
         self.inner_parse().map_err(|code| Error {
             code,
             remaining: Some(Indexed::new(self.index, self.buffer.len())),
@@ -586,7 +711,7 @@ where
     }
 }
 
-pub fn parse_buffer<P: Precision>(buffer: &[u8]) -> Result<OP2MetaData<P>, Error<P>> {
+pub fn parse_buffer<P: Precision>(buffer: &[u8]) -> Result<OP2MetaData<MaybeAligned,P>, Error<P>> {
     let mut parser = OP2Parser {
         index: 0,
         buffer,
@@ -595,9 +720,11 @@ pub fn parse_buffer<P: Precision>(buffer: &[u8]) -> Result<OP2MetaData<P>, Error
     parser.parse()
 }
 
+// TODO There should be a way to guarantee alignment here, but not sure if that
+// requires specialization (or duplicating a bunch of methods)
 pub fn parse_buffer_single(
     buffer: &[u8],
-) -> Result<OP2MetaData<SinglePrecision>, Error<SinglePrecision>> {
+) -> Result<OP2MetaData<MaybeAligned,SinglePrecision>, Error<SinglePrecision>> {
     let mut parser = OP2Parser {
         index: 0,
         buffer,
@@ -608,7 +735,7 @@ pub fn parse_buffer_single(
 
 pub fn parse_buffer_double(
     buffer: &[u8],
-) -> Result<OP2MetaData<DoublePrecision>, Error<DoublePrecision>> {
+) -> Result<OP2MetaData<MaybeAligned,DoublePrecision>, Error<DoublePrecision>> {
     let mut parser = OP2Parser {
         index: 0,
         buffer,
@@ -618,9 +745,9 @@ pub fn parse_buffer_double(
 }
 
 #[derive(Debug)]
-pub struct OP2File<P: Precision> {
+pub struct OP2File<A: Alignment, P: Precision> {
     file: std::fs::File,
-    meta: OP2MetaData<P>,
+    meta: OP2MetaData<A, P>,
 }
 
 fn open_file(filename: &Path) -> std::io::Result<File> {
@@ -630,7 +757,7 @@ fn open_file(filename: &Path) -> std::io::Result<File> {
     Ok(file)
 }
 
-pub fn parse_file<P: Precision>(filename: impl AsRef<Path>) -> Result<OP2File<P>, Error<P>> {
+pub fn parse_file<P: Precision>(filename: impl AsRef<Path>) -> Result<OP2File<MaybeAligned,P>, Error<P>> {
     let file = open_file(filename.as_ref()).map_err(|e| Error {
         code: ErrorCode::IO(e),
         remaining: None,
@@ -645,15 +772,17 @@ pub fn parse_file<P: Precision>(filename: impl AsRef<Path>) -> Result<OP2File<P>
     Ok(OP2File { file, meta })
 }
 
+// TODO There should be a way to guarantee alignment here, but not sure if that
+// requires specialization (or duplicating a bunch of methods)
 pub fn parse_file_single(
     filename: impl AsRef<Path>,
-) -> Result<OP2File<SinglePrecision>, Error<SinglePrecision>> {
+) -> Result<OP2File<MaybeAligned, SinglePrecision>, Error<SinglePrecision>> {
     parse_file(filename.as_ref())
 }
 
 pub fn parse_file_double(
     filename: impl AsRef<Path>,
-) -> Result<OP2File<DoublePrecision>, Error<DoublePrecision>> {
+) -> Result<OP2File<MaybeAligned, DoublePrecision>, Error<DoublePrecision>> {
     parse_file(filename.as_ref())
 }
 
@@ -718,8 +847,8 @@ mod test {
         );
         assert_eq!(op2.blocks[0].trailer, [101, 13, 0, 0, 0, 0, 0]);
         assert_eq!(op2.blocks[0].record_type, DataBlockType::Table);
-        let header = op2.blocks[0].header.read(buf);
-        assert_eq!(header, [SingleWord(*b"PVT "), SingleWord(*b"    ")]);
+        let header = op2.blocks[0].header.read_value(buf);
+        assert_eq!(header, vec![SingleWord(*b"PVT "), SingleWord(*b"    ")]);
         assert_eq!(op2.blocks[0].records.len(), 1);
     }
 
@@ -748,10 +877,10 @@ mod test {
         //assert_eq!(op2.blocks[0].name, *b"PVT0    ");
         assert_eq!(op2.blocks[0].trailer, [101, 13, 0, 0, 0, 0, 0]);
         assert_eq!(op2.blocks[0].record_type, DataBlockType::Table);
-        let header = op2.blocks[0].header.read(buf);
+        let header = op2.blocks[0].header.read_value(buf);
         assert_eq!(
             header,
-            [
+            vec![
                 DoubleWord(*b"PVT ", *b"    "),
                 DoubleWord(*b"    ", *b"    ")
             ]
