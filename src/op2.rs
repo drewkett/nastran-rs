@@ -308,6 +308,9 @@ where
 {
     pub fn read_value(&self, file_buffer: &[u8]) -> T {
         let buf = &file_buffer[self.start..self.end];
+        debug_assert!(buf.len() == std::mem::size_of::<T>());
+        // SAFETY this slice is the same size the type. And this slice would
+        // only have been saved if it was valid to read it
         unsafe { std::ptr::read_unaligned(buf.as_ptr() as *const T) }
     }
 }
@@ -326,6 +329,9 @@ where
         if (buf.as_ptr() as usize) % std::mem::size_of::<T>() == 0 {
             *bytemuck::from_bytes(buf)
         } else {
+            debug_assert!(buf.len() == std::mem::size_of::<T>());
+            // SAFETY this slice is the same size the type. And this slice would
+            // only have been saved if it was valid to read it
             unsafe { std::ptr::read_unaligned(buf.as_ptr() as *const T) }
         }
     }
@@ -382,6 +388,8 @@ where
         let mut ret = Vec::with_capacity(self.len());
         let mut offset = 0;
         for _ in 0..self.len() {
+            // SAFETY this slice is the same size the type. And this slice would
+            // only have been saved if it was valid to read it
             ret.push(unsafe { std::ptr::read_unaligned((&buf[offset..]).as_ptr() as *const T) });
             offset += std::mem::size_of::<T>();
         }
@@ -406,6 +414,8 @@ where
             let mut ret = Vec::with_capacity(self.len());
             let mut offset = 0;
             for _ in 0..self.len() {
+                // SAFETY this slice is the same size the type. And this slice would
+                // only have been saved if it was valid to read it
                 ret.push(unsafe {
                     std::ptr::read_unaligned((&buf[offset..]).as_ptr() as *const T)
                 });
