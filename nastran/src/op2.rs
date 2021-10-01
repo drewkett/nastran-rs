@@ -1,5 +1,4 @@
 use std::fmt;
-use std::fs::File;
 use std::mem;
 use std::path::Path;
 
@@ -784,33 +783,50 @@ pub fn parse_buffer_double(
     parser.parse()
 }
 
+// TODO Look at whether I should have a drop implementation for safety or otherwise
 #[derive(Debug)]
-pub struct OP2File<A: Alignment, P: Precision> {
-    file: std::fs::File,
-    meta: OP2MetaData<A, P>,
+struct MmapFile {
+    file: std::fs::File, 
+    mmap: memmap2::Mmap
 }
 
-fn open_file(filename: &Path) -> std::io::Result<File> {
-    use fs2::FileExt;
-    let file = std::fs::File::open(filename)?;
-    file.lock_exclusive()?;
-    Ok(file)
+impl MmapFile {
+    fn new(file: std::fs::File) -> std::io::Result<Self> {
+        use fs2::FileExt;
+        file.lock_exclusive()?;
+        // SAFETY: Should be safe since open_file gets an exclusive lock on the whole file and the
+        // buffer gets dropped before the end of the function while the file lock is still held
+        let mmap = unsafe { memmap2::Mmap::map(&file) }?;
+        Ok(Self {
+            file,
+            mmap
+        })
+    }
+
+    fn open(filename: impl AsRef<Path>) -> std::io::Result<Self> {
+        let file = std::fs::File::open(filename)?;
+        Self::new(file)
+    }
+
+    fn as_buf(&self) -> &[u8] {
+        self.mmap.as_ref()
+    }
+}
+
+#[derive(Debug)]
+pub struct OP2File<A: Alignment, P: Precision> {
+    file: MmapFile,
+    meta: OP2MetaData<A, P>,
 }
 
 pub fn parse_file<P: Precision>(
     filename: impl AsRef<Path>,
 ) -> Result<OP2File<MaybeAligned, P>, Error<P>> {
-    let file = open_file(filename.as_ref()).map_err(|e| Error {
+    let file = MmapFile::open(filename).map_err(|e| Error {
         code: ErrorCode::IO(e),
         remaining: None,
     })?;
-    // SAFETY: Should be safe since open_file gets an exclusive lock on the whole file and the
-    // buffer gets dropped before the end of the function while the file lock is still held
-    let buf = unsafe { memmap2::Mmap::map(&file) }.map_err(|e| Error {
-        code: ErrorCode::IO(e),
-        remaining: None,
-    })?;
-    let meta = parse_buffer(buf.as_ref())?;
+    let meta = parse_buffer(file.as_buf())?;
     Ok(OP2File { file, meta })
 }
 
