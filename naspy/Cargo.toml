@@ -9,7 +9,7 @@ license = "GPL-3.0"
 crate-type = ["cdylib"]
 
 [dependencies]
-nastran = { path = ".." }
+nastran = { path = "../nastran" }
 
 [dependencies.pyo3]
 version = "0.11.1"
