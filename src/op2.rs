@@ -913,8 +913,14 @@ mod test {
                 year: 18
             }
         );
-        //assert_eq!(op2.header.label, *b"NX11.0.2");
-        //assert_eq!(op2.blocks[0].name, *b"PVT0    ");
+        assert_eq!(
+            op2.header.label,
+            [DoubleWord(*b"NX11",*b"    "), DoubleWord(*b".0.2",*b"    ")]
+        );
+        assert_eq!(
+            op2.blocks[0].name,
+            [DoubleWord(*b"PVT0",*b"    "), DoubleWord(*b"    ",*b"    ")]
+        );
         assert_eq!(op2.blocks[0].trailer, [101, 13, 0, 0, 0, 0, 0]);
         assert_eq!(op2.blocks[0].record_type, DataBlockType::Table);
         let header = op2.blocks[0].header.read_value(buf);
