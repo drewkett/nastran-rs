@@ -4,6 +4,7 @@ use std::path::Path;
 
 use bstr::ByteSlice;
 use thiserror::Error;
+use tracing::{span,Level,trace};
 
 pub trait Word: fmt::Debug + fmt::Display + PartialEq + Copy {}
 
@@ -431,7 +432,7 @@ pub struct DataBlock<A: Alignment, P: Precision> {
     trailer: [P::Int; 7],
     record_type: DataBlockType,
     header: IndexedSlice<A, P::Word>,
-    records: Vec<IndexedSlice<Aligned, u8>>,
+    records: Vec<Vec<IndexedSlice<Aligned, u8>>>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -459,6 +460,15 @@ struct OP2Parser<'a, P> {
     precision: std::marker::PhantomData<P>,
 }
 
+impl <'a, P> fmt::Debug for OP2Parser<'a,P> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("OP2Parser")
+         .field("index", &self.index)
+         .field("len(buffer)", &self.buffer.len())
+         .finish()
+    }
+}
+
 impl<'a, P: 'a> OP2Parser<'a, P>
 where
     P: Precision,
@@ -469,7 +479,16 @@ where
     }
 
     #[inline]
+    fn eof(&self) -> bool {
+        self.rem() == 0
+    }
+
+    #[inline]
     fn take(&mut self, n: usize) -> Result<IndexedSlice<Aligned, u8>, ErrorCode<P>> {
+        let span = span!(Level::TRACE,"take",index=self.index);
+        let _s = span.enter();
+        
+        trace!("n = {}",n);
         if self.rem() < n {
             return Err(ErrorCode::UnexpectedEOF);
         }
@@ -492,6 +511,10 @@ where
         &mut self,
         n_bytes: usize,
     ) -> Result<IndexedSlice<MaybeAligned, T>, ErrorCode<P>> {
+        let span = span!(Level::TRACE,"read_slice",index=self.index);
+        let _s = span.enter();
+        
+        trace!("n_bytes = {}",n_bytes);
         if self.rem() < n_bytes {
             return Err(ErrorCode::UnexpectedEOF);
         }
@@ -512,6 +535,11 @@ where
         &mut self,
         n_bytes: usize,
     ) -> Result<IndexedSlice<Aligned, u8>, ErrorCode<P>> {
+        let span = span!(Level::TRACE,"read_byte_slice",index=self.index);
+        let _s = span.enter();
+        
+        trace!("n_bytes = {}",n_bytes);
+
         if self.rem() < n_bytes {
             return Err(ErrorCode::UnexpectedEOF);
         }
@@ -521,13 +549,19 @@ where
     }
 
     fn read_i32(&mut self) -> Result<i32, ErrorCode<P>> {
+        let span = span!(Level::TRACE,"read_i32",index=self.index);
+        let _s = span.enter();
+        
         let mut buf = [0u8; 4];
         let sl = &self.take(4)?.read(self.buffer);
         buf.copy_from_slice(sl);
         Ok(i32::from_le_bytes(buf))
     }
 
-    fn read_i32_value(&mut self, expected: i32) -> Result<(), ErrorCode<P>> {
+    fn read_i32_expected(&mut self, expected: i32) -> Result<(), ErrorCode<P>> {
+        let span = span!(Level::TRACE,"read_i32_expected",index=self.index);
+        let _s = span.enter();
+        trace!("expected = {}",expected);
         let found = self.read_i32()?;
         if found != expected {
             return Err(ErrorCode::UnexpectedDataSize(expected, found));
@@ -536,11 +570,13 @@ where
     }
 
     fn read_padded<T: bytemuck::Pod>(&mut self) -> Result<Indexed<MaybeAligned, T>, ErrorCode<P>> {
+        let span = span!(Level::TRACE,"read_padded",index=self.index);
+        let _s = span.enter();
         let expected = mem::size_of::<T>();
         let expected_i = P::i32_from_usize(expected)?;
-        self.read_i32_value(expected_i)?;
+        self.read_i32_expected(expected_i)?;
         let res = self.read()?;
-        self.read_i32_value(expected_i)?;
+        self.read_i32_expected(expected_i)?;
         Ok(res)
     }
 
@@ -548,6 +584,9 @@ where
         &mut self,
         expected_value: &T,
     ) -> Result<(), ErrorCode<P>> {
+        let span = span!(Level::TRACE,"read_padded_expected",index=self.index);
+        let _s = span.enter();
+        trace!("expected_value = {:?}",expected_value);
         let v = self.read_padded::<T>()?;
         // This could potentially be optimized since we really only need to compare the
         // underlying bytes, so the concerns about alignment are not necessary
@@ -560,6 +599,9 @@ where
     fn read_padded_slice<T: bytemuck::Pod>(
         &mut self,
     ) -> Result<IndexedSlice<MaybeAligned, T>, ErrorCode<P>> {
+        let span = span!(Level::TRACE,"read_padded_slice",index=self.index);
+        let _s = span.enter();
+
         let size = std::mem::size_of::<T>();
         let n = self.read_i32()?;
         if n < 1 {
@@ -578,7 +620,11 @@ where
     }
 
     fn read_padded_byte_slice(&mut self) -> Result<IndexedSlice<Aligned, u8>, ErrorCode<P>> {
+        let span = span!(Level::TRACE,"read_padded_byte_slice",index=self.index);
+        let _s = span.enter();
+
         let n = self.read_i32()?;
+        trace!("n = {}",n);
         if n < 1 {
             return Err(ErrorCode::NegativeRead(n));
         }
@@ -594,6 +640,9 @@ where
     fn read_encoded_data_slice<T: bytemuck::Pod>(
         &mut self,
     ) -> Result<EncodedData<P, IndexedSlice<MaybeAligned, T>>, ErrorCode<P>> {
+        let span = span!(Level::TRACE,"read_encoded_data_slice",index=self.index);
+        let _s = span.enter();
+
         let nwords: P::Int = self.read_padded()?.read_value(self.buffer);
         if nwords < P::zero_int() {
             Ok(EncodedData::EOR(nwords))
@@ -618,7 +667,11 @@ where
     fn read_encoded_byte_slice(
         &mut self,
     ) -> Result<EncodedData<P, IndexedSlice<Aligned, u8>>, ErrorCode<P>> {
+        let span = span!(Level::TRACE,"read_encoded_byte_slice",index=self.index);
+        let _s = span.enter();
+
         let nwords: P::Int = self.read_padded()?.read_value(self.buffer);
+        trace!("nwords = {}",nwords);
         if nwords < P::zero_int() {
             Ok(EncodedData::EOR(nwords))
         } else if nwords == P::zero_int() {
@@ -637,6 +690,9 @@ where
     fn read_encoded_data<T: bytemuck::Pod>(
         &mut self,
     ) -> Result<EncodedData<P, Indexed<MaybeAligned, T>>, ErrorCode<P>> {
+        let span = span!(Level::TRACE,"read_encoded_data",index=self.index);
+        let _s = span.enter();
+
         let nwords: P::Int = self.read_padded()?.read_value(self.buffer);
         if nwords < P::zero_int() {
             Ok(EncodedData::EOR(nwords))
@@ -649,6 +705,9 @@ where
     }
 
     fn read_encoded<T: bytemuck::Pod>(&mut self) -> Result<Indexed<MaybeAligned, T>, ErrorCode<P>> {
+        let span = span!(Level::TRACE,"read_encoded",index=self.index);
+        let _s = span.enter();
+
         match self.read_encoded_data()? {
             EncodedData::EOR(n) => Err(ErrorCode::UnexpectedEOR(n)),
             EncodedData::Zero => Err(ErrorCode::UnexpectedEOR(P::zero_int())),
@@ -688,15 +747,26 @@ where
         Ok(FileHeader { date, label })
     }
 
-    fn read_table_record(&mut self) -> Result<Option<IndexedSlice<Aligned, u8>>, ErrorCode<P>> {
+    fn read_table_record(&mut self) -> Result<Option<Vec<IndexedSlice<Aligned, u8>>>, ErrorCode<P>> {
+        let span = span!(Level::TRACE,"read_table_record",index=self.index);
+        let _s = span.enter();
+
         self.read_encoded_expected(&P::Int::from(0))?;
+        let mut res = Vec::new();
         match self.read_encoded_byte_slice()? {
             EncodedData::Data(data) => {
-                let record_num: P::Int = self.read_padded()?.read_value(self.buffer);
-                if record_num >= P::zero_int() {
-                    return Err(ErrorCode::ExpectedEOR(record_num));
+                trace!("found data");
+                res.push(data);
+                loop {
+                    let record_num: P::Int = self.read_padded()?.read_value(self.buffer);
+                    // 65538 is the max record size
+                    if record_num >= P::zero_int() {
+                        let data = self.read_padded_byte_slice()?;
+                        res.push(data);
+                    } else {
+                        break Ok(Some(res))
+                    }
                 }
-                Ok(Some(data))
             }
             EncodedData::Zero => Ok(None),
             EncodedData::EOR(n) => Err(ErrorCode::UnexpectedEOR(n)),
@@ -704,6 +774,13 @@ where
     }
 
     fn read_datablock(&mut self) -> Result<Option<DataBlock<MaybeAligned, P>>, ErrorCode<P>> {
+        let span = span!(Level::TRACE,"read_datablock",index=self.index);
+        let _s = span.enter();
+
+        if self.eof() {
+            return Ok(None)
+        }
+
         let name = match self.read_encoded_data()? {
             EncodedData::EOR(n) => return Err(ErrorCode::UnexpectedEOR(n)),
             EncodedData::Zero => return Ok(None),
@@ -717,8 +794,8 @@ where
         let header = self.read_encoded_slice()?;
         self.read_padded_expected(&P::Int::from(-3))?;
         let mut records = vec![];
-        while let Some(record) = self.read_table_record()? {
-            records.push(record);
+        while let Some(r) = self.read_table_record()? {
+            records.push(r);
         }
         Ok(Some(DataBlock {
             name,
@@ -730,6 +807,9 @@ where
     }
 
     fn inner_parse(&mut self) -> Result<OP2MetaData<MaybeAligned, P>, ErrorCode<P>> {
+        let span = span!(Level::TRACE,"inner_parse",index=self.index);
+        let _s = span.enter();
+
         let header = self.read_header()?;
         let mut blocks = vec![];
         while let Some(block) = self.read_datablock()? {
