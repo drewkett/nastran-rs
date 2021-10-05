@@ -1,10 +1,7 @@
-
 use std::fmt;
 
-use nom::IResult;
-
-use op2;
-
+#[derive(Clone, Copy)]
+#[repr(C)]
 pub struct Ident {
     pub acode: i32,
     pub tcode: i32,
@@ -29,47 +26,42 @@ pub struct Ident {
     pub label: [u8; 128],
 }
 
+impl fmt::Debug for Ident {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use bstr::ByteSlice;
+        f.debug_struct("Ident")
+            .field("acode", &self.acode)
+            .field("tcode", &self.tcode)
+            .field("eltype", &self.eltype)
+            .field("subcase", &self.subcase)
+            .field("var1", &self.var1)
+            .field("dloadid", &self.dloadid)
+            .field("fcode", &self.fcode)
+            .field("numwde", &self.numwde)
+            .field("ocode", &self.ocode)
+            .field("pid", &self.pid)
+            .field("undef1", &self.undef1)
+            .field("q4cstr", &self.q4cstr)
+            .field("plsloc", &self.plsloc)
+            .field("undef2", &self.undef2)
+            .field("rmssf", &self.rmssf)
+            .field("undef3", &self.undef3)
+            .field("thermal", &self.thermal)
+            .field("undef4", &self.undef4)
+            .field("title", &self.title.as_bstr())
+            .field("subtitl", &self.subtitl.as_bstr())
+            .field("label", &self.label.as_bstr())
+            .finish()
+    }
+}
+
+// SAFETY All zeros is a valid value
+unsafe impl bytemuck::Zeroable for Ident {}
+// SAFETY Any value is valid, there is no padding, the underlying type is Pod and its repr(C)
+unsafe impl bytemuck::Pod for Ident {}
+
 pub struct CROD {
     var: i32,
     af: f32,
     trq: f32,
-}
-
-pub enum OEFData {
-    CROD(CRODForce),
-}
-
-pub type DataBlock<'a> = op2::DataBlockIdentPair<'a, Ident, Data>;
-
-impl fmt::Display for Ident {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let title = String::from_utf8_lossy(&self.title);
-        let subtitle = String::from_utf8_lossy(&self.subtitl);
-        let label = String::from_utf8_lossy(&self.label);
-        write!(f, "OUG_IDENT[");
-        write!(f, "acode={},", self.acode);
-        write!(f, "tcode={},", self.tcode);
-        write!(f, "title=\"{}\",", title);
-        write!(f, "subtitle=\"{}\",", subtitle);
-        write!(f, "label=\"{}\",", label);
-        write!(f, "]")
-    }
-}
-
-pub fn read_datablock<'a>(input: &'a [u8],
-                          start: op2::DataBlockStart<'a>)
-                          -> IResult<&'a [u8], DataBlock<'a>> {
-    let (input, header) = try_parse!(input, op2::read_datablock_header);
-    let (input, record_pairs) = try_parse!(input,
-                                           many0!(pair!(op2::read_ident::<Ident>,
-                                                        op2::read_data::<Data>)));
-    let (input, _) = try_parse!(input, op2::read_last_table_record);
-    IResult::Done(input,
-                  DataBlock {
-                      name: start.name,
-                      trailer: start.trailer,
-                      record_type: start.record_type,
-                      header: header,
-                      record_pairs: record_pairs,
-                  })
 }
