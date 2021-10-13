@@ -1,4 +1,5 @@
 mod oef;
+mod prelude;
 
 use std::fmt;
 use std::mem;
@@ -7,6 +8,28 @@ use std::path::Path;
 use bstr::ByteSlice;
 use thiserror::Error;
 use tracing::{span, trace, Level};
+
+pub struct WordsDebug<'a,W:Word>(&'a [W]);
+
+impl <'a,W:Word> fmt::Debug for WordsDebug<'a,W> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for w in self.0 {
+            write!(f, "{}", w.as_single().as_bstr())?;
+        }
+        Ok(())
+    }
+}
+
+pub trait WordsDebugExt<'a, W: Word>  {
+    fn debug_words(&'a self) -> WordsDebug<'a, W>;
+}
+
+impl <'a, W: Word> WordsDebugExt<'a, W> for &'a [W] {
+    fn debug_words(&self) -> WordsDebug<W> {
+        WordsDebug(self)
+    }
+}
+
 
 pub trait Word: fmt::Debug + fmt::Display + PartialEq + Copy {
     fn as_single(&self) -> [u8; 4];
@@ -64,6 +87,7 @@ pub trait Precision: fmt::Debug + Sized + Copy + bytemuck::Pod {
         + Copy
         + Into<i64>
         + From<i32>
+        + std::ops::Div<Self::Int, Output=Self::Int>
         + bytemuck::Pod;
     type UInt: fmt::Debug + fmt::Display + bytemuck::Pod;
     type Float: fmt::Debug + fmt::Display + bytemuck::Pod;
@@ -83,6 +107,14 @@ pub trait Precision: fmt::Debug + Sized + Copy + bytemuck::Pod {
             Ok(v as i32)
         }
     }
+
+    fn int_to_i32(v: Self::Int) -> i32 {
+        let v: i64 = v.into();
+        debug_assert!(v < i32::MAX as i64);
+        v as i32
+    }
+
+    fn word_to_int(v: Self::Word) -> Self::Int;
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -119,6 +151,10 @@ impl Precision for SinglePrecision {
         } else {
             Ok(v as Self::Int)
         }
+    }
+
+    fn word_to_int(word: Self::Word) -> Self::Int {
+        i32::from_le_bytes(word.0)
     }
     fn header_code() -> [Self::Word; 7] {
         [
@@ -164,6 +200,13 @@ impl Precision for DoublePrecision {
         } else {
             Ok(v as Self::Int)
         }
+    }
+
+    fn word_to_int(word: Self::Word) -> Self::Int {
+        let mut temp = [0u8;8];
+        temp[..4].copy_from_slice(&word.0);
+        temp[4..].copy_from_slice(&word.1);
+        i64::from_le_bytes(temp)
     }
     fn header_code() -> [Self::Word; 7] {
         [
@@ -940,9 +983,10 @@ impl<A: Alignment, P: Precision> OP2File<A, P> {
             let ident_slices = &block.records[i * 2];
             debug_assert!(ident_slices.len() == 1);
             let ident = ident_slices[0].read(self.file.as_buf());
-            debug_assert!(ident.len() == std::mem::size_of::<oef::Ident>());
-            let ident: &oef::Ident = bytemuck::from_bytes(ident);
-            println!("{:?}", ident);
+            debug_assert!(ident.len() == std::mem::size_of::<oef::Ident<P>>());
+            let ident: &oef::Ident<P> = bytemuck::from_bytes(ident);
+            //println!("{:?}", ident);
+            println!("{:?}", ident.metadata());
             //let data  = block.records[i*2 + 1].read(self.file.as_buf());
         }
         Some(())
@@ -1084,5 +1128,51 @@ mod test {
             ]
         );
         assert_eq!(op2.blocks[0].records.len(), 1);
+    }
+}
+
+pub enum OneOrTwo {
+    One,
+    Two
+}
+
+pub fn fun1<P: Precision>(value: P::Int) -> OneOrTwo {
+    let value: i64 = value.into();
+    if matches!(value/1000, 2|3|6) {
+        OneOrTwo::Two
+    } else {
+        OneOrTwo::One
+    }
+}
+
+pub fn fun2<P: Precision>(value: P::Int) -> i32 {
+    let value: i64 = value.into();
+    (value % 100) as i32
+}
+
+pub fn fun3<P: Precision>(value: P::Int) -> i32 {
+    let value: i64 = value.into();
+    (value % 1000) as i32
+}
+
+pub fn fun4<P: Precision>(value: P::Int) -> P::Int {
+    value / P::Int::from(10)
+}
+
+pub fn fun5<P: Precision>(value: P::Int) -> i32 {
+    let value: i64 = value.into();
+    (value % 10) as i32
+}
+
+pub fn fun6<P: Precision>(value: P::Int) -> P::Int {
+    unimplemented!()
+}
+
+pub fn fun7<P: Precision>(value: P::Int) -> i32 {
+    let value: i64 = value.into();
+    match value/1000 {
+        0|2 => 0,
+        1|3 => 1,
+        _ => 2
     }
 }
