@@ -422,17 +422,14 @@ pub struct IndexedByteSlice {
 
 impl IndexedByteSlice {
     fn new(start: usize, end: usize) -> Self {
-        Self {
-            start,
-            end,
-        }
+        Self { start, end }
     }
 
     fn len(&self) -> usize {
         self.end - self.start
     }
-    
-    pub fn read<'b>(&self, file_buffer: &'b [u8]) -> &'b [u8]{
+
+    pub fn read<'b>(&self, file_buffer: &'b [u8]) -> &'b [u8] {
         &file_buffer[self.start..self.end]
     }
 
@@ -511,7 +508,6 @@ where
     pub fn read_value(&self, file_buffer: &[u8]) -> Vec<T> {
         self.read(file_buffer).to_vec()
     }
-
 }
 
 impl<T> IndexedSlice<MaybeAligned, T>
@@ -664,10 +660,7 @@ where
         Ok(ret)
     }
 
-    fn read_byte_slice(
-        &mut self,
-        n_bytes: usize,
-    ) -> Result<IndexedByteSlice, ErrorCode<P>> {
+    fn read_byte_slice(&mut self, n_bytes: usize) -> Result<IndexedByteSlice, ErrorCode<P>> {
         let span = span!(Level::TRACE, "read_byte_slice", index = self.index);
         let _s = span.enter();
 
@@ -880,9 +873,7 @@ where
         Ok(FileHeader { date, label })
     }
 
-    fn read_table_record(
-        &mut self,
-    ) -> Result<Option<Vec<IndexedByteSlice>>, ErrorCode<P>> {
+    fn read_table_record(&mut self) -> Result<Option<Vec<IndexedByteSlice>>, ErrorCode<P>> {
         let span = span!(Level::TRACE, "read_table_record", index = self.index);
         let _s = span.enter();
 
@@ -965,7 +956,7 @@ where
     }
 }
 
-pub fn parse_buffer<P: Precision>(buffer: &[u8]) -> Result<OP2MetaData< P>, Error<P>> {
+pub fn parse_buffer<P: Precision>(buffer: &[u8]) -> Result<OP2MetaData<P>, Error<P>> {
     let mut parser = OP2Parser {
         index: 0,
         buffer,
@@ -978,7 +969,7 @@ pub fn parse_buffer<P: Precision>(buffer: &[u8]) -> Result<OP2MetaData< P>, Erro
 // requires specialization (or duplicating a bunch of methods)
 pub fn parse_buffer_single(
     buffer: &[u8],
-) -> Result<OP2MetaData< SinglePrecision>, Error<SinglePrecision>> {
+) -> Result<OP2MetaData<SinglePrecision>, Error<SinglePrecision>> {
     let mut parser = OP2Parser {
         index: 0,
         buffer,
@@ -989,7 +980,7 @@ pub fn parse_buffer_single(
 
 pub fn parse_buffer_double(
     buffer: &[u8],
-) -> Result<OP2MetaData< DoublePrecision>, Error<DoublePrecision>> {
+) -> Result<OP2MetaData<DoublePrecision>, Error<DoublePrecision>> {
     let mut parser = OP2Parser {
         index: 0,
         buffer,
@@ -1031,7 +1022,7 @@ pub struct OP2File<P: Precision> {
     meta: OP2MetaData<P>,
 }
 
-impl<P: Precision> OP2File< P> {
+impl<P: Precision> OP2File<P> {
     pub fn block_names<'slf>(&'slf self) -> impl Iterator<Item = [u8; 8]> + 'slf {
         self.meta.blocks.iter().map(|b| b.name())
     }
@@ -1044,7 +1035,8 @@ impl<P: Precision> OP2File< P> {
             let ident_slices = &block.records[i * 2];
             let data_slices = block.records[i * 2 + 1].clone();
             debug_assert!(ident_slices.len() == 1);
-            let oef: oef::Oef<P> = oef::Oef::from_slices(ident_slices[0],data_slices, self.file.as_buf());
+            let oef: oef::Oef<P> =
+                oef::Oef::from_slices(ident_slices[0], data_slices, self.file.as_buf());
             //println!("{:?}", ident);
             println!("{:?}", oef.kind());
             //let data  = block.records[i*2 + 1].read(self.file.as_buf());
@@ -1053,9 +1045,7 @@ impl<P: Precision> OP2File< P> {
     }
 }
 
-pub fn parse_file<P: Precision>(
-    filename: impl AsRef<Path>,
-) -> Result<OP2File<P>, Error<P>> {
+pub fn parse_file<P: Precision>(filename: impl AsRef<Path>) -> Result<OP2File<P>, Error<P>> {
     let file = MmapFile::open(filename).map_err(|e| Error {
         code: ErrorCode::IO(e),
         remaining: None,
@@ -1237,29 +1227,29 @@ pub fn fun7<P: Precision>(value: P::Int) -> i32 {
     }
 }
 
-pub struct RecordIterator<'buf, 'data,  R> {
+pub struct RecordIterator<'buf, 'data, R> {
     buffer: &'buf [u8],
     current_index: usize,
     data: &'data [IndexedByteSlice],
     record_type: std::marker::PhantomData<R>,
 }
 
-impl <'buf, 'data, R: bytemuck::Pod> Iterator for RecordIterator<'buf,'data,R> {
+impl<'buf, 'data, R: bytemuck::Pod> Iterator for RecordIterator<'buf, 'data, R> {
     type Item = R;
     fn next(&mut self) -> Option<R> {
         if self.data.is_empty() {
-              return None
+            return None;
         }
         let size = std::mem::size_of::<R>();
         let mut remaining = 0;
         for s in self.data {
             remaining += s.len();
             if size < remaining {
-                break
+                break;
             }
         }
         if size > remaining {
-            return None
+            return None;
         }
         let mut record = std::mem::MaybeUninit::<R>::uninit();
         let mut dst = record.as_mut_ptr() as *mut u8;
@@ -1267,12 +1257,12 @@ impl <'buf, 'data, R: bytemuck::Pod> Iterator for RecordIterator<'buf,'data,R> {
         let mut data_index = 0;
         for sl in self.data {
             let sl_rem = sl.len() - self.current_index;
-            let n = std::cmp::min(remaining,sl_rem);
+            let n = std::cmp::min(remaining, sl_rem);
             // This check will return false if we're starting at the end of a slice
             if n > 0 {
                 let src = self.buffer[sl.start + self.current_index..].as_ptr();
-                unsafe { 
-                    std::ptr::copy_nonoverlapping(src,dst,n);
+                unsafe {
+                    std::ptr::copy_nonoverlapping(src, dst, n);
                     dst = dst.offset(n as isize);
                 };
                 remaining -= n;
@@ -1280,7 +1270,7 @@ impl <'buf, 'data, R: bytemuck::Pod> Iterator for RecordIterator<'buf,'data,R> {
             if remaining == 0 {
                 // All the data is copied. update the index
                 self.current_index += n;
-                break
+                break;
             }
             // Reset index back to start for next data slice
             self.current_index = 0;

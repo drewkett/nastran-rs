@@ -33,16 +33,16 @@ pub struct Oef<P: Precision> {
     data: Vec<IndexedByteSlice>,
 }
 
-impl <P: Precision> Oef<P> {
-    pub fn from_slices(ident: IndexedByteSlice, data: Vec<IndexedByteSlice>, buffer: &[u8]) -> Self {
-        let ident = ident
-            .cast::<Ident<P>>();
+impl<P: Precision> Oef<P> {
+    pub fn from_slices(
+        ident: IndexedByteSlice,
+        data: Vec<IndexedByteSlice>,
+        buffer: &[u8],
+    ) -> Self {
+        let ident = ident.cast::<Ident<P>>();
         debug_assert!(ident.is_some());
         let ident = ident.unwrap().read_value(buffer);
-        Self {
-            ident,
-            data
-        }
+        Self { ident, data }
     }
 
     pub fn kind(&self) -> Kind<P> {
