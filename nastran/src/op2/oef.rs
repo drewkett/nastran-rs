@@ -1,5 +1,5 @@
-use std::fmt;
 use crate::op2::prelude::*;
+use std::fmt;
 
 #[derive(Clone, Copy)]
 #[repr(C)]
@@ -28,13 +28,34 @@ pub struct Ident<P: Precision> {
 }
 
 #[derive(Debug)]
-pub enum OefMetaData<P:Precision> {
-    Sort1Statics {
-        load_id: P::Int
+pub struct Oef<P: Precision> {
+    ident: Ident<P>,
+    data: Vec<IndexedByteSlice>,
+}
+
+impl <P: Precision> Oef<P> {
+    pub fn from_slices(ident: IndexedByteSlice, data: Vec<IndexedByteSlice>, buffer: &[u8]) -> Self {
+        let ident = ident
+            .cast::<Ident<P>>();
+        debug_assert!(ident.is_some());
+        let ident = ident.unwrap().read_value(buffer);
+        Self {
+            ident,
+            data
+        }
+    }
+
+    pub fn kind(&self) -> Kind<P> {
+        self.ident.kind()
     }
 }
 
-impl <P: Precision> Ident<P> {
+#[derive(Debug)]
+pub enum Kind<P: Precision> {
+    Sort1Statics { load_id: P::Int },
+}
+
+impl<P: Precision> Ident<P> {
     fn device_code(&self) -> u8 {
         debug_assert!(self.acode > <P as Precision>::zero_int());
         let acode: i64 = self.acode.into();
@@ -42,7 +63,7 @@ impl <P: Precision> Ident<P> {
     }
 
     fn approach_code(&self) -> u32 {
-        let acode:i64 = self.acode.into();
+        let acode: i64 = self.acode.into();
         debug_assert!(acode > 0);
         debug_assert!(acode < (i32::MAX as i64));
         let acode = acode as u32;
@@ -50,33 +71,35 @@ impl <P: Precision> Ident<P> {
     }
 
     fn table_code(&self) -> i32 {
-        let tcode:i64 = self.tcode.into();
+        let tcode: i64 = self.tcode.into();
         debug_assert!(tcode > 0);
         debug_assert!(tcode < (i32::MAX as i64));
         tcode as i32
     }
 
     fn eltype(&self) -> i32 {
-        let eltype:i64 = self.eltype.into();
+        let eltype: i64 = self.eltype.into();
         debug_assert!(eltype > 0);
         debug_assert!(eltype < (i32::MAX as i64));
         eltype as i32
     }
 
-    pub fn metadata(&self) -> OefMetaData<P> {
+    pub fn kind(&self) -> Kind<P> {
         match fun1::<P>(self.tcode) {
             OneOrTwo::One => match self.approach_code() {
-                1 => OefMetaData::Sort1Statics {
-                    load_id: P::word_to_int(self.var1[0])
+                1 => Kind::Sort1Statics {
+                    load_id: P::word_to_int(self.var1[0]),
                 },
-                _ => unimplemented!()
+                _ => unimplemented!(),
+            },
+            OneOrTwo::Two => {
+                unimplemented!()
             }
-            OneOrTwo::Two => {unimplemented!()}
         }
     }
 }
 
-impl <P: Precision> fmt::Debug for Ident<P> {
+impl<P: Precision> fmt::Debug for Ident<P> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("Ident")
             .field("acode", &self.acode)
@@ -105,9 +128,9 @@ impl <P: Precision> fmt::Debug for Ident<P> {
 }
 
 // SAFETY All zeros is a valid value
-unsafe impl <P:Precision> bytemuck::Zeroable for Ident<P> {}
+unsafe impl<P: Precision> bytemuck::Zeroable for Ident<P> {}
 // SAFETY Any value is valid, there is no padding, the underlying type is Pod and its repr(C)
-unsafe impl <P:Precision> bytemuck::Pod for Ident<P> {}
+unsafe impl<P: Precision> bytemuck::Pod for Ident<P> {}
 
 //pub struct CROD {
 //    var: i32,

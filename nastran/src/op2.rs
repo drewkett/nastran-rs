@@ -9,9 +9,9 @@ use bstr::ByteSlice;
 use thiserror::Error;
 use tracing::{span, trace, Level};
 
-pub struct WordsDebug<'a,W:Word>(&'a [W]);
+pub struct WordsDebug<'a, W: Word>(&'a [W]);
 
-impl <'a,W:Word> fmt::Debug for WordsDebug<'a,W> {
+impl<'a, W: Word> fmt::Debug for WordsDebug<'a, W> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for w in self.0 {
             write!(f, "{}", w.as_single().as_bstr())?;
@@ -20,16 +20,15 @@ impl <'a,W:Word> fmt::Debug for WordsDebug<'a,W> {
     }
 }
 
-pub trait WordsDebugExt<'a, W: Word>  {
+pub trait WordsDebugExt<'a, W: Word> {
     fn debug_words(&'a self) -> WordsDebug<'a, W>;
 }
 
-impl <'a, W: Word> WordsDebugExt<'a, W> for &'a [W] {
+impl<'a, W: Word> WordsDebugExt<'a, W> for &'a [W] {
     fn debug_words(&self) -> WordsDebug<W> {
         WordsDebug(self)
     }
 }
-
 
 pub trait Word: fmt::Debug + fmt::Display + PartialEq + Copy {
     fn as_single(&self) -> [u8; 4];
@@ -87,11 +86,12 @@ pub trait Precision: fmt::Debug + Sized + Copy + bytemuck::Pod {
         + Copy
         + Into<i64>
         + From<i32>
-        + std::ops::Div<Self::Int, Output=Self::Int>
+        + std::ops::Div<Self::Int, Output = Self::Int>
         + bytemuck::Pod;
     type UInt: fmt::Debug + fmt::Display + bytemuck::Pod;
     type Float: fmt::Debug + fmt::Display + bytemuck::Pod;
     type Word: Word + bytemuck::Pod;
+    type Alignment: Alignment;
 
     const WORDSIZE: usize;
 
@@ -130,6 +130,7 @@ impl Precision for SinglePrecision {
     type UInt = u32;
     type Float = f32;
     type Word = SingleWord;
+    type Alignment = Aligned;
 
     const WORDSIZE: usize = 4;
 
@@ -182,6 +183,7 @@ impl Precision for DoublePrecision {
     type UInt = u64;
     type Float = f64;
     type Word = DoubleWord;
+    type Alignment = MaybeAligned;
 
     const WORDSIZE: usize = 8;
 
@@ -203,7 +205,7 @@ impl Precision for DoublePrecision {
     }
 
     fn word_to_int(word: Self::Word) -> Self::Int {
-        let mut temp = [0u8;8];
+        let mut temp = [0u8; 8];
         temp[..4].copy_from_slice(&word.0);
         temp[4..].copy_from_slice(&word.1);
         i64::from_le_bytes(temp)
@@ -310,16 +312,43 @@ impl DataBlockType {
 
 #[derive(Debug, PartialEq)]
 pub struct Aligned;
+
+impl Aligned {
+    fn read<T: bytemuck::Pod>(buffer: &[u8]) -> &T {
+        bytemuck::from_bytes(buffer)
+    }
+}
 #[derive(Debug, PartialEq)]
 pub struct MaybeAligned;
-#[derive(Debug, PartialEq)]
-pub struct Unaligned;
 
-pub trait Alignment: fmt::Debug {}
+impl MaybeAligned {
+    fn try_read<T: bytemuck::Pod>(buffer: &[u8]) -> Option<&T> {
+        bytemuck::try_from_bytes(buffer).ok()
+    }
+}
 
-impl Alignment for Aligned {}
-impl Alignment for MaybeAligned {}
-impl Alignment for Unaligned {}
+pub trait Alignment: fmt::Debug + PartialEq {
+    fn read_value<T: bytemuck::Pod>(buffer: &[u8]) -> T;
+}
+
+impl Alignment for Aligned {
+    fn read_value<T: bytemuck::Pod>(buffer: &[u8]) -> T {
+        *Self::read(buffer)
+    }
+}
+
+impl Alignment for MaybeAligned {
+    fn read_value<T: bytemuck::Pod>(buffer: &[u8]) -> T {
+        if (buffer.as_ptr() as usize) % std::mem::size_of::<T>() == 0 {
+            *bytemuck::from_bytes(buffer)
+        } else {
+            debug_assert!(buffer.len() == std::mem::size_of::<T>());
+            // SAFETY this slice is the same size the type. And this slice would
+            // only have been saved if it was valid to read it
+            unsafe { std::ptr::read_unaligned(buffer.as_ptr() as *const T) }
+        }
+    }
+}
 
 #[derive(Debug, PartialEq)]
 pub struct Indexed<A, T> {
@@ -342,6 +371,11 @@ where
             data: std::marker::PhantomData,
         }
     }
+
+    pub fn read_value(&self, file_buffer: &[u8]) -> T {
+        let buf = &file_buffer[self.start..self.end];
+        A::read_value(buf)
+    }
 }
 
 impl<T> Indexed<Aligned, T>
@@ -353,22 +387,9 @@ where
         bytemuck::from_bytes(buf)
     }
 
-    pub fn read_value(&self, file_buffer: &[u8]) -> T {
-        *self.read(file_buffer)
-    }
-}
-
-impl<T> Indexed<Unaligned, T>
-where
-    T: bytemuck::Pod,
-{
-    pub fn read_value(&self, file_buffer: &[u8]) -> T {
-        let buf = &file_buffer[self.start..self.end];
-        debug_assert!(buf.len() == std::mem::size_of::<T>());
-        // SAFETY this slice is the same size the type. And this slice would
-        // only have been saved if it was valid to read it
-        unsafe { std::ptr::read_unaligned(buf.as_ptr() as *const T) }
-    }
+    //pub fn read_value(&self, file_buffer: &[u8]) -> T {
+    //    *self.read(file_buffer)
+    //}
 }
 
 impl<T> Indexed<MaybeAligned, T>
@@ -380,15 +401,55 @@ where
         bytemuck::try_from_bytes(buf).ok()
     }
 
-    fn read_value(&self, file_buffer: &[u8]) -> T {
-        let buf = &file_buffer[self.start..self.end];
-        if (buf.as_ptr() as usize) % std::mem::size_of::<T>() == 0 {
-            *bytemuck::from_bytes(buf)
+    //fn read_value(&self, file_buffer: &[u8]) -> T {
+    //    let buf = &file_buffer[self.start..self.end];
+    //    if (buf.as_ptr() as usize) % std::mem::size_of::<T>() == 0 {
+    //        *bytemuck::from_bytes(buf)
+    //    } else {
+    //        debug_assert!(buf.len() == std::mem::size_of::<T>());
+    //        // SAFETY this slice is the same size the type. And this slice would
+    //        // only have been saved if it was valid to read it
+    //        unsafe { std::ptr::read_unaligned(buf.as_ptr() as *const T) }
+    //    }
+    //}
+}
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub struct IndexedByteSlice {
+    start: usize,
+    end: usize,
+}
+
+impl IndexedByteSlice {
+    fn new(start: usize, end: usize) -> Self {
+        Self {
+            start,
+            end,
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.end - self.start
+    }
+    
+    pub fn read<'b>(&self, file_buffer: &'b [u8]) -> &'b [u8]{
+        &file_buffer[self.start..self.end]
+    }
+
+    pub fn aligned_cast<U: bytemuck::Pod>(&self) -> Option<Indexed<Aligned, U>> {
+        debug_assert!(self.start % std::mem::align_of::<U>() == 0);
+        if self.len() == std::mem::size_of::<U>() {
+            Some(Indexed::new(self.start, self.end))
         } else {
-            debug_assert!(buf.len() == std::mem::size_of::<T>());
-            // SAFETY this slice is the same size the type. And this slice would
-            // only have been saved if it was valid to read it
-            unsafe { std::ptr::read_unaligned(buf.as_ptr() as *const T) }
+            None
+        }
+    }
+
+    pub fn cast<U: bytemuck::Pod>(&self) -> Option<Indexed<MaybeAligned, U>> {
+        if self.len() == std::mem::size_of::<U>() {
+            Some(Indexed::new(self.start, self.end))
+        } else {
+            None
         }
     }
 }
@@ -419,6 +480,23 @@ where
     fn len(&self) -> usize {
         (self.end - self.start) / std::mem::size_of::<T>()
     }
+
+    fn get(&self, i: usize) -> Option<Indexed<A, T>> {
+        if i < self.len() {
+            let n = std::mem::size_of::<T>();
+            Some(Indexed::new(self.start + n * i, self.start + n * (i + 1)))
+        } else {
+            None
+        }
+    }
+
+    pub fn cast<U: bytemuck::Pod>(&self) -> Option<IndexedSlice<MaybeAligned, U>> {
+        if self.len() % std::mem::size_of::<U>() == 0 {
+            Some(IndexedSlice::new(self.start, self.end))
+        } else {
+            None
+        }
+    }
 }
 
 impl<T> IndexedSlice<Aligned, T>
@@ -433,24 +511,7 @@ where
     pub fn read_value(&self, file_buffer: &[u8]) -> Vec<T> {
         self.read(file_buffer).to_vec()
     }
-}
 
-impl<T> IndexedSlice<Unaligned, T>
-where
-    T: bytemuck::Pod,
-{
-    pub fn read_value(&self, file_buffer: &[u8]) -> Vec<T> {
-        let buf = &file_buffer[self.start..self.end];
-        let mut ret = Vec::with_capacity(self.len());
-        let mut offset = 0;
-        for _ in 0..self.len() {
-            // SAFETY this slice is the same size the type. And this slice would
-            // only have been saved if it was valid to read it
-            ret.push(unsafe { std::ptr::read_unaligned((&buf[offset..]).as_ptr() as *const T) });
-            offset += std::mem::size_of::<T>();
-        }
-        ret
-    }
 }
 
 impl<T> IndexedSlice<MaybeAligned, T>
@@ -488,15 +549,15 @@ pub struct IndexedSlices<A, T> {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct DataBlock<A: Alignment, P: Precision> {
+pub struct DataBlock<P: Precision> {
     name: [P::Word; 2],
     trailer: [P::Int; 7],
     record_type: DataBlockType,
-    header: IndexedSlice<A, P::Word>,
-    records: Vec<Vec<IndexedSlice<Aligned, u8>>>,
+    header: IndexedSlice<P::Alignment, P::Word>,
+    records: Vec<Vec<IndexedByteSlice>>,
 }
 
-impl<A: Alignment, P: Precision> DataBlock<A, P> {
+impl<P: Precision> DataBlock<P> {
     fn name(&self) -> [u8; 8] {
         let mut name = [0; 8];
         name[..4].copy_from_slice(&self.name[0].as_single());
@@ -506,12 +567,12 @@ impl<A: Alignment, P: Precision> DataBlock<A, P> {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct OP2MetaData<A: Alignment, P: Precision> {
+pub struct OP2MetaData<P: Precision> {
     header: FileHeader<P>,
-    blocks: Vec<DataBlock<A, P>>,
+    blocks: Vec<DataBlock<P>>,
 }
 
-impl<A: Alignment, P: Precision> OP2MetaData<A, P> {}
+impl<P: Precision> OP2MetaData<P> {}
 
 #[derive(Debug)]
 pub enum EncodedSize<P: Precision> {
@@ -556,7 +617,7 @@ where
     }
 
     #[inline]
-    fn take(&mut self, n: usize) -> Result<IndexedSlice<Aligned, u8>, ErrorCode<P>> {
+    fn take(&mut self, n: usize) -> Result<IndexedByteSlice, ErrorCode<P>> {
         let span = span!(Level::TRACE, "take", index = self.index);
         let _s = span.enter();
 
@@ -564,12 +625,12 @@ where
         if self.rem() < n {
             return Err(ErrorCode::UnexpectedEOF);
         }
-        let ret = IndexedSlice::new(self.index, self.index + n);
+        let ret = IndexedByteSlice::new(self.index, self.index + n);
         self.index += n;
         Ok(ret)
     }
 
-    fn read<T: bytemuck::Pod>(&mut self) -> Result<Indexed<MaybeAligned, T>, ErrorCode<P>> {
+    fn read<T: bytemuck::Pod>(&mut self) -> Result<Indexed<P::Alignment, T>, ErrorCode<P>> {
         let n = std::mem::size_of::<T>();
         if self.rem() < n {
             return Err(ErrorCode::UnexpectedEOF);
@@ -582,7 +643,7 @@ where
     fn read_slice<T: bytemuck::Pod>(
         &mut self,
         n_bytes: usize,
-    ) -> Result<IndexedSlice<MaybeAligned, T>, ErrorCode<P>> {
+    ) -> Result<IndexedSlice<P::Alignment, T>, ErrorCode<P>> {
         let span = span!(Level::TRACE, "read_slice", index = self.index);
         let _s = span.enter();
 
@@ -606,7 +667,7 @@ where
     fn read_byte_slice(
         &mut self,
         n_bytes: usize,
-    ) -> Result<IndexedSlice<Aligned, u8>, ErrorCode<P>> {
+    ) -> Result<IndexedByteSlice, ErrorCode<P>> {
         let span = span!(Level::TRACE, "read_byte_slice", index = self.index);
         let _s = span.enter();
 
@@ -615,7 +676,7 @@ where
         if self.rem() < n_bytes {
             return Err(ErrorCode::UnexpectedEOF);
         }
-        let ret = IndexedSlice::new(self.index, self.index + n_bytes);
+        let ret = IndexedByteSlice::new(self.index, self.index + n_bytes);
         self.index += n_bytes;
         Ok(ret)
     }
@@ -641,7 +702,7 @@ where
         Ok(())
     }
 
-    fn read_padded<T: bytemuck::Pod>(&mut self) -> Result<Indexed<MaybeAligned, T>, ErrorCode<P>> {
+    fn read_padded<T: bytemuck::Pod>(&mut self) -> Result<Indexed<P::Alignment, T>, ErrorCode<P>> {
         let span = span!(Level::TRACE, "read_padded", index = self.index);
         let _s = span.enter();
         let expected = mem::size_of::<T>();
@@ -670,7 +731,7 @@ where
 
     fn read_padded_slice<T: bytemuck::Pod>(
         &mut self,
-    ) -> Result<IndexedSlice<MaybeAligned, T>, ErrorCode<P>> {
+    ) -> Result<IndexedSlice<P::Alignment, T>, ErrorCode<P>> {
         let span = span!(Level::TRACE, "read_padded_slice", index = self.index);
         let _s = span.enter();
 
@@ -691,7 +752,7 @@ where
         Ok(res)
     }
 
-    fn read_padded_byte_slice(&mut self) -> Result<IndexedSlice<Aligned, u8>, ErrorCode<P>> {
+    fn read_padded_byte_slice(&mut self) -> Result<IndexedByteSlice, ErrorCode<P>> {
         let span = span!(Level::TRACE, "read_padded_byte_slice", index = self.index);
         let _s = span.enter();
 
@@ -711,7 +772,7 @@ where
 
     fn read_encoded_data_slice<T: bytemuck::Pod>(
         &mut self,
-    ) -> Result<EncodedData<P, IndexedSlice<MaybeAligned, T>>, ErrorCode<P>> {
+    ) -> Result<EncodedData<P, IndexedSlice<P::Alignment, T>>, ErrorCode<P>> {
         let span = span!(Level::TRACE, "read_encoded_data_slice", index = self.index);
         let _s = span.enter();
 
@@ -738,7 +799,7 @@ where
 
     fn read_encoded_byte_slice(
         &mut self,
-    ) -> Result<EncodedData<P, IndexedSlice<Aligned, u8>>, ErrorCode<P>> {
+    ) -> Result<EncodedData<P, IndexedByteSlice>, ErrorCode<P>> {
         let span = span!(Level::TRACE, "read_encoded_byte_slice", index = self.index);
         let _s = span.enter();
 
@@ -761,7 +822,7 @@ where
 
     fn read_encoded_data<T: bytemuck::Pod>(
         &mut self,
-    ) -> Result<EncodedData<P, Indexed<MaybeAligned, T>>, ErrorCode<P>> {
+    ) -> Result<EncodedData<P, Indexed<P::Alignment, T>>, ErrorCode<P>> {
         let span = span!(Level::TRACE, "read_encoded_data", index = self.index);
         let _s = span.enter();
 
@@ -776,7 +837,7 @@ where
         }
     }
 
-    fn read_encoded<T: bytemuck::Pod>(&mut self) -> Result<Indexed<MaybeAligned, T>, ErrorCode<P>> {
+    fn read_encoded<T: bytemuck::Pod>(&mut self) -> Result<Indexed<P::Alignment, T>, ErrorCode<P>> {
         let span = span!(Level::TRACE, "read_encoded", index = self.index);
         let _s = span.enter();
 
@@ -789,7 +850,7 @@ where
 
     fn read_encoded_slice<T: bytemuck::Pod>(
         &mut self,
-    ) -> Result<IndexedSlice<MaybeAligned, T>, ErrorCode<P>> {
+    ) -> Result<IndexedSlice<P::Alignment, T>, ErrorCode<P>> {
         match self.read_encoded_data_slice()? {
             EncodedData::EOR(n) => Err(ErrorCode::UnexpectedEOR(n)),
             EncodedData::Zero => Err(ErrorCode::UnexpectedEOR(P::zero_int())),
@@ -821,7 +882,7 @@ where
 
     fn read_table_record(
         &mut self,
-    ) -> Result<Option<Vec<IndexedSlice<Aligned, u8>>>, ErrorCode<P>> {
+    ) -> Result<Option<Vec<IndexedByteSlice>>, ErrorCode<P>> {
         let span = span!(Level::TRACE, "read_table_record", index = self.index);
         let _s = span.enter();
 
@@ -847,7 +908,7 @@ where
         }
     }
 
-    fn read_datablock(&mut self) -> Result<Option<DataBlock<MaybeAligned, P>>, ErrorCode<P>> {
+    fn read_datablock(&mut self) -> Result<Option<DataBlock<P>>, ErrorCode<P>> {
         let span = span!(Level::TRACE, "read_datablock", index = self.index);
         let _s = span.enter();
 
@@ -880,7 +941,7 @@ where
         }))
     }
 
-    fn inner_parse(&mut self) -> Result<OP2MetaData<MaybeAligned, P>, ErrorCode<P>> {
+    fn inner_parse(&mut self) -> Result<OP2MetaData<P>, ErrorCode<P>> {
         let span = span!(Level::TRACE, "inner_parse", index = self.index);
         let _s = span.enter();
 
@@ -896,7 +957,7 @@ where
         }
     }
 
-    fn parse(&mut self) -> std::result::Result<OP2MetaData<MaybeAligned, P>, Error<P>> {
+    fn parse(&mut self) -> std::result::Result<OP2MetaData<P>, Error<P>> {
         self.inner_parse().map_err(|code| Error {
             code,
             remaining: Some(Indexed::new(self.index, self.buffer.len())),
@@ -904,7 +965,7 @@ where
     }
 }
 
-pub fn parse_buffer<P: Precision>(buffer: &[u8]) -> Result<OP2MetaData<MaybeAligned, P>, Error<P>> {
+pub fn parse_buffer<P: Precision>(buffer: &[u8]) -> Result<OP2MetaData< P>, Error<P>> {
     let mut parser = OP2Parser {
         index: 0,
         buffer,
@@ -917,7 +978,7 @@ pub fn parse_buffer<P: Precision>(buffer: &[u8]) -> Result<OP2MetaData<MaybeAlig
 // requires specialization (or duplicating a bunch of methods)
 pub fn parse_buffer_single(
     buffer: &[u8],
-) -> Result<OP2MetaData<MaybeAligned, SinglePrecision>, Error<SinglePrecision>> {
+) -> Result<OP2MetaData< SinglePrecision>, Error<SinglePrecision>> {
     let mut parser = OP2Parser {
         index: 0,
         buffer,
@@ -928,7 +989,7 @@ pub fn parse_buffer_single(
 
 pub fn parse_buffer_double(
     buffer: &[u8],
-) -> Result<OP2MetaData<MaybeAligned, DoublePrecision>, Error<DoublePrecision>> {
+) -> Result<OP2MetaData< DoublePrecision>, Error<DoublePrecision>> {
     let mut parser = OP2Parser {
         index: 0,
         buffer,
@@ -965,12 +1026,12 @@ impl MmapFile {
 }
 
 #[derive(Debug)]
-pub struct OP2File<A: Alignment, P: Precision> {
+pub struct OP2File<P: Precision> {
     file: MmapFile,
-    meta: OP2MetaData<A, P>,
+    meta: OP2MetaData<P>,
 }
 
-impl<A: Alignment, P: Precision> OP2File<A, P> {
+impl<P: Precision> OP2File< P> {
     pub fn block_names<'slf>(&'slf self) -> impl Iterator<Item = [u8; 8]> + 'slf {
         self.meta.blocks.iter().map(|b| b.name())
     }
@@ -981,12 +1042,11 @@ impl<A: Alignment, P: Precision> OP2File<A, P> {
         let n = block.records.len() / 2;
         for i in 0..n {
             let ident_slices = &block.records[i * 2];
+            let data_slices = block.records[i * 2 + 1].clone();
             debug_assert!(ident_slices.len() == 1);
-            let ident = ident_slices[0].read(self.file.as_buf());
-            debug_assert!(ident.len() == std::mem::size_of::<oef::Ident<P>>());
-            let ident: &oef::Ident<P> = bytemuck::from_bytes(ident);
+            let oef: oef::Oef<P> = oef::Oef::from_slices(ident_slices[0],data_slices, self.file.as_buf());
             //println!("{:?}", ident);
-            println!("{:?}", ident.metadata());
+            println!("{:?}", oef.kind());
             //let data  = block.records[i*2 + 1].read(self.file.as_buf());
         }
         Some(())
@@ -995,7 +1055,7 @@ impl<A: Alignment, P: Precision> OP2File<A, P> {
 
 pub fn parse_file<P: Precision>(
     filename: impl AsRef<Path>,
-) -> Result<OP2File<MaybeAligned, P>, Error<P>> {
+) -> Result<OP2File<P>, Error<P>> {
     let file = MmapFile::open(filename).map_err(|e| Error {
         code: ErrorCode::IO(e),
         remaining: None,
@@ -1008,13 +1068,13 @@ pub fn parse_file<P: Precision>(
 // requires specialization (or duplicating a bunch of methods)
 pub fn parse_file_single(
     filename: impl AsRef<Path>,
-) -> Result<OP2File<MaybeAligned, SinglePrecision>, Error<SinglePrecision>> {
+) -> Result<OP2File<SinglePrecision>, Error<SinglePrecision>> {
     parse_file(filename.as_ref())
 }
 
 pub fn parse_file_double(
     filename: impl AsRef<Path>,
-) -> Result<OP2File<MaybeAligned, DoublePrecision>, Error<DoublePrecision>> {
+) -> Result<OP2File<DoublePrecision>, Error<DoublePrecision>> {
     parse_file(filename.as_ref())
 }
 
@@ -1133,12 +1193,12 @@ mod test {
 
 pub enum OneOrTwo {
     One,
-    Two
+    Two,
 }
 
 pub fn fun1<P: Precision>(value: P::Int) -> OneOrTwo {
     let value: i64 = value.into();
-    if matches!(value/1000, 2|3|6) {
+    if matches!(value / 1000, 2 | 3 | 6) {
         OneOrTwo::Two
     } else {
         OneOrTwo::One
@@ -1164,15 +1224,72 @@ pub fn fun5<P: Precision>(value: P::Int) -> i32 {
     (value % 10) as i32
 }
 
-pub fn fun6<P: Precision>(value: P::Int) -> P::Int {
+pub fn fun6<P: Precision>(_value: P::Int) -> P::Int {
     unimplemented!()
 }
 
 pub fn fun7<P: Precision>(value: P::Int) -> i32 {
     let value: i64 = value.into();
-    match value/1000 {
-        0|2 => 0,
-        1|3 => 1,
-        _ => 2
+    match value / 1000 {
+        0 | 2 => 0,
+        1 | 3 => 1,
+        _ => 2,
+    }
+}
+
+pub struct RecordIterator<'buf, 'data,  R> {
+    buffer: &'buf [u8],
+    current_index: usize,
+    data: &'data [IndexedByteSlice],
+    record_type: std::marker::PhantomData<R>,
+}
+
+impl <'buf, 'data, R: bytemuck::Pod> Iterator for RecordIterator<'buf,'data,R> {
+    type Item = R;
+    fn next(&mut self) -> Option<R> {
+        if self.data.is_empty() {
+              return None
+        }
+        let size = std::mem::size_of::<R>();
+        let mut remaining = 0;
+        for s in self.data {
+            remaining += s.len();
+            if size < remaining {
+                break
+            }
+        }
+        if size > remaining {
+            return None
+        }
+        let mut record = std::mem::MaybeUninit::<R>::uninit();
+        let mut dst = record.as_mut_ptr() as *mut u8;
+        let mut remaining = size;
+        let mut data_index = 0;
+        for sl in self.data {
+            let sl_rem = sl.len() - self.current_index;
+            let n = std::cmp::min(remaining,sl_rem);
+            // This check will return false if we're starting at the end of a slice
+            if n > 0 {
+                let src = self.buffer[sl.start + self.current_index..].as_ptr();
+                unsafe { 
+                    std::ptr::copy_nonoverlapping(src,dst,n);
+                    dst = dst.offset(n as isize);
+                };
+                remaining -= n;
+            }
+            if remaining == 0 {
+                // All the data is copied. update the index
+                self.current_index += n;
+                break
+            }
+            // Reset index back to start for next data slice
+            self.current_index = 0;
+            // This will cause the current slice to be discarded after this loop completes
+            data_index += 1;
+        }
+        debug_assert!(remaining == 0);
+        self.data = &self.data[data_index..];
+        let record = unsafe { record.assume_init() };
+        Some(record)
     }
 }
