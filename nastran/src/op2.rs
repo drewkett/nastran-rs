@@ -115,6 +115,47 @@ pub trait Precision: fmt::Debug + Sized + Copy + bytemuck::Pod {
     }
 
     fn word_to_int(v: Self::Word) -> Self::Int;
+
+    fn fun1(value: Self::Int) -> OneOrTwo {
+        let value: i64 = value.into();
+        if matches!(value / 1000, 2 | 3 | 6) {
+            OneOrTwo::Two
+        } else {
+            OneOrTwo::One
+        }
+    }
+
+    fn fun2(value: Self::Int) -> i32 {
+        let value: i64 = value.into();
+        (value % 100) as i32
+    }
+
+    fn fun3(value: Self::Int) -> i32 {
+        let value: i64 = value.into();
+        (value % 1000) as i32
+    }
+
+    fn fun4(value: Self::Int) -> Self::Int {
+        value / Self::Int::from(10)
+    }
+
+    fn fun5(value: Self::Int) -> i32 {
+        let value: i64 = value.into();
+        (value % 10) as i32
+    }
+
+    fn fun6(_value: Self::Int) -> Self::Int {
+        unimplemented!()
+    }
+
+    fn fun7(value: Self::Int) -> i32 {
+        let value: i64 = value.into();
+        match value / 1000 {
+            0 | 2 => 0,
+            1 | 3 => 1,
+            _ => 2,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -447,6 +488,51 @@ impl IndexedByteSlice {
             Some(Indexed::new(self.start, self.end))
         } else {
             None
+        }
+    }
+
+    pub fn split_off_tail(&mut self, n: usize) -> Option<IndexedByteSlice> {
+        if n > self.len() {
+            None
+        } else {
+            let split_end = self.end;
+            let split_start = self.end - n;
+            self.end = split_start;
+            Some(IndexedByteSlice::new(split_start, split_end))
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct IndexedByteSlices(Vec<IndexedByteSlice>);
+
+impl IndexedByteSlices {
+    fn len(&self) -> usize {
+        self.0.iter().map(|v| v.len()).sum()
+    }
+
+    fn split_off_tail(&mut self, n: usize) -> Option<IndexedByteSlices> {
+        if n > self.len() {
+            None
+        } else {
+            let mut remaining = n;
+            let mut res = vec![];
+            loop {
+                let mut tail = self.0.pop().unwrap();
+                if remaining >= tail.len() {
+                    res.insert(0, tail);
+                    remaining -= tail.len();
+                } else {
+                    let tail_split = tail.split_off_tail(remaining).unwrap();
+                    self.0.push(tail);
+                    res.insert(0, tail_split);
+                    remaining -= tail_split.len();
+                }
+                if remaining == 0 {
+                    break;
+                }
+            }
+            Some(Self(res))
         }
     }
 }
@@ -1034,12 +1120,19 @@ impl<P: Precision> OP2File<P> {
         for i in 0..n {
             let ident_slices = &block.records[i * 2];
             let data_slices = block.records[i * 2 + 1].clone();
+            let data_slices = IndexedByteSlices(data_slices);
             debug_assert!(ident_slices.len() == 1);
             let oef: oef::Oef<P> =
                 oef::Oef::from_slices(ident_slices[0], data_slices, self.file.as_buf());
-            //println!("{:?}", ident);
             println!("{:?}", oef.kind());
-            //let data  = block.records[i*2 + 1].read(self.file.as_buf());
+            match oef.record_iter(self.file.as_buf()) {
+                Some(oef::OefRecordIter::Crod(it)) => {
+                    for r in it {
+                        println!("{:?}", r)
+                    }
+                }
+                _ => {}
+            }
         }
         Some(())
     }
@@ -1186,52 +1279,22 @@ pub enum OneOrTwo {
     Two,
 }
 
-pub fn fun1<P: Precision>(value: P::Int) -> OneOrTwo {
-    let value: i64 = value.into();
-    if matches!(value / 1000, 2 | 3 | 6) {
-        OneOrTwo::Two
-    } else {
-        OneOrTwo::One
-    }
-}
-
-pub fn fun2<P: Precision>(value: P::Int) -> i32 {
-    let value: i64 = value.into();
-    (value % 100) as i32
-}
-
-pub fn fun3<P: Precision>(value: P::Int) -> i32 {
-    let value: i64 = value.into();
-    (value % 1000) as i32
-}
-
-pub fn fun4<P: Precision>(value: P::Int) -> P::Int {
-    value / P::Int::from(10)
-}
-
-pub fn fun5<P: Precision>(value: P::Int) -> i32 {
-    let value: i64 = value.into();
-    (value % 10) as i32
-}
-
-pub fn fun6<P: Precision>(_value: P::Int) -> P::Int {
-    unimplemented!()
-}
-
-pub fn fun7<P: Precision>(value: P::Int) -> i32 {
-    let value: i64 = value.into();
-    match value / 1000 {
-        0 | 2 => 0,
-        1 | 3 => 1,
-        _ => 2,
-    }
-}
-
 pub struct RecordIterator<'buf, 'data, R> {
     buffer: &'buf [u8],
     current_index: usize,
     data: &'data [IndexedByteSlice],
     record_type: std::marker::PhantomData<R>,
+}
+
+impl<'buf, 'data, R: bytemuck::Pod> RecordIterator<'buf, 'data, R> {
+    fn new(buffer: &'buf [u8], data: &'data [IndexedByteSlice]) -> Self {
+        Self {
+            buffer,
+            current_index: 0,
+            data,
+            record_type: std::marker::PhantomData,
+        }
+    }
 }
 
 impl<'buf, 'data, R: bytemuck::Pod> Iterator for RecordIterator<'buf, 'data, R> {
@@ -1241,14 +1304,16 @@ impl<'buf, 'data, R: bytemuck::Pod> Iterator for RecordIterator<'buf, 'data, R> 
             return None;
         }
         let size = std::mem::size_of::<R>();
-        let mut remaining = 0;
-        for s in self.data {
-            remaining += s.len();
-            if size < remaining {
+        let mut data_len = 0;
+        let mut current_index = self.current_index;
+        for sl in self.data {
+            data_len += (sl.len() - current_index);
+            if size <= data_len {
                 break;
             }
+            current_index = 0;
         }
-        if size > remaining {
+        if size > data_len {
             return None;
         }
         let mut record = std::mem::MaybeUninit::<R>::uninit();
@@ -1263,7 +1328,7 @@ impl<'buf, 'data, R: bytemuck::Pod> Iterator for RecordIterator<'buf, 'data, R> 
                 let src = self.buffer[sl.start + self.current_index..].as_ptr();
                 unsafe {
                     std::ptr::copy_nonoverlapping(src, dst, n);
-                    dst = dst.offset(n as isize);
+                    dst = dst.add(n);
                 };
                 remaining -= n;
             }

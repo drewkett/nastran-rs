@@ -30,23 +30,63 @@ pub struct Ident<P: Precision> {
 #[derive(Debug)]
 pub struct Oef<P: Precision> {
     ident: Ident<P>,
-    data: Vec<IndexedByteSlice>,
+    data: IndexedByteSlices,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CrodForce<P: Precision> {
+    ekey: P::Int,
+    axial: P::Float,
+    torque: P::Float,
+}
+// SAFETY All zeros is a valid value
+unsafe impl<P: Precision> bytemuck::Zeroable for CrodForce<P> {}
+// SAFETY Any value is valid, there is no padding, the underlying type is Pod and its repr(C)
+unsafe impl<P: Precision> bytemuck::Pod for CrodForce<P> {}
+
+pub enum OefRecordIter<'buf, 'data, P: Precision> {
+    Crod(RecordIterator<'buf, 'data, CrodForce<P>>),
 }
 
 impl<P: Precision> Oef<P> {
-    pub fn from_slices(
-        ident: IndexedByteSlice,
-        data: Vec<IndexedByteSlice>,
-        buffer: &[u8],
-    ) -> Self {
+    pub fn from_slices(ident: IndexedByteSlice, data: IndexedByteSlices, buffer: &[u8]) -> Self {
         let ident = ident.cast::<Ident<P>>();
         debug_assert!(ident.is_some());
         let ident = ident.unwrap().read_value(buffer);
+        let mut data = data.clone();
         Self { ident, data }
     }
 
     pub fn kind(&self) -> Kind<P> {
         self.ident.kind()
+    }
+
+    pub fn record_iter<'slf, 'buf>(
+        &'slf self,
+        buffer: &'buf [u8],
+    ) -> Option<OefRecordIter<'buf, 'slf, P>> {
+        match self.ident.eltype() {
+            // CROD
+            1 => Some(OefRecordIter::Crod(RecordIterator::new(
+                buffer,
+                &self.data.0,
+            ))),
+            // CBEAM
+            2 => None,
+            // CELAS1
+            11 => None,
+            // CELAS2
+            12 => None,
+            // CELAS3
+            13 => None,
+            // CBUSH
+            102 => None,
+            // CTRIAR
+            227 => None,
+            // CQUADR
+            228 => None,
+            _ => None,
+        }
     }
 }
 
@@ -85,7 +125,7 @@ impl<P: Precision> Ident<P> {
     }
 
     pub fn kind(&self) -> Kind<P> {
-        match fun1::<P>(self.tcode) {
+        match P::fun1(self.tcode) {
             OneOrTwo::One => match self.approach_code() {
                 1 => Kind::Sort1Statics {
                     load_id: P::word_to_int(self.var1[0]),
