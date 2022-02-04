@@ -852,6 +852,7 @@ where
         Ok(res)
     }
 
+    #[allow(clippy::type_complexity)]
     fn read_encoded_data_slice<T: bytemuck::Pod>(
         &mut self,
     ) -> Result<EncodedData<P, IndexedSlice<P::Alignment, T>>, ErrorCode<P>> {
@@ -902,6 +903,7 @@ where
         }
     }
 
+    #[allow(clippy::type_complexity)]
     fn read_encoded_data<T: bytemuck::Pod>(
         &mut self,
     ) -> Result<EncodedData<P, Indexed<P::Alignment, T>>, ErrorCode<P>> {
@@ -1113,7 +1115,7 @@ pub struct OP2File<P: Precision> {
 }
 
 impl<P: Precision> OP2File<P> {
-    pub fn block_names<'slf>(&'slf self) -> impl Iterator<Item = [u8; 8]> + 'slf {
+    pub fn block_names(&self) -> impl Iterator<Item = [u8; 8]> + '_ {
         self.meta.blocks.iter().map(|b| b.name())
     }
 
@@ -1129,6 +1131,7 @@ impl<P: Precision> OP2File<P> {
             let oef: oef::Oef<P> =
                 oef::Oef::from_slices(ident_slices[0], data_slices, self.file.as_buf());
             println!("{:?}", oef.kind());
+            #[allow(clippy::single_match)]
             match oef.record_iter(self.file.as_buf()) {
                 Some(oef::OefRecordIter::Crod(it)) => {
                     for r in it {
@@ -1198,12 +1201,10 @@ mod test {
         // include_bytes here is just to work around some issues related
         // to filesystem protections on my machine
         let buf = include_bytes_align_as!(u64, "../tests/op2test32.op2");
-        let op2 = match parse_buffer_single(&buf[..]) {
+        let op2 = match parse_buffer_single(buf) {
             Ok(o) => o,
             Err(e) => {
-                eprintln!("{}", e);
-                assert!(false);
-                return;
+                panic!("{}", e);
             }
         };
         assert_eq!(
@@ -1234,12 +1235,10 @@ mod test {
         // include_bytes here is just to work around some issues related
         // to filesystem protections on my machine
         let buf = include_bytes_align_as!(u64, "../tests/op2test64.op2");
-        let op2 = match parse_buffer_double(&buf[..]) {
+        let op2 = match parse_buffer_double(buf) {
             Ok(o) => o,
             Err(e) => {
-                eprintln!("{}", e);
-                assert!(false);
-                return;
+                panic!("{}", e);
             }
         };
         assert_eq!(

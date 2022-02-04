@@ -57,7 +57,6 @@ impl<P: Precision> Oef<P> {
         let ident = ident.cast::<Ident<P>>();
         debug_assert!(ident.is_some());
         let ident = ident.unwrap().read_value(buffer);
-        let data = data.clone();
         Self { ident, data }
     }
 

@@ -9,7 +9,7 @@ fn naspy(_py: Python, _m: &PyModule) -> PyResult<()> {
     Ok(())
 }
 
-create_exception!(naspy, ParseFieldError, pyo3::exceptions::Exception);
+create_exception!(naspy, ParseFieldError, pyo3::exceptions::PyException);
 
 // #[pyfunction]
 // pub fn parse_field(py: Python, field: String) -> PyResult<PyObject> {
