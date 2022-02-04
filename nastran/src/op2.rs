@@ -159,6 +159,7 @@ pub trait Precision: fmt::Debug + Sized + Copy + bytemuck::Pod {
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
+#[repr(C)]
 pub struct SinglePrecision;
 
 // SAFETY Since this is ZST, it holds no data
@@ -212,6 +213,7 @@ impl Precision for SinglePrecision {
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
+#[repr(C)]
 pub struct DoublePrecision;
 
 // SAFETY Since this is ZST, it holds no data

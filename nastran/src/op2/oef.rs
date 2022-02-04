@@ -34,6 +34,7 @@ pub struct Oef<P: Precision> {
 }
 
 #[derive(Debug, Clone, Copy)]
+#[repr(C)]
 pub struct CrodForce<P: Precision> {
     #[allow(dead_code)]
     ekey: P::Int,
