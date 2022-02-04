@@ -363,9 +363,9 @@ impl Aligned {
 pub struct MaybeAligned;
 
 impl MaybeAligned {
-    fn try_read<T: bytemuck::Pod>(buffer: &[u8]) -> Option<&T> {
-        bytemuck::try_from_bytes(buffer).ok()
-    }
+    //fn try_read<T: bytemuck::Pod>(buffer: &[u8]) -> Option<&T> {
+    //    bytemuck::try_from_bytes(buffer).ok()
+    //}
 }
 
 pub trait Alignment: fmt::Debug + PartialEq {
@@ -380,6 +380,7 @@ impl Alignment for Aligned {
 
 impl Alignment for MaybeAligned {
     fn read_value<T: bytemuck::Pod>(buffer: &[u8]) -> T {
+        // Use bytemuck if read is aligned
         if (buffer.as_ptr() as usize) % std::mem::size_of::<T>() == 0 {
             *bytemuck::from_bytes(buffer)
         } else {
@@ -507,34 +508,34 @@ impl IndexedByteSlice {
 pub struct IndexedByteSlices(Vec<IndexedByteSlice>);
 
 impl IndexedByteSlices {
-    fn len(&self) -> usize {
-        self.0.iter().map(|v| v.len()).sum()
-    }
+    //fn len(&self) -> usize {
+    //    self.0.iter().map(|v| v.len()).sum()
+    //}
 
-    fn split_off_tail(&mut self, n: usize) -> Option<IndexedByteSlices> {
-        if n > self.len() {
-            None
-        } else {
-            let mut remaining = n;
-            let mut res = vec![];
-            loop {
-                let mut tail = self.0.pop().unwrap();
-                if remaining >= tail.len() {
-                    res.insert(0, tail);
-                    remaining -= tail.len();
-                } else {
-                    let tail_split = tail.split_off_tail(remaining).unwrap();
-                    self.0.push(tail);
-                    res.insert(0, tail_split);
-                    remaining -= tail_split.len();
-                }
-                if remaining == 0 {
-                    break;
-                }
-            }
-            Some(Self(res))
-        }
-    }
+    //fn split_off_tail(&mut self, n: usize) -> Option<IndexedByteSlices> {
+    //    if n > self.len() {
+    //        None
+    //    } else {
+    //        let mut remaining = n;
+    //        let mut res = vec![];
+    //        loop {
+    //            let mut tail = self.0.pop().unwrap();
+    //            if remaining >= tail.len() {
+    //                res.insert(0, tail);
+    //                remaining -= tail.len();
+    //            } else {
+    //                let tail_split = tail.split_off_tail(remaining).unwrap();
+    //                self.0.push(tail);
+    //                res.insert(0, tail_split);
+    //                remaining -= tail_split.len();
+    //            }
+    //            if remaining == 0 {
+    //                break;
+    //            }
+    //        }
+    //        Some(Self(res))
+    //    }
+    //}
 }
 
 #[derive(Debug, PartialEq)]
@@ -564,14 +565,14 @@ where
         (self.end - self.start) / std::mem::size_of::<T>()
     }
 
-    fn get(&self, i: usize) -> Option<Indexed<A, T>> {
-        if i < self.len() {
-            let n = std::mem::size_of::<T>();
-            Some(Indexed::new(self.start + n * i, self.start + n * (i + 1)))
-        } else {
-            None
-        }
-    }
+    //fn get(&self, i: usize) -> Option<Indexed<A, T>> {
+    //    if i < self.len() {
+    //        let n = std::mem::size_of::<T>();
+    //        Some(Indexed::new(self.start + n * i, self.start + n * (i + 1)))
+    //    } else {
+    //        None
+    //    }
+    //}
 
     pub fn cast<U: bytemuck::Pod>(&self) -> Option<IndexedSlice<MaybeAligned, U>> {
         if self.len() % std::mem::size_of::<U>() == 0 {
@@ -1078,6 +1079,7 @@ pub fn parse_buffer_double(
 // TODO Look at whether I should have a drop implementation for safety or otherwise
 #[derive(Debug)]
 struct MmapFile {
+    #[allow(dead_code)]
     file: std::fs::File,
     mmap: memmap2::Mmap,
 }
@@ -1307,7 +1309,7 @@ impl<'buf, 'data, R: bytemuck::Pod> Iterator for RecordIterator<'buf, 'data, R> 
         let mut data_len = 0;
         let mut current_index = self.current_index;
         for sl in self.data {
-            data_len += (sl.len() - current_index);
+            data_len += sl.len() - current_index;
             if size <= data_len {
                 break;
             }

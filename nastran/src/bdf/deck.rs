@@ -12,8 +12,11 @@ pub struct GRID {
     id: u32,
     cp: u32,
     xyz: Xyz,
+    #[allow(dead_code)]
     cd: u32,
+    #[allow(dead_code)]
     ps: [bool; 6],
+    #[allow(dead_code)]
     seid: u32,
 }
 
@@ -254,10 +257,15 @@ impl TryFrom<BulkCard> for CTETRA {
 pub struct PSOLID {
     pid: u32,
     mid: u32,
+    #[allow(dead_code)]
     cordm: u32,
+    #[allow(dead_code)]
     r#in: Field,
+    #[allow(dead_code)]
     stress: Field,
+    #[allow(dead_code)]
     isop: Field,
+    #[allow(dead_code)]
     fctn: Field,
 }
 
@@ -299,12 +307,18 @@ impl TryFrom<BulkCard> for PSOLID {
 #[derive(Debug, Clone)]
 pub struct MAT1 {
     mid: u32,
+    #[allow(dead_code)]
     e: f64,
+    #[allow(dead_code)]
     g: f64,
+    #[allow(dead_code)]
     nu: f64,
     rho: f64,
+    #[allow(dead_code)]
     a: f64,
+    #[allow(dead_code)]
     tref: f64,
+    #[allow(dead_code)]
     ge: f64,
 }
 

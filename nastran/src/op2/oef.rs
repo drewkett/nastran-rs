@@ -35,8 +35,11 @@ pub struct Oef<P: Precision> {
 
 #[derive(Debug, Clone, Copy)]
 pub struct CrodForce<P: Precision> {
+    #[allow(dead_code)]
     ekey: P::Int,
+    #[allow(dead_code)]
     axial: P::Float,
+    #[allow(dead_code)]
     torque: P::Float,
 }
 // SAFETY All zeros is a valid value
@@ -53,7 +56,7 @@ impl<P: Precision> Oef<P> {
         let ident = ident.cast::<Ident<P>>();
         debug_assert!(ident.is_some());
         let ident = ident.unwrap().read_value(buffer);
-        let mut data = data.clone();
+        let data = data.clone();
         Self { ident, data }
     }
 
@@ -96,11 +99,11 @@ pub enum Kind<P: Precision> {
 }
 
 impl<P: Precision> Ident<P> {
-    fn device_code(&self) -> u8 {
-        debug_assert!(self.acode > <P as Precision>::zero_int());
-        let acode: i64 = self.acode.into();
-        (acode % 10) as u8
-    }
+    //fn device_code(&self) -> u8 {
+    //    debug_assert!(self.acode > <P as Precision>::zero_int());
+    //    let acode: i64 = self.acode.into();
+    //    (acode % 10) as u8
+    //}
 
     fn approach_code(&self) -> u32 {
         let acode: i64 = self.acode.into();
@@ -110,12 +113,12 @@ impl<P: Precision> Ident<P> {
         acode / 10
     }
 
-    fn table_code(&self) -> i32 {
-        let tcode: i64 = self.tcode.into();
-        debug_assert!(tcode > 0);
-        debug_assert!(tcode < (i32::MAX as i64));
-        tcode as i32
-    }
+    //fn table_code(&self) -> i32 {
+    //    let tcode: i64 = self.tcode.into();
+    //    debug_assert!(tcode > 0);
+    //    debug_assert!(tcode < (i32::MAX as i64));
+    //    tcode as i32
+    //}
 
     fn eltype(&self) -> i32 {
         let eltype: i64 = self.eltype.into();
