@@ -184,7 +184,7 @@ impl Iterator for NastranLineIter {
 struct ExpandTabs<I> {
     iter: I,
     col: usize,
-    seen_tab: bool,
+    tab_active: bool,
 }
 
 impl<I> ExpandTabs<I>
@@ -195,7 +195,7 @@ where
         ExpandTabs {
             iter,
             col: 0,
-            seen_tab: false,
+            tab_active: false,
         }
     }
 }
@@ -207,20 +207,25 @@ where
     type Item = u8;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.seen_tab && self.col % 8 != 0 {
-            self.col += 1;
-            return Some(b' ');
+        // col tracks the column number as if the tabs are already expanded.
+        // tab_active indicates that we've seen a tab and haven't fully expanded it. If
+        // the column number is not divisible by 8 then return a space since we still need
+        // to expand the tab
+        if self.tab_active {
+            if self.col % 8 != 0 {
+                self.col += 1;
+                return Some(b' ');
+            } else {
+                self.tab_active = false;
+            }
         }
+        self.col += 1;
         match self.iter.next() {
             Some(b'\t') => {
-                self.seen_tab = true;
-                self.col += 1;
+                self.tab_active = true;
                 Some(b' ')
             }
-            Some(c) => {
-                self.col += 1;
-                Some(c)
-            }
+            Some(c) => Some(c),
             None => None,
         }
     }
